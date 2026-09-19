@@ -56,7 +56,7 @@ METRICS["fontSizeBody"]       # 14
 ```
 
 Because the properties are `QVariantMap`s, QML reaches them with dot syntax, as
-used throughout `qml/**`:
+used throughout `src/qml/**`:
 
 ```qml
 color: Theme.colors.surfaceBg

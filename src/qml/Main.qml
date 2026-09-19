@@ -13,7 +13,7 @@ ApplicationWindow {
     height: 900
     minimumWidth: 1024
     minimumHeight: 640
-    title: qsTr("Procoo Agent Assistant")
+    title: qsTr("ProcooQt")
     color: Theme.colors.pageBg
 
     SplitView {

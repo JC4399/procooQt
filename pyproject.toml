@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "procoo-qt"
 version = "0.1.0"
-description = "Procoo Agent Assistant — Qt Quick (QML) Edition"
+description = "ProcooQt — Qt Quick (QML) Edition"
 requires-python = ">=3.13"
 dependencies = [
     # GUI / async bridge

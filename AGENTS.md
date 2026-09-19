@@ -6,6 +6,21 @@ Chat memory: `session.messages` is the single source of truth — an OpenAI-comp
 from it directly; the formatter strips `_` keys when sending to the LLM. QML models are derived from
 `session.messages`, never a second source of truth.
 
+# Wiki Maintenance
+
+The `wiki/` directory documents the codebase and **must always stay in sync with the source**.
+Treat it as part of every change, not an afterthought.
+
+- Any change that alters behaviour, public APIs, function signatures, control flow, module
+  structure, or file layout **must** update the matching wiki page in the same task.
+- New modules/classes/files require a corresponding page under `wiki/modules/` (or
+  `wiki/flows/` for cross-module flows); delete pages for removed ones.
+- Keep the fixed module-page order: Purpose → Deliverables → Steps / Flow → Function Reference.
+- Update function reference tables (signatures, inputs, outputs, raises, side effects) whenever
+  a signature or side effect changes.
+- Refresh links and the module map in `wiki/Home.md` when pages are added, renamed, or removed.
+- Outdated wiki content is a bug: fix it before finishing the task.
+
 # Code Style Guide
 
 ## Imports
@@ -163,7 +178,7 @@ Rules:
 # QML Conventions
 
 - **View-only**: QML components contain no business logic. They bind to model roles and call controller slots; they never import Python.
-- One QML file per visual unit, `PascalCase`, placed under `qml/panels/`, `qml/cards/`, or `qml/components/`.
+- One QML file per visual unit, `PascalCase`, placed under `src/qml/panels/`, `src/qml/cards/`, or `src/qml/components/`.
 - **Flat square style**: `radius: 0` and explicit `border.color` / `border.width` on every surface. Start from the `Basic` Qt Quick Controls style (`QQuickStyle.setStyle("Basic")`); do not use Material.
 - All colours, font sizes, and spacing come from the `Theme` context property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`, `Theme.fontMono`). Never hard-code a hex colour in QML.
 - A component exposes state via `property`/`property alias`; parent components pass data in, children emit signals up. No imperative drilling.

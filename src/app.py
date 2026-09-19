@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import logging
 from pathlib import Path
 import sys
 
-from PySide6.QtCore import QUrl
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QFontDatabase, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
@@ -79,10 +80,31 @@ def _register_fonts() -> None:
         logger.warning("Font not found: %s", font_path)
 
 
+def _set_app_user_model_id() -> None:
+    """Give Windows a stable AppUserModelID so the taskbar uses the app icon."""
+    if sys.platform == "win32":
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("procoo.qt")
+
+
+def _set_app_icon(qt_app: QApplication) -> None:
+    """Set the application-wide window, title-bar, and taskbar icon.
+
+    Args:
+        qt_app: The running ``QApplication``.
+    """
+    icon_path = _PROJECT_ROOT / "assets" / "logos" / "logo.png"
+    if icon_path.is_file():
+        qt_app.setWindowIcon(QIcon(str(icon_path)))
+        logger.info("Set application icon: %s", icon_path.name)
+    else:
+        logger.warning("Icon not found: %s", icon_path)
+
+
 def main() -> None:
     """Launch the Procoo Qt application."""
     setup_colored_logging(level=logging.INFO)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    _set_app_user_model_id()
 
     try:
         backend = ProcooApp(str(_PROJECT_ROOT / "config"))
@@ -97,6 +119,8 @@ def main() -> None:
 
     QQuickStyle.setStyle("Basic")
     qt_app = QApplication(sys.argv)
+    qt_app.styleHints().setColorScheme(Qt.ColorScheme.Dark)
+    _set_app_icon(qt_app)
     _register_fonts()
 
     loop = qasync.QEventLoop(qt_app)
@@ -104,7 +128,7 @@ def main() -> None:
 
     engine = QQmlApplicationEngine()
     ui = ProcooQtUI(backend, engine)
-    main_qml = _PROJECT_ROOT / "qml" / "Main.qml"
+    main_qml = Path(__file__).resolve().parent / "qml" / "Main.qml"
     engine.load(QUrl.fromLocalFile(str(main_qml)))
     if not engine.rootObjects():
         logger.critical("Failed to load QML: %s", main_qml)

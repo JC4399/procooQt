@@ -13,18 +13,24 @@ QML UI on a fused `qasync` + Qt event loop.
 - `ProcooApp` instance holding `config`, `skill_manager`, `session_store`, and
   `preset_store`.
 - `_register_fonts()` — registers the bundled `Sarasa Fixed TC` font.
+- `_set_app_user_model_id()` — sets a stable Windows AppUserModelID so the
+  taskbar groups the app under its own icon instead of `python.exe`.
+- `_set_app_icon()` — applies `assets/logos/logo.png` as the application-wide
+  window, title-bar, and taskbar icon.
 - `main()` — Qt entry point that builds the `QApplication`, `qasync` event
-  loop, and `QQmlApplicationEngine`, then loads `qml/Main.qml`.
+  loop, and `QQmlApplicationEngine`, then loads `src/qml/Main.qml`.
 
 ## Steps / Flow
 
-1. `setup_colored_logging(INFO)` and quiet `httpx`.
+1. `setup_colored_logging(INFO)` and quiet `httpx`; `_set_app_user_model_id()`
+   (Windows only) before any window exists.
 2. Build `ProcooApp(<project_root>/config)`; on `ProcooError`, log critical and
    `sys.exit(1)`.
-3. `QQuickStyle.setStyle("Basic")` → `QApplication(sys.argv)` → `_register_fonts()`.
+3. `QQuickStyle.setStyle("Basic")` → `QApplication(sys.argv)` →
+   `_set_app_icon(qt_app)` → `_register_fonts()`.
 4. Create `qasync.QEventLoop(qt_app)` and `asyncio.set_event_loop(loop)`.
 5. Build `QQmlApplicationEngine()` → `ProcooQtUI(backend, engine)`; load
-   `qml/Main.qml`; exit if the engine produced no root objects.
+   `src/qml/Main.qml`; exit if the engine produced no root objects.
 6. `ui.start()`; then `loop.run_forever()`.
 
 ## Function Reference
@@ -61,10 +67,27 @@ QML UI on a fused `qasync` + Qt event loop.
 | Output | `None` |
 | Flow | `QFontDatabase.addApplicationFont(assets/fonts/SarasaFixedTC-Regular.ttf)`; logs info, or warning if missing. |
 
+### `_set_app_user_model_id`
+
+| | |
+|---|---|
+| Signature | `def _set_app_user_model_id() -> None` |
+| Output | `None` |
+| Flow | On `sys.platform == "win32"`, calls `ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("procoo.qt")`; no-op elsewhere. |
+
+### `_set_app_icon`
+
+| | |
+|---|---|
+| Signature | `def _set_app_icon(qt_app: QApplication) -> None` |
+| Inputs | `qt_app` (`QApplication`) — the running application instance. |
+| Output | `None` |
+| Flow | Sets `qt_app.setWindowIcon(QIcon(assets/logos/logo.png))`; logs info, or warning if missing. All top-level windows (including the QML `ApplicationWindow`) inherit it. |
+
 ### `main`
 
 | | |
 |---|---|
 | Signature | `def main() -> None` |
 | Output | `None` |
-| Flow | logging + backend → `QApplication` → qasync loop → QML engine + `ProcooQtUI` → load `Main.qml` → `ui.start()` → `loop.run_forever()`. |
+| Flow | logging + AppUserModelID → backend → `QApplication` + app icon → qasync loop → QML engine + `ProcooQtUI` → load `Main.qml` → `ui.start()` → `loop.run_forever()`. |

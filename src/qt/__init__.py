@@ -1,1 +1,1 @@
-"""Qt Quick (QML) UI layer for the Procoo Agent Assistant — controllers, models, and helpers."""
+"""Qt Quick (QML) UI layer for ProcooQt — controllers, models, and helpers."""

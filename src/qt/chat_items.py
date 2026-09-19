@@ -1,7 +1,7 @@
 """Chat card item builders.
 
 Card builders return plain role-keyed dictionaries consumed by ``ChatListModel`` and
-rendered by QML ``qml/cards/*.qml`` delegates. They must not touch QML objects. The
+rendered by QML ``src/qml/cards/*.qml`` delegates. They must not touch QML objects. The
 shared :func:`_card_item` helper is the single place that knows the chat role layout,
 the token-text format, and the collapsed/pending defaults; every card builder funnels
 through it.

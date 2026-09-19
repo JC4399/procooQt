@@ -5,7 +5,7 @@ Source: `src/qt/chat_items.py`
 ## Purpose
 
 Build role-keyed chat-item dictionaries for `ChatListModel`, rendered by the QML
-card delegates under `qml/cards/`. Builders never touch QML objects. Body HTML is
+card delegates under `src/qml/cards/`. Builders never touch QML objects. Body HTML is
 pre-rendered here: escaped `<pre>` for user/tool-result, `render_markdown` for
 thinking/response, and `highlight_yaml_html` over the ported YAML serializer for
 tool calls.
@@ -28,7 +28,7 @@ tool calls.
 
 Every builder funnels through `_card_item` → `make_item`, the single place that
 knows the role layout, the `"{n} tk"` token format, and the collapsed/pending
-defaults. The QML side renders any item through `qml/cards/CardBase.qml`:
+defaults. The QML side renders any item through `src/qml/cards/CardBase.qml`:
 
 ```
 header row (icon + title [+ mode badge] [+ subtitle]) ── token text ── collapse arrow

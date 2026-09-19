@@ -4,7 +4,7 @@ import QtQuick.Layouts
 
 // Shared chat-card anatomy: header row (icon + label + optional mode badge +
 // subtitle + token text) with a bottom divider, and a collapsible body. Every
-// card under qml/cards/ inherits from this so header styling never duplicates.
+// card under src/qml/cards/ inherits from this so header styling never duplicates.
 // Pending cards use the same header by setting ``isPending``.
 Rectangle {
     id: card

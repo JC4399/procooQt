@@ -3,59 +3,59 @@
 ## System overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│  src/app.py — ProcooApp (wiring) + main()                                │
-│    config = ConfigManager   skill_manager = SkillManager                 │
-│    session_store = SessionStore   preset_store = PresetStore             │
-│                                                                          │
-│    QApplication → QQuickStyle "Basic" → register font →                  │
-│    qasync.QEventLoop(app) → asyncio.set_event_loop(loop) →               │
-│    QQmlApplicationEngine.load(qml/Main.qml) → loop.run_forever()         │
-└──────────────┬───────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  src/app.py — ProcooApp (wiring) + main()                                    │
+│    config = ConfigManager   skill_manager = SkillManager                     │
+│    session_store = SessionStore   preset_store = PresetStore                 │
+│                                                                              │
+│    QApplication → QQuickStyle "Basic" → register font →                      │
+│    qasync.QEventLoop(app) → asyncio.set_event_loop(loop) →                   │
+│    QQmlApplicationEngine.load(src/qml/Main.qml) → loop.run_forever()         │
+└──────────────┬───────────────────────────────────────────────────────────────┘
                │ one asyncio loop fused with the Qt GUI thread
-┌──────────────▼───────────────────────────────────────────────────────────┐
-│        qasync.QEventLoop  ⇄  Qt Quick render loop  (one process/thread)  │
-│                                                                          │
-│  ProcooQtUI (QObject orchestrator — composition, no inheritance)         │
-│    SessionController  → SessionListModel, SessionState registry          │
-│    ChatController     → ChatListModel per session, streaming, approval   │
-│    SkillController    → SkillTreeModel, ToolModeModel, presets, watcher  │
-│    EditorController   → FileTreeModel, CodeHighlighter                    │
-│    Theme (context property)      ErrorNotifier (toasts context property) │
-└──────────────┬───────────────────────────────────────────────────────────┘
+┌──────────────▼───────────────────────────────────────────────────────────────┐
+│        qasync.QEventLoop  ⇄  Qt Quick render loop  (one process/thread)      │
+│                                                                              │
+│  ProcooQtUI (QObject orchestrator — composition, no inheritance)             │
+│    SessionController  → SessionListModel, SessionState registry              │
+│    ChatController     → ChatListModel per session, streaming, approval       │
+│    SkillController    → SkillTreeModel, ToolModeModel, presets, watcher      │
+│    EditorController   → FileTreeModel, CodeHighlighter                       │
+│    Theme (context property)      ErrorNotifier (toasts context property)     │
+└──────────────┬───────────────────────────────────────────────────────────────┘
                │ QML context props: ui, backend, Theme, toasts,
                │                    session, chat, skill, editor
-┌──────────────▼───────────────────────────────────────────────────────────┐
-│  QML view layer (view-only; qml/)                                        │
-│    Main.qml — ApplicationWindow + 3-pane SplitView                       │
-│    qml/panels/     SessionPanel · ChatPanel · SkillPanel · EditorPanel   │
-│    qml/cards/      User · Thinking · Response · ToolCall · ToolResult ·  │
-│                    ContextBanner · CardBase                              │
-│    qml/components/ SessionTile · FolderHeader · SkillNode · ToolGroup ·  │
-│                    PresetBar · ActiveConfigBar · ApprovalBar · TokenBar ·│
-│                    FileNode · ToastHost                                  │
-└──────────────┬───────────────────────────────────────────────────────────┘
+┌──────────────▼───────────────────────────────────────────────────────────────┐
+│  QML view layer (view-only; src/qml/)                                        │
+│    Main.qml — ApplicationWindow + 3-pane SplitView                           │
+│    src/qml/panels/     SessionPanel · ChatPanel · SkillPanel · EditorPanel   │
+│    src/qml/cards/      User · Thinking · Response · ToolCall · ToolResult ·  │
+│                        ContextBanner · CardBase                              │
+│    src/qml/components/ SessionTile · FolderHeader · SkillNode · ToolGroup ·  │
+│                        PresetBar · ActiveConfigBar · ApprovalBar · TokenBar ·│
+│                        FileNode · ToastHost                                  │
+└──────────────┬───────────────────────────────────────────────────────────────┘
                │ binds model roles / calls @Slot methods
-┌──────────────▼───────────────────────────────────────────────────────────┐
-│  Agent event stream → ChatListModel → QML delegates                      │
-│    Agent.run() ──asyncio.Queue[event]──► ChatController._consume_events  │
-│      → chat_items builders (role dicts) → ChatListModel.diff_update      │
-│      → ListView delegate switches on model.kind                          │
-└──────────────┬───────────────────────────────────────────────────────────┘
+┌──────────────▼───────────────────────────────────────────────────────────────┐
+│  Agent event stream → ChatListModel → QML delegates                          │
+│    Agent.run() ──asyncio.Queue[event]──► ChatController._consume_events      │
+│      → chat_items builders (role dicts) → ChatListModel.diff_update          │
+│      → ListView delegate switches on model.kind                              │
+└──────────────┬───────────────────────────────────────────────────────────────┘
                │ uses
-┌──────────────▼───────────────────────────────────────────────────────────┐
-│  src/session/   SessionManager ──creates──► Agent (ReAct loop)           │
-│                 Agent ──► OpenAIChatModel (chat.py)                      │
-│                 SessionStore (JSON persistence)                          │
-├──────────────────────────────────────────────────────────────────────────┤
-│  src/skill/     SkillManager (discovery + AST schemas + watchdog)        │
-│                 PresetStore (JSON presets) · models (Pydantic)           │
-├──────────────────────────────────────────────────────────────────────────┤
-│  src/config/    ConfigManager (YAML, LLM validation)                     │
-├──────────────────────────────────────────────────────────────────────────┤
-│  src/util/      error/types · log/formatter · tokens/counter+tracker     │
-│                 venv (tool subprocess interpreter resolution)            │
-└──────────────────────────────────────────────────────────────────────────┘
+┌──────────────▼───────────────────────────────────────────────────────────────┐
+│  src/session/   SessionManager ──creates──► Agent (ReAct loop)               │
+│                 Agent ──► OpenAIChatModel (chat.py)                          │
+│                 SessionStore (JSON persistence)                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  src/skill/     SkillManager (discovery + AST schemas + watchdog)            │
+│                 PresetStore (JSON presets) · models (Pydantic)               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  src/config/    ConfigManager (YAML, LLM validation)                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  src/util/      error/types · log/formatter · tokens/counter+tracker         │
+│                 venv (tool subprocess interpreter resolution)                │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Subsystems
@@ -67,7 +67,7 @@
 | Session runtime | ReAct agent loop, LLM client, persistence | `src/session/` |
 | Skills | Discovery, loading, AST schema inference, presets, watcher | `src/skill/` |
 | UI controllers | Composition orchestrator + 4 controllers + models | `src/qt/` |
-| QML view | View-only panels, cards, components | `qml/` |
+| QML view | View-only panels, cards, components | `src/qml/` |
 | Utilities | Errors, logging, token counting, venv | `src/util/` |
 
 ## Key concepts

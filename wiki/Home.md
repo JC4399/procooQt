@@ -1,4 +1,4 @@
-# Procoo Agent Assistant — Qt Wiki
+# ProcooQt — Qt Wiki
 
 Procoo is a **Qt Quick / QML multi-column chat UI** for interactive LLM agent
 sessions. It lets a user select "skills" (bundles of instructions + tool
@@ -105,5 +105,5 @@ Function reference tables use these columns:
 
 The Qt edition names things after its toolkit: `QObject` controllers composed
 by `ProcooQtUI`, `@Signal`/`@Slot` boundaries to QML, `_handle_*` handlers, the
-`procoo_qt` logger, and QML views under `qml/`. Authoring conventions for the
+`procoo_qt` logger, and QML views under `src/qml/`. Authoring conventions for the
 Qt codebase live in [`../AGENTS.md`](../AGENTS.md).

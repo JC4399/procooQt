@@ -68,7 +68,7 @@ the `toasts` context property consumed by `ToastHost.qml`.
 ### `start` (from `app.py`)
 
 `app.main` creates the `QApplication`, installs the qasync `QEventLoop`, creates
-`ProcooQtUI`, loads `qml/Main.qml`, and — only if a root object loaded — calls
+`ProcooQtUI`, loads `src/qml/Main.qml`, and — only if a root object loaded — calls
 `ui.start()`. `start()` fans out to `session.start()`, `skill.start()`, and
 `editor.start()`. The chat controller has no independent startup: it is driven
 entirely by `active_session_changed`.
