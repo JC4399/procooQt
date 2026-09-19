@@ -1,0 +1,21 @@
+# Python
+**/__pycache__/
+*.pyc
+
+# Virtual environment
+/.venv/
+/.vscode/
+
+# Tooling caches
+/.ruff_cache/
+
+# Local config (contains API keys)
+/config/config.yaml
+
+# Qt-only session storage (keep the directory itself)
+/storage/*
+!/storage/.gitkeep
+
+# Local skills
+/skills/_presets/*
+/skills/works/

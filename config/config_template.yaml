@@ -1,0 +1,27 @@
+paths:
+  # Relative to the procooQt project root (resolved against _PROJECT_ROOT in app.py).
+  # The skills library is shared with the Flet app at ../skills.
+  skills_dir: "../skills"
+  # Fresh, Qt-only session storage. Never shared with the Flet app.
+  storage_dir: "./storage"
+
+auth:
+  api_keys: []
+
+limits:
+  max_session_mb: 70
+  max_session_tokens: 0
+
+agent:
+  system_prompt: "You are a helpful assistant."
+  summary_prompt: "The current session is running too long. You are summarizing the conversation and create a summary for staring a new session. Produce a concise but complete summary capturing: purpose and deliverables for current task, steps and progress, key facts, and decisions, actions taken with their results, and any open questions or next steps. The summary must be self-contained so a new conversation can continue seamlessly from it. Always include the full path of working folders, working files, and other important files to ensure all important information is passed down."
+
+llm:
+  - model_name: "qwen2.5"
+    api_key: "ollama"
+    api_base: "http://localhost:11434/v1"
+    enable: true
+  # - model_name: "gpt-4o"
+  #   api_key: "your-api-key"
+  #   api_base: "https://api.openai.com/v1"
+  #   enable: false

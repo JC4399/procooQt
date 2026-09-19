@@ -1,0 +1,74 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "procoo-qt"
+version = "0.1.0"
+description = "Procoo Agent Assistant — Qt Quick (QML) Edition"
+requires-python = ">=3.13"
+dependencies = [
+    # GUI / async bridge
+    "PySide6>=6.11",
+    "qasync>=0.28",
+    # Backend (shared with the Flet edition)
+    "openai",
+    "json-repair",
+    "watchdog>=4.0.0",
+    "python-frontmatter>=1.1.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0",
+    # Markdown / code rendering for chat cards and the editor
+    "markdown-it-py>=3.0",
+    "mdit-py-plugins>=0.4",
+    "pygments>=2.18",
+    # Used by skill tool scripts executed in this environment
+    "aiohttp>=3.9.0",
+    "pillow>=10.0.0",
+    "PyMuPDF>=1.24.0",
+    "python-docx>=1.1.0",
+    "python-pptx>=1.0.0",
+    "openpyxl>=3.1.0",
+]
+
+[project.scripts]
+procoo-qt = "src.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "F",     # pyflakes
+    "I",     # isort (import ordering)
+    "N",     # pep8-naming
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "SIM",   # flake8-simplify
+    "RUF",   # ruff-specific
+    "C4",    # flake8-comprehensions
+]
+ignore = [
+    "D203",  # conflicts with Google-style docstrings (one blank line before class)
+    "D213",  # conflicts with Google-style docstrings (summary on second line)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+force-sort-within-sections = true
+combine-as-imports = true
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.8",
+    "ty>=0.0.82",
+]

@@ -1,0 +1,220 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+// Shared chat-card anatomy: header row (icon + label + optional mode badge +
+// subtitle + token text) with a bottom divider, and a collapsible body. Every
+// card under qml/cards/ inherits from this so header styling never duplicates.
+// Pending cards use the same header by setting ``isPending``.
+Rectangle {
+    id: card
+
+    property string kind: ""
+    property string title: ""
+    property string subtitle: ""
+    property string bodyHtml: ""
+    property string tokenText: ""
+    property string mode: ""
+    property bool isPending: false
+    property bool bodyCollapsed: false
+    property color accentColor: Theme.colors.borderDefault
+    property color headerColor: Theme.colors.textSecondary
+    property int accentWidth: 2
+    property bool borderAllSides: true
+    property string iconGlyph: ""
+
+    function modeBg(value) {
+        if (value === "allow")
+            return Theme.colors.toolModeAllowBg
+        if (value === "block")
+            return Theme.colors.toolModeBlockBg
+        return Theme.colors.toolModeAskBg
+    }
+
+    function modeFg(value) {
+        if (value === "allow")
+            return Theme.colors.toolModeAllowFg
+        if (value === "block")
+            return Theme.colors.toolModeBlockFg
+        return Theme.colors.toolModeAskFg
+    }
+
+    implicitHeight: layout.implicitHeight
+    color: Theme.colors.bubbleAssistant
+    border.color: card.borderAllSides ? card.accentColor : "transparent"
+    border.width: card.borderAllSides ? card.accentWidth : 0
+    radius: Theme.metrics.cardRadius
+
+    ColumnLayout {
+        id: layout
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        spacing: 0
+
+        // ----------------------------------------------------------
+        //  Header row + divider
+        // ----------------------------------------------------------
+        Rectangle {
+            id: header
+            Layout.fillWidth: true
+            implicitHeight: headerRow.implicitHeight + 8
+            color: "transparent"
+
+            RowLayout {
+                id: headerRow
+                anchors.fill: parent
+                anchors.leftMargin: 8
+                anchors.rightMargin: 8
+                spacing: 6
+
+                Text {
+                    visible: card.iconGlyph !== ""
+                    text: card.iconGlyph
+                    color: card.headerColor
+                    font.family: Theme.fontMono
+                    font.pixelSize: Theme.metrics.fontSizeBody
+                }
+
+                Text {
+                    text: card.title
+                    color: card.headerColor
+                    font.family: Theme.fontMono
+                    font.pixelSize: Theme.metrics.fontSizeBody
+                    font.bold: true
+                }
+
+                Rectangle {
+                    visible: card.mode !== ""
+                    implicitWidth: modeLabel.implicitWidth + 8
+                    implicitHeight: modeLabel.implicitHeight + 4
+                    color: card.modeBg(card.mode)
+                    border.color: card.modeFg(card.mode)
+                    border.width: 1
+                    radius: Theme.metrics.modeBadgeRadius
+
+                    Text {
+                        id: modeLabel
+                        anchors.centerIn: parent
+                        text: card.mode
+                        color: card.modeFg(card.mode)
+                        font.family: Theme.fontMono
+                        font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                    }
+                }
+
+                Text {
+                    visible: card.subtitle !== ""
+                    text: card.subtitle
+                    color: Theme.colors.textSecondary
+                    font.family: Theme.fontMono
+                    font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Text {
+                    visible: card.tokenText !== ""
+                    text: card.tokenText
+                    color: Theme.colors.textSecondary
+                    font.family: Theme.fontMono
+                    font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                }
+
+                Text {
+                    text: card.bodyCollapsed ? "\u25b8" : "\u25be"
+                    color: Theme.colors.textSecondary
+                    font.family: Theme.fontMono
+                    font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                }
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 1
+                color: Theme.colors.cardHeaderDivider
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: card.bodyCollapsed = !card.bodyCollapsed
+            }
+        }
+
+        // ----------------------------------------------------------
+        //  Collapsible body (height animated on toggle)
+        // ----------------------------------------------------------
+        Item {
+            id: bodyHost
+            Layout.fillWidth: true
+            Layout.preferredHeight: bodyHeight
+            clip: true
+
+            property real bodyHeight: card.bodyCollapsed ? 0 : (body.implicitHeight + 14)
+
+            Behavior on bodyHeight {
+                NumberAnimation {
+                    duration: 160
+                    easing.type: Easing.InOutQuad
+                }
+            }
+
+            ColumnLayout {
+                id: body
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.leftMargin: 8
+                anchors.rightMargin: 8
+                anchors.topMargin: 6
+                spacing: 0
+
+                BusyIndicator {
+                    Layout.alignment: Qt.AlignHCenter
+                    visible: card.isPending
+                    running: card.isPending
+                    implicitWidth: 24
+                    implicitHeight: 24
+                }
+
+                TextEdit {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: contentHeight
+                    visible: !card.isPending
+                    readOnly: true
+                    textFormat: TextEdit.RichText
+                    text: card.bodyHtml
+                    color: Theme.colors.textPrimary
+                    font.family: Theme.fontMono
+                    font.pixelSize: Theme.metrics.fontSizeBody
+                    wrapMode: TextEdit.Wrap
+                    selectByMouse: true
+                }
+            }
+        }
+    }
+
+    // ----------------------------------------------------------
+    //  Top/bottom-only borders (thinking / tool cards)
+    // ----------------------------------------------------------
+    Rectangle {
+        visible: !card.borderAllSides
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: card.accentWidth
+        color: card.accentColor
+    }
+
+    Rectangle {
+        visible: !card.borderAllSides
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: card.accentWidth
+        color: card.accentColor
+    }
+}

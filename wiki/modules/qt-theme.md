@@ -1,0 +1,74 @@
+# qt.theme — theme & style constants
+
+Source: `src/qt/theme.py`
+
+## Purpose
+
+Terminal-style dark theme for the Procoo Qt UI and the single source of truth
+for styling. All colors are hex strings and all radii are zero (square). Python
+card and markdown builders import the constants directly, while QML reads them
+through the [`Theme`](qt-ui.md) `QObject` exposed as the `Theme` context
+property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
+`Theme.fontMono`). QML must never hard-code a hex colour.
+
+## Deliverables
+
+- Module-level color constants grouped by UI region (backgrounds, text,
+  accents, borders, buttons, bubbles, approval, context banner, chat border,
+  toasts, session status, cards, chips, tool-mode badges, toast, drag feedback,
+  resize handle, inputs).
+- Sizing/font constants (`BUTTON_RADIUS`, `CARD_RADIUS`, `STATUS_DOT_RADIUS`,
+  `FONT_MONO`, `FONT_SIZE_BODY`, `BUTTON_WIDTH_*`, …).
+- `COLORS: dict[str, str]` — camelCase color-name registry.
+- `METRICS: dict[str, int]` — camelCase numeric registry.
+- `Theme(QObject)` exposing three constant `Property` values: `colors`,
+  `metrics`, `fontMono`.
+
+## Theme categories
+
+| Group | Notable constants |
+|---|---|
+| Backgrounds | `COLOR_PAGE_BG` (#0d1117), `COLOR_SURFACE_BG`, `COLOR_ELEVATED_BG`, `COLOR_HOVER_BG` |
+| Text | `COLOR_TEXT_PRIMARY`, `COLOR_TEXT_SECONDARY`, `COLOR_TEXT_DISABLED` |
+| Accents | `COLOR_ACCENT_CYAN/GREEN/AMBER/RED/MAGENTA/BLUE` |
+| Borders | `COLOR_BORDER_DEFAULT/LIGHT/STRONG` |
+| Buttons | `COLOR_BUTTON_PRIMARY_BG/FG`, `COLOR_BUTTON_APPROVE_BG/FG` |
+| Chat bubbles | `COLOR_BUBBLE_USER` / `_BORDER`, `COLOR_BUBBLE_ASSISTANT` / `_BORDER` |
+| Approval | `COLOR_APPROVAL_BG`, `COLOR_APPROVAL_BORDER` |
+| Context banner | `COLOR_CONTEXT_BANNER_BG/BORDER`, `COLOR_CONTEXT_BANNER_DELTA_BG/BORDER` |
+| Toasts | `COLOR_ERROR_SNACKBAR`, `COLOR_WARNING_SNACKBAR` |
+| Session status | `COLOR_SESSION_{SELECTED_BG,EMPTY,FINISHED,WAITING,ERROR,RUNNING,FLASH}` |
+| Cards | `COLOR_THINKING_*`, `COLOR_TOOL_CALL_*`, `COLOR_TOOL_RESULT_*`, `COLOR_CARD_HEADER_DIVIDER` |
+| Chips | `COLOR_CHIP_{PRIMARY,SECONDARY,ALLOW,ASK,BLOCK}_{BG,FG}` |
+| Tool modes | `COLOR_TOOL_MODE_{ALLOW,ASK,BLOCK,DEFAULT}_{BG,FG}` |
+| Inputs | `INPUT_BORDER_COLOR`, `INPUT_FOCUSED_BORDER_COLOR`, `INPUT_FILL_COLOR`, `INPUT_CURSOR_COLOR`, `INPUT_TEXT_COLOR` |
+
+## Registry naming
+
+`COLORS` and `METRICS` map each `UPPER_SNAKE` constant to a camelCase QML key,
+so Python and QML agree on one vocabulary:
+
+```python
+COLORS["pageBg"]              # "#0d1117"
+COLORS["sessionWaiting"]      # COLOR_ACCENT_AMBER
+METRICS["cardRadius"]         # 0
+METRICS["fontSizeBody"]       # 14
+```
+
+Because the properties are `QVariantMap`s, QML reaches them with dot syntax, as
+used throughout `qml/**`:
+
+```qml
+color: Theme.colors.surfaceBg
+radius: Theme.metrics.buttonRadius
+font.family: Theme.fontMono
+```
+
+## Function Reference
+
+| Signature | Inputs | Output | Flow | Raises / Side effects |
+|---|---|---|---|---|
+| `def __init__(self, parent: QObject \| None = None) -> None` | `parent` optional Qt parent | `None` | `super().__init__(parent)` | — |
+| `@Property(dict, constant=True) def colors(self) -> dict[str, str]` | — | The `COLORS` registry | returns the module dict | Read-only from QML |
+| `@Property(dict, constant=True) def metrics(self) -> dict[str, int]` | — | The `METRICS` registry | returns the module dict | Read-only from QML |
+| `@Property(str, constant=True) def fontMono(self) -> str` | — | `FONT_MONO` family name | returns the constant | Name flagged with `# noqa: N802` for the camelCase property |
