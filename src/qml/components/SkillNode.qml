@@ -52,7 +52,7 @@ Rectangle {
                 text: "\u2713"
                 color: Theme.colors.pageBg
                 font.family: Theme.fontMono
-                font.pixelSize: 10
+                font.pointSize: Theme.metrics.fontSizeBase
             }
         }
 
@@ -77,7 +77,7 @@ Rectangle {
             text: node.expanded ? "\u25bc" : "\u25b6"
             color: Theme.colors.textSecondary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeLabelSmall
+            font.pointSize: Theme.metrics.fontSizeBase
         }
 
         Text {
@@ -85,7 +85,7 @@ Rectangle {
             text: node.name
             color: Theme.colors.textPrimary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeBody
+            font.pointSize: Theme.metrics.fontSizeBase
             elide: Text.ElideRight
             Layout.maximumWidth: node.width * 0.5
         }
@@ -95,7 +95,7 @@ Rectangle {
             text: node.skillCount + " skill(s)"
             color: Theme.colors.textDisabled
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeTree
+            font.pointSize: Theme.metrics.fontSizeBase
         }
 
         Text {
@@ -103,7 +103,7 @@ Rectangle {
             text: node.selectedCount + " selected"
             color: Theme.colors.accentCyan
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeTree
+            font.pointSize: Theme.metrics.fontSizeBase
         }
 
         // Skill name + badge
@@ -113,7 +113,7 @@ Rectangle {
             text: node.name
             color: Theme.colors.textPrimary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeTree
+            font.pointSize: Theme.metrics.fontSizeBase
             elide: Text.ElideRight
             maximumLineCount: 1
         }
@@ -133,7 +133,7 @@ Rectangle {
                 text: qsTr("tools")
                 color: Theme.colors.chipSecondaryFg
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeGutter
+                font.pointSize: Theme.metrics.fontSizeBase
             }
         }
 

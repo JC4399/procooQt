@@ -4,6 +4,7 @@ import QtQuick.Layouts
 
 import "panels"
 import "components"
+import "windows"
 
 ApplicationWindow {
     id: root
@@ -47,7 +48,15 @@ ApplicationWindow {
             SplitView.preferredWidth: Math.max(320, Math.min(560, root.width * 0.30))
             SplitView.minimumWidth: 280
             SplitView.maximumWidth: 680
+            onOpenEditorRequested: {
+                editorWindow.show()
+                editorWindow.requestActivate()
+            }
         }
+    }
+
+    EditorWindow {
+        id: editorWindow
     }
 
     ToastHost {

@@ -71,6 +71,7 @@ class ProcooQtUI(QObject):
         self.session.toast_requested.connect(self.notifier.toast_requested)
         self.session.active_session_changed.connect(self.chat._handle_session_activated)
         self.session.active_session_changed.connect(self.skill._handle_session_activated)
+        self.skill.skill_files_changed.connect(self.editor._handle_skill_files_changed)
         self.chat.toast_requested.connect(self.notifier.toast_requested)
         self.skill.toast_requested.connect(self.notifier.toast_requested)
         self.editor.toast_requested.connect(self.notifier.toast_requested)

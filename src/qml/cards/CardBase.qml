@@ -22,6 +22,10 @@ Rectangle {
     property int accentWidth: 2
     property bool borderAllSides: true
     property string iconGlyph: ""
+    // Vertical breathing room applied by the ChatPanel delegate outside the card
+    // border; UserCard overrides both to 24 px.
+    property int padTop: 8
+    property int padBottom: 8
 
     function modeBg(value) {
         if (value === "allow")
@@ -73,14 +77,14 @@ Rectangle {
                     text: card.iconGlyph
                     color: card.headerColor
                     font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeBody
+                    font.pointSize: Theme.metrics.fontSizeBase
                 }
 
                 Text {
                     text: card.title
                     color: card.headerColor
                     font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeBody
+                    font.pointSize: Theme.metrics.fontSizeBase
                     font.bold: true
                 }
 
@@ -99,7 +103,7 @@ Rectangle {
                         text: card.mode
                         color: card.modeFg(card.mode)
                         font.family: Theme.fontMono
-                        font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                        font.pointSize: Theme.metrics.fontSizeBase
                     }
                 }
 
@@ -108,7 +112,7 @@ Rectangle {
                     text: card.subtitle
                     color: Theme.colors.textSecondary
                     font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                    font.pointSize: Theme.metrics.fontSizeBase
                 }
 
                 Item { Layout.fillWidth: true }
@@ -118,14 +122,14 @@ Rectangle {
                     text: card.tokenText
                     color: Theme.colors.textSecondary
                     font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                    font.pointSize: Theme.metrics.fontSizeBase
                 }
 
                 Text {
                     text: card.bodyCollapsed ? "\u25b8" : "\u25be"
                     color: Theme.colors.textSecondary
                     font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                    font.pointSize: Theme.metrics.fontSizeBase
                 }
             }
 
@@ -187,11 +191,16 @@ Rectangle {
                     readOnly: true
                     textFormat: TextEdit.RichText
                     text: card.bodyHtml
-                    color: Theme.colors.textPrimary
+                    color: (card.kind === "thinking" || card.kind === "response")
+                           ? Theme.colors.mdText
+                           : Theme.colors.textPrimary
                     font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeBody
+                    font.pointSize: Theme.metrics.fontSizeMarkdown
                     wrapMode: TextEdit.Wrap
                     selectByMouse: true
+                    onLinkActivated: function (link) {
+                        Qt.openUrlExternally(link)
+                    }
                 }
             }
         }

@@ -1,29 +1,82 @@
-"""Markdown rendering for chat cards.
+"""Terminal-style Markdown rendering for chat cards.
 
 Renders CommonMark (plus tables, strikethrough, task lists, and footnotes) to
-inline-styled HTML for QML ``TextEdit.RichText`` using ``markdown-it-py``, with fenced
-code blocks highlighted by ``pygments`` (``noclasses=True``). The output is sanitized:
-``<script>``/``<style>`` blocks, ``on*`` event attributes, and ``javascript:`` URLs are
-dropped because the source is untrusted LLM output.
+inline-styled HTML for QML ``TextEdit.RichText``. The output mimics a TUI markdown
+pager: syntax marks are concealed, each element gets an explicit color, block
+quotes get a drawn left border, lists use literal monospace markers, and tables are
+rendered as CSS tables with collapsed borders. Fenced code blocks are highlighted by
+``pygments`` using :class:`_MarkdownCodeStyle`.
+
+Because the source is untrusted LLM output, the fragment is sanitized:
+``<script>``/``<style>`` blocks, ``on*`` event attributes, and unsafe URL schemes are
+dropped.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 import re
 
 from markdown_it import MarkdownIt
+from markdown_it.common.utils import escapeHtml
+from markdown_it.renderer import RendererHTML
+from markdown_it.token import Token
+from markdown_it.utils import EnvType, OptionsDict
 from mdit_py_plugins.footnote import footnote_plugin
 from mdit_py_plugins.tasklists import tasklists_plugin
 from pygments import highlight
 from pygments.formatters.html import HtmlFormatter
 from pygments.lexers import get_lexer_by_name, guess_lexer
+from pygments.style import Style
+from pygments.token import Comment, Keyword, Name, Number, Operator, Punctuation, String, Text
 from pygments.util import ClassNotFound
+
+from .theme import (
+    COLOR_MD_BOLD,
+    COLOR_MD_CODE,
+    COLOR_MD_HEADING,
+    COLOR_MD_ITALIC,
+    COLOR_MD_LINK,
+    COLOR_MD_LIST_MARKER,
+    COLOR_MD_LIST_NUMBER,
+    COLOR_MD_QUOTE,
+    COLOR_MD_RULE,
+    COLOR_MD_TEXT,
+    FONT_MONO,
+    FONT_SIZE_MARKDOWN,
+    LINE_HEIGHT_BODY,
+)
 
 # ------------------------------------------------------------------
 #  Code highlighting
 # ------------------------------------------------------------------
 
-_FORMATTER = HtmlFormatter(nowrap=True, noclasses=True, style="monokai")
+
+class _MarkdownCodeStyle(Style):
+    """Pygments style matching the terminal markdown palette."""
+
+    name = "procoo-markdown"
+    background_color = "#000000"
+    styles = {  # noqa: RUF012 - mirrors pygments' unannotated class attribute
+        Text: COLOR_MD_TEXT,
+        Comment: f"italic {COLOR_MD_QUOTE}",
+        Keyword: COLOR_MD_HEADING,
+        Keyword.Type: COLOR_MD_ITALIC,
+        Keyword.Namespace: COLOR_MD_BOLD,
+        Name: COLOR_MD_TEXT,
+        Name.Builtin: COLOR_MD_LINK,
+        Name.Function: COLOR_MD_LINK,
+        Name.Class: COLOR_MD_ITALIC,
+        Name.Decorator: COLOR_MD_BOLD,
+        Number: COLOR_MD_ITALIC,
+        String: COLOR_MD_CODE,
+        Operator: COLOR_MD_LINK,
+        Punctuation: COLOR_MD_TEXT,
+    }
+
+
+_FORMATTER = HtmlFormatter(nowrap=True, noclasses=True, style=_MarkdownCodeStyle)
 
 
 def _highlight_code(code: str, lang: str, _attrs: str) -> str:
@@ -60,10 +113,11 @@ _SCRIPT_STYLE_RE = re.compile(
 )
 _EVENT_ATTR_RE = re.compile(r"\son\w+\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]+)", re.IGNORECASE)
 _JS_URL_RE = re.compile(r"(href|src)\s*=\s*([\"'])\s*javascript:[^\"']*\2", re.IGNORECASE)
+_UNSAFE_URL_RE = re.compile(r"^\s*(?:javascript|data|vbscript):", re.IGNORECASE)
 
 
 def _sanitize(fragment: str) -> str:
-    """Strip scripts, event handlers, and javascript: URLs from rendered HTML.
+    """Strip scripts, event handlers, and unsafe URLs from rendered HTML.
 
     Args:
         fragment: The rendered HTML fragment.
@@ -76,18 +130,732 @@ def _sanitize(fragment: str) -> str:
     return _JS_URL_RE.sub("", fragment)
 
 
+def _safe_href(url: str) -> str:
+    """Return a link target, or an empty string for unsafe schemes.
+
+    Args:
+        url: The raw URL from a link or image token.
+
+    Returns:
+        The URL when safe, otherwise an empty string.
+    """
+    return "" if _UNSAFE_URL_RE.match(url or "") else (url or "")
+
+
+# ------------------------------------------------------------------
+#  Monospace measurement
+# ------------------------------------------------------------------
+
+#: Approximate advance width of one monospace cell in logical pixels, used for
+#: list hanging indents. Derived from the markdown font point size assuming a
+#: half-em advance at 96 DPI. Qt font metrics cannot be queried here because no
+#: ``QGuiApplication`` exists at render time in headless/test contexts.
+_CHAR_PX = FONT_SIZE_MARKDOWN * 2 / 3
+
+
+# ------------------------------------------------------------------
+#  Terminal renderer
+# ------------------------------------------------------------------
+
+
+@dataclass
+class _ListCtx:
+    """State for one open list level.
+
+    Attributes:
+        ordered: Whether the list is ordered.
+        index: The next ordered-list number.
+    """
+
+    ordered: bool
+    index: int
+
+
+@dataclass
+class _ItemCtx:
+    """State for one open list item.
+
+    Attributes:
+        marker: Colored HTML marker (``-`` or ``1.``).
+        margin: Left margin in pixels.
+        indent: First-line text indent in pixels (negative for hanging indent).
+        pending: Whether the marker block has yet to be emitted.
+        marker_para: Whether the paragraph currently closing is the marker block.
+    """
+
+    marker: str
+    margin: float
+    indent: float
+    pending: bool = True
+    marker_para: bool = False
+
+
+class _TerminalRenderer(RendererHTML):
+    """Render markdown tokens to terminal-style inline-styled HTML."""
+
+    def __init__(self, parser: object = None) -> None:
+        """Initialise the renderer and its per-document state.
+
+        Args:
+            parser: The owning parser (unused; matches the base signature).
+        """
+        super().__init__(parser)
+        self._reset()
+
+    def _reset(self) -> None:
+        """Reset per-document render state."""
+        self._lists: list[_ListCtx] = []
+        self._items: list[_ItemCtx] = []
+        self._links: list[bool] = []
+
+    # ------------------------------------------------------------------
+    #  Render loop override
+    # ------------------------------------------------------------------
+
+    def render(self, tokens: Sequence[Token], options: OptionsDict, env: EnvType) -> str:
+        """Render a token stream, resetting state first.
+
+        Args:
+            tokens: Block-level tokens.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            The rendered HTML fragment.
+        """
+        self._reset()
+        return super().render(tokens, options, env)
+
+    # ------------------------------------------------------------------
+    #  Inline tokens
+    # ------------------------------------------------------------------
+
+    def text(self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType) -> str:
+        """Render a text run.
+
+        Args:
+            tokens: Inline tokens.
+            idx: Index of the text token.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            Escaped text.
+        """
+        return escapeHtml(tokens[idx].content)
+
+    def softbreak(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Render a soft line break.
+
+        Returns:
+            A newline (collapsed to a space in the paragraph).
+        """
+        return "\n"
+
+    def hardbreak(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Render a hard line break.
+
+        Returns:
+            A ``<br>`` tag.
+        """
+        return "<br>\n"
+
+    def strong_open(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Open a bold run in orange.
+
+        Returns:
+            The opening HTML.
+        """
+        return f'<b><font color="{COLOR_MD_BOLD}">'
+
+    def strong_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close a bold run.
+
+        Returns:
+            The closing HTML.
+        """
+        return "</font></b>"
+
+    def em_open(self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType) -> str:
+        """Open an italic run in yellow.
+
+        Returns:
+            The opening HTML.
+        """
+        return f'<i><font color="{COLOR_MD_ITALIC}">'
+
+    def em_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close an italic run.
+
+        Returns:
+            The closing HTML.
+        """
+        return "</font></i>"
+
+    def s_open(self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType) -> str:
+        """Open a struck-through run.
+
+        Returns:
+            The opening HTML.
+        """
+        return "<s>"
+
+    def s_close(self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType) -> str:
+        """Close a struck-through run.
+
+        Returns:
+            The closing HTML.
+        """
+        return "</s>"
+
+    def code_inline(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Render inline code in green.
+
+        Args:
+            tokens: Inline tokens.
+            idx: Index of the code token.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            The styled code span.
+        """
+        return f'<font color="{COLOR_MD_CODE}">{escapeHtml(tokens[idx].content)}</font>'
+
+    def link_open(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Open a link label in cyan with an underline.
+
+        Args:
+            tokens: Inline tokens.
+            idx: Index of the link token.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            The opening anchor, or an empty string for unsafe URLs.
+        """
+        href = _safe_href(str(tokens[idx].attrs.get("href", "")))
+        self._links.append(bool(href))
+        if not href:
+            return ""
+        return f'<a href="{escapeHtml(href)}"><u><font color="{COLOR_MD_LINK}">'
+
+    def link_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close a link opened by :meth:`link_open`.
+
+        Returns:
+            The closing HTML, or an empty string when the link was suppressed.
+        """
+        if not self._links:
+            return ""
+        return "</font></u></a>" if self._links.pop() else ""
+
+    def image(self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType) -> str:
+        """Render an image as its alt text used as a link label.
+
+        Args:
+            tokens: Inline tokens.
+            idx: Index of the image token.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            A cyan underlined label linking to the image source.
+        """
+        token = tokens[idx]
+        src = _safe_href(str(token.attrs.get("src", "")))
+        label = self.renderInlineAsText(token.children, options, env) or src
+        if not src:
+            return escapeHtml(label)
+        label_html = escapeHtml(label)
+        return (
+            f'<a href="{escapeHtml(src)}">'
+            f'<u><font color="{COLOR_MD_LINK}">{label_html}</font></u></a>'
+        )
+
+    def html_inline(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Convert a task-list checkbox to a literal marker, dropping other HTML.
+
+        Args:
+            tokens: Inline tokens.
+            idx: Index of the raw HTML token.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            ``[x]`` or ``[ ]`` for checkboxes, otherwise an empty string.
+        """
+        content = tokens[idx].content
+        if "checkbox" not in content:
+            return ""
+        return "[x]" if "checked" in content else "[ ]"
+
+    def html_block(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Drop raw HTML blocks.
+
+        Returns:
+            An empty string.
+        """
+        return ""
+
+    # ------------------------------------------------------------------
+    #  Block tokens
+    # ------------------------------------------------------------------
+
+    def heading_open(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Open a heading in accent purple; h1 is additionally underlined.
+
+        Args:
+            tokens: Block tokens.
+            idx: Index of the heading token.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            The opening paragraph with heading styling.
+        """
+        underline = "text-decoration:underline;" if tokens[idx].tag == "h1" else ""
+        return (
+            f'<p style="margin:0;color:{COLOR_MD_HEADING};font-weight:bold;'
+            f'{underline}line-height:{LINE_HEIGHT_BODY}">'
+        )
+
+    def heading_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close a heading.
+
+        Returns:
+            The closing paragraph tag.
+        """
+        return "</p>"
+
+    def paragraph_open(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Open a paragraph, or the marker block of a list item.
+
+        Args:
+            tokens: Block tokens.
+            idx: Index of the paragraph token.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            The opening HTML.
+        """
+        if self._items and self._items[-1].pending:
+            item = self._items[-1]
+            item.pending = False
+            item.marker_para = True
+            return (
+                f'<div style="margin-left:{item.margin:.1f}px;'
+                f"text-indent:{item.indent:.1f}px;"
+                f'line-height:{LINE_HEIGHT_BODY}">{item.marker} '
+            )
+        if tokens[idx].hidden:
+            return ""
+        return f'<p style="margin:0;line-height:{LINE_HEIGHT_BODY}">'
+
+    def paragraph_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close a paragraph, or the marker block of a list item.
+
+        Returns:
+            The closing HTML.
+        """
+        if self._items and self._items[-1].marker_para:
+            self._items[-1].marker_para = False
+            return "</div>"
+        if tokens[idx].hidden:
+            return ""
+        return "</p>"
+
+    def blockquote_open(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Open a block quote as a two-cell table with a colored stripe.
+
+        Qt Quick's ``TextEdit`` does not paint cell ``border-left``, so the
+        vertical bar is a narrow background-filled cell.
+
+        Returns:
+            The opening table HTML.
+        """
+        return (
+            '<table width="100%" cellspacing="0" cellpadding="0"><tr>'
+            f'<td width="2" bgcolor="{COLOR_MD_QUOTE}"></td>'
+            f'<td style="padding-left:8px;color:{COLOR_MD_ITALIC};'
+            f'font-style:italic;line-height:{LINE_HEIGHT_BODY}">'
+        )
+
+    def blockquote_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close a block quote table.
+
+        Returns:
+            The closing table HTML.
+        """
+        return "</td></tr></table>"
+
+    def hr(self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType) -> str:
+        """Render a horizontal rule.
+
+        Returns:
+            A grey rule.
+        """
+        return f'<hr style="border:none;border-top:1px solid {COLOR_MD_RULE}">'
+
+    def fence(self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType) -> str:
+        """Render a fenced code block with visible, grey fence lines.
+
+        Args:
+            tokens: Block tokens.
+            idx: Index of the fence token.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            A highlighted, preformatted block including its fences.
+        """
+        token = tokens[idx]
+        info = (token.info or "").strip()
+        lang = info.split(maxsplit=1)[0] if info else ""
+        body = _highlight_code(token.content, lang, "") or escapeHtml(token.content)
+        body = body.rstrip("\n")
+        fence = f'<font color="{COLOR_MD_RULE}">```{escapeHtml(lang)}</font>'
+        return (
+            f'<pre style="white-space:pre-wrap;margin:0;font-family:{FONT_MONO};'
+            f'line-height:{LINE_HEIGHT_BODY}">'
+            f"{fence}\n{body}\n"
+            f'<font color="{COLOR_MD_RULE}">```</font></pre>\n'
+        )
+
+    def code_block(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Render an indented code block.
+
+        Args:
+            tokens: Block tokens.
+            idx: Index of the code token.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            A preformatted block.
+        """
+        body = escapeHtml(tokens[idx].content).rstrip("\n")
+        return (
+            f'<pre style="white-space:pre-wrap;margin:0;font-family:{FONT_MONO};'
+            f'line-height:{LINE_HEIGHT_BODY}">{body}</pre>\n'
+        )
+
+    # ------------------------------------------------------------------
+    #  Lists
+    # ------------------------------------------------------------------
+
+    def _flush_pending_marker(self) -> str:
+        """Emit a marker block for an item that did not start with a paragraph.
+
+        Returns:
+            A closed marker ``<div>``, or an empty string.
+        """
+        if not self._items or not self._items[-1].pending:
+            return ""
+        item = self._items[-1]
+        item.pending = False
+        return (
+            f'<div style="margin-left:{item.margin:.1f}px;'
+            f"text-indent:{item.indent:.1f}px;"
+            f'line-height:{LINE_HEIGHT_BODY}">{item.marker} </div>'
+        )
+
+    def bullet_list_open(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Open an unordered list.
+
+        Returns:
+            A pending marker block if the parent item needs one, else empty.
+        """
+        prefix = self._flush_pending_marker()
+        self._lists.append(_ListCtx(ordered=False, index=1))
+        return prefix
+
+    def ordered_list_open(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Open an ordered list.
+
+        Args:
+            tokens: Block tokens.
+            idx: Index of the list token.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            A pending marker block if the parent item needs one, else empty.
+        """
+        prefix = self._flush_pending_marker()
+        start = int(tokens[idx].attrs.get("start", 1) or 1)
+        self._lists.append(_ListCtx(ordered=True, index=start))
+        return prefix
+
+    def bullet_list_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close an unordered list.
+
+        Returns:
+            An empty string.
+        """
+        if self._lists:
+            self._lists.pop()
+        return ""
+
+    def ordered_list_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close an ordered list.
+
+        Returns:
+            An empty string.
+        """
+        if self._lists:
+            self._lists.pop()
+        return ""
+
+    def list_item_open(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Open a list item and stage its colored marker.
+
+        Args:
+            tokens: Block tokens.
+            idx: Index of the item token.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            An empty string; the marker is emitted with the first block.
+        """
+        if not self._lists:
+            return ""
+        ctx = self._lists[-1]
+        depth = len(self._lists) - 1
+        if ctx.ordered:
+            marker_plain = f"{ctx.index}."
+            color = COLOR_MD_LIST_NUMBER
+            ctx.index += 1
+        else:
+            marker_plain = "-"
+            color = COLOR_MD_LIST_MARKER
+        char = _CHAR_PX
+        marker_cols = len(marker_plain) + 1
+        margin = depth * 2 * char + marker_cols * char
+        self._items.append(
+            _ItemCtx(
+                marker=f'<font color="{color}">{marker_plain}</font>',
+                margin=margin,
+                indent=-marker_cols * char,
+            )
+        )
+        return ""
+
+    def list_item_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close a list item, flushing an unused marker if needed.
+
+        Returns:
+            A marker block for a paragraph-less item, else an empty string.
+        """
+        prefix = self._flush_pending_marker()
+        if self._items:
+            self._items.pop()
+        return prefix
+
+    # ------------------------------------------------------------------
+    #  Tables
+    # ------------------------------------------------------------------
+
+    _CELL_STYLE = f"padding:4px;line-height:{LINE_HEIGHT_BODY}"
+
+    def _cell_open(self, tag: str, tokens: Sequence[Token], idx: int) -> str:
+        """Open a table cell with padding and markdown alignment.
+
+        Args:
+            tag: ``"th"`` or ``"td"``.
+            tokens: Block tokens.
+            idx: Index of the cell token.
+
+        Returns:
+            The opening cell HTML.
+        """
+        style = self._CELL_STYLE
+        align = tokens[idx].attrs.get("style")
+        if align:
+            style = f"{style};{align}"
+        return f'<{tag} style="{style}">'
+
+    def table_open(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Open a CSS table with collapsed borders.
+
+        Qt Quick's ``TextEdit`` ignores CSS ``border`` on cells but honors the
+        table ``border`` attribute coloured by CSS ``border-color``.
+
+        Returns:
+            The opening ``<table>`` HTML.
+        """
+        return (
+            f'<table border="1" cellspacing="0" cellpadding="0" '
+            f'style="border-collapse:collapse;border-color:{COLOR_MD_RULE};margin:0">'
+        )
+
+    def table_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close the CSS table.
+
+        Returns:
+            The closing ``</table>`` HTML.
+        """
+        return "</table>\n"
+
+    def thead_open(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Open a table head section.
+
+        Returns:
+            An empty string.
+        """
+        return ""
+
+    def thead_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close a table head section.
+
+        Returns:
+            An empty string.
+        """
+        return ""
+
+    def tbody_open(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Open a table body section.
+
+        Returns:
+            An empty string.
+        """
+        return ""
+
+    def tbody_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close a table body section.
+
+        Returns:
+            An empty string.
+        """
+        return ""
+
+    def tr_open(self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType) -> str:
+        """Open a table row.
+
+        Returns:
+            The opening ``<tr>`` HTML.
+        """
+        return "<tr>"
+
+    def tr_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close a table row.
+
+        Returns:
+            The closing ``</tr>`` HTML.
+        """
+        return "</tr>"
+
+    def th_open(self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType) -> str:
+        """Open a header cell.
+
+        Returns:
+            The opening ``<th>`` HTML.
+        """
+        return self._cell_open("th", tokens, idx)
+
+    def th_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close a header cell.
+
+        Returns:
+            The closing ``</th>`` HTML.
+        """
+        return "</th>"
+
+    def td_open(self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType) -> str:
+        """Open a data cell.
+
+        Returns:
+            The opening ``<td>`` HTML.
+        """
+        return self._cell_open("td", tokens, idx)
+
+    def td_close(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Close a data cell.
+
+        Returns:
+            The closing ``</td>`` HTML.
+        """
+        return "</td>"
+
+
 # ------------------------------------------------------------------
 #  Renderer
 # ------------------------------------------------------------------
 
-_MD = MarkdownIt("commonmark", {"highlight": _highlight_code})
+_MD = MarkdownIt("commonmark", {"highlight": _highlight_code}, renderer_cls=_TerminalRenderer)
 _MD.enable(["table", "strikethrough"])
 _MD.use(tasklists_plugin, enabled=True)
 _MD.use(footnote_plugin)
 
 
 def render_markdown(text: str) -> str:
-    """Render markdown to inline-styled HTML for QML rich text.
+    """Render markdown to terminal-style inline HTML for QML rich text.
 
     Args:
         text: The markdown source.

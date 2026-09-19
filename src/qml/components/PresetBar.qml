@@ -28,7 +28,7 @@ Rectangle {
         implicitHeight: 26
         implicitWidth: Theme.metrics.buttonWidthMedium
         font.family: Theme.fontMono
-        font.pixelSize: Theme.metrics.fontSizeLabelSmall
+        font.pointSize: Theme.metrics.fontSizeBase
 
         background: Rectangle {
             color: control.down ? Theme.colors.hoverBg : control.baseColor
@@ -64,7 +64,7 @@ Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: 26
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                font.pointSize: Theme.metrics.fontSizeBase
                 model: bar.presetNames
 
                 background: Rectangle {
@@ -91,7 +91,7 @@ Rectangle {
                     text: "\u25be"
                     color: Theme.colors.textSecondary
                     font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeBody
+                    font.pointSize: Theme.metrics.fontSizeBase
                 }
 
                 delegate: ItemDelegate {
@@ -108,7 +108,7 @@ Rectangle {
                         text: modelData
                         color: Theme.colors.textPrimary
                         font.family: Theme.fontMono
-                        font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                        font.pointSize: Theme.metrics.fontSizeBase
                         verticalAlignment: Text.AlignVCenter
                         elide: Text.ElideRight
                     }
@@ -143,7 +143,7 @@ Rectangle {
                 color: Theme.colors.inputText
                 placeholderTextColor: Theme.colors.textDisabled
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                font.pointSize: Theme.metrics.fontSizeBase
                 background: Rectangle {
                     color: Theme.colors.inputFill
                     border.color: nameField.activeFocus

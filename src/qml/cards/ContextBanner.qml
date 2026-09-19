@@ -19,6 +19,8 @@ Rectangle {
     property string sectionsJson: ""
     property bool isDelta: false
     property bool bodyCollapsed: false
+    property int padTop: 8
+    property int padBottom: 8
 
     property var sections: sectionsJson.length > 0 ? JSON.parse(sectionsJson) : []
 
@@ -64,14 +66,14 @@ Rectangle {
                     text: banner.bodyCollapsed ? "\u25b8" : "\u25be"
                     color: Theme.colors.textSecondary
                     font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                    font.pointSize: Theme.metrics.fontSizeBase
                 }
 
                 Text {
                     text: banner.title
                     color: Theme.colors.textPrimary
                     font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeBody
+                    font.pointSize: Theme.metrics.fontSizeBase
                     font.bold: true
                 }
 
@@ -81,7 +83,7 @@ Rectangle {
                     text: qsTr("%1 section(s)").arg(banner.sections.length)
                     color: Theme.colors.textSecondary
                     font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                    font.pointSize: Theme.metrics.fontSizeBase
                 }
             }
 
@@ -141,7 +143,7 @@ Rectangle {
                             text: modelData.header
                             color: Theme.colors.textPrimary
                             font.family: Theme.fontMono
-                            font.pixelSize: Theme.metrics.fontSizeBody
+                            font.pointSize: Theme.metrics.fontSizeBase
                             font.bold: true
                             wrapMode: Text.Wrap
                         }
@@ -154,7 +156,7 @@ Rectangle {
                                 text: modelData
                                 color: Theme.colors.textSecondary
                                 font.family: Theme.fontMono
-                                font.pixelSize: Theme.metrics.fontSizeBody
+                                font.pointSize: Theme.metrics.fontSizeBase
                                 wrapMode: Text.Wrap
                             }
                         }

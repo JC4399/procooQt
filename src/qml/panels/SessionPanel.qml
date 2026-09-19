@@ -30,7 +30,7 @@ Rectangle {
         implicitHeight: 28
         implicitWidth: 84
         font.family: Theme.fontMono
-        font.pixelSize: Theme.metrics.fontSizeLabelSmall
+        font.pointSize: Theme.metrics.fontSizeBase
 
         background: Rectangle {
             color: control.down ? Theme.colors.hoverBg : control.baseColor
@@ -52,105 +52,79 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        TabBar {
-            id: tabs
-            Layout.fillWidth: true
-            background: Rectangle { color: Theme.colors.elevatedBg }
-
-            TabButton { text: qsTr("Chat") }
-            TabButton { text: qsTr("Schedule") }
-        }
-
-        StackLayout {
-            currentIndex: tabs.currentIndex
+        // ----------------------------------------------------------
+        //  Session sidebar
+        // ----------------------------------------------------------
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            spacing: 0
 
-            // ----------------------------------------------------------
-            //  Chat tab: session sidebar
-            // ----------------------------------------------------------
-            ColumnLayout {
-                spacing: 0
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 8
+                spacing: 6
 
-                RowLayout {
+                PanelButton {
                     Layout.fillWidth: true
-                    Layout.margins: 8
-                    spacing: 6
-
-                    PanelButton {
-                        Layout.fillWidth: true
-                        text: qsTr("+ Session")
-                        baseColor: Theme.colors.buttonPrimaryBg
-                        labelColor: Theme.colors.buttonPrimaryFg
-                        onClicked: session._handle_new_session()
-                    }
-
-                    PanelButton {
-                        Layout.fillWidth: true
-                        text: qsTr("+ Folder")
-                        onClicked: session._handle_new_folder()
-                    }
+                    text: qsTr("+ Session")
+                    baseColor: Theme.colors.buttonPrimaryBg
+                    labelColor: Theme.colors.buttonPrimaryFg
+                    onClicked: session._handle_new_session()
                 }
 
-                ListView {
-                    id: sessionList
+                PanelButton {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    spacing: 0
-                    model: session.session_model
-
-                    delegate: Item {
-                        width: sessionList.width
-                        height: model.is_folder ? 34 : 48
-
-                        SessionTile {
-                            anchors.fill: parent
-                            visible: !model.is_folder
-                            sessionId: model.session_id
-                            title: model.title
-                            status: model.status
-                            isActive: model.is_active
-                            isBlinking: model.is_blinking
-                            messageCount: model.message_count
-                            dotColor: session.statusColor(model.status)
-                            onClicked: session._handle_session_click(model.session_id)
-                            onDeleteRequested: session._handle_delete_session(model.session_id)
-                            onDragBegan: panel.dragActive = true
-                            onDragFinished: panel.dragActive = false
-                        }
-
-                        FolderHeader {
-                            anchors.fill: parent
-                            visible: model.is_folder
-                            folderName: model.folder
-                            sessionCount: model.message_count
-                            expanded: session.is_folder_expanded(model.folder)
-                            onToggled: function (expanded) {
-                                session._handle_folder_expansion(model.folder, expanded)
-                            }
-                            onDeleteRequested: {
-                                panel.pendingDeleteFolder = model.folder
-                                deleteFolderDialog.open()
-                            }
-                            onDropOnFolder: function (sessionId, folder) {
-                                session._handle_drop_on_folder(sessionId, folder)
-                            }
-                        }
-                    }
+                    text: qsTr("+ Folder")
+                    onClicked: session._handle_new_folder()
                 }
             }
 
-            // ----------------------------------------------------------
-            //  Schedule tab (placeholder)
-            // ----------------------------------------------------------
-            Item {
-                Text {
-                    anchors.centerIn: parent
-                    text: qsTr("Schedule (placeholder)")
-                    color: Theme.colors.textSecondary
-                    font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeBody
+            ListView {
+                id: sessionList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 0
+                model: session.session_model
+
+                delegate: Item {
+                    width: sessionList.width
+                    height: model.is_folder ? 34 : 48
+
+                    SessionTile {
+                        anchors.fill: parent
+                        visible: !model.is_folder
+                        sessionId: model.session_id
+                        title: model.title
+                        status: model.status
+                        isActive: model.is_active
+                        isBlinking: model.is_blinking
+                        messageCount: model.message_count
+                        dotColor: session.statusColor(model.status)
+                        onClicked: session._handle_session_click(model.session_id)
+                        onDeleteRequested: session._handle_delete_session(model.session_id)
+                        onDragBegan: panel.dragActive = true
+                        onDragFinished: panel.dragActive = false
+                    }
+
+                    FolderHeader {
+                        anchors.fill: parent
+                        visible: model.is_folder
+                        folderName: model.folder
+                        sessionCount: model.message_count
+                        expanded: session.is_folder_expanded(model.folder)
+                        onToggled: function (expanded) {
+                            session._handle_folder_expansion(model.folder, expanded)
+                        }
+                        onDeleteRequested: {
+                            panel.pendingDeleteFolder = model.folder
+                            deleteFolderDialog.open()
+                        }
+                        onDropOnFolder: function (sessionId, folder) {
+                            session._handle_drop_on_folder(sessionId, folder)
+                        }
+                    }
                 }
             }
         }
@@ -179,7 +153,7 @@ Rectangle {
             text: qsTr("Unfiled")
             color: Theme.colors.textSecondary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeLabelSmall
+            font.pointSize: Theme.metrics.fontSizeBase
         }
 
         DropArea {
@@ -231,7 +205,7 @@ Rectangle {
                 text: qsTr("Folder name")
                 color: Theme.colors.textPrimary
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                font.pointSize: Theme.metrics.fontSizeBase
             }
             TextField {
                 id: folderNameField
@@ -240,7 +214,7 @@ Rectangle {
                 color: Theme.colors.inputText
                 placeholderTextColor: Theme.colors.textDisabled
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeBody
+                font.pointSize: Theme.metrics.fontSizeBase
                 background: Rectangle {
                     color: Theme.colors.inputFill
                     border.color: folderNameField.activeFocus
@@ -298,7 +272,7 @@ Rectangle {
                       + qsTr("\"? Sessions will be unlinked but not deleted.")
                 color: Theme.colors.textPrimary
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeBody
+                font.pointSize: Theme.metrics.fontSizeBase
                 wrapMode: Text.WordWrap
             }
             RowLayout {

@@ -58,7 +58,7 @@ Rectangle {
             text: header.expanded ? "\u25bc" : "\u25b6"
             color: Theme.colors.textSecondary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeLabelSmall
+            font.pointSize: Theme.metrics.fontSizeBase
         }
 
         Text {
@@ -66,7 +66,7 @@ Rectangle {
             text: header.folderName
             color: Theme.colors.textPrimary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeBody
+            font.pointSize: Theme.metrics.fontSizeBase
             elide: Text.ElideRight
             maximumLineCount: 1
         }
@@ -75,7 +75,7 @@ Rectangle {
             text: header.sessionCount + " sessions"
             color: Theme.colors.textSecondary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeLabelSmall
+            font.pointSize: Theme.metrics.fontSizeBase
         }
 
         Rectangle {
@@ -92,7 +92,7 @@ Rectangle {
                 text: "\u00d7"
                 color: Theme.colors.textSecondary
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeBody
+                font.pointSize: Theme.metrics.fontSizeBase
             }
 
             MouseArea {

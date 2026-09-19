@@ -23,35 +23,35 @@ Rectangle {
             text: "ctx: " + chat.inputTokens
             color: Theme.colors.textSecondary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeLabelSmall
+            font.pointSize: Theme.metrics.fontSizeBase
         }
 
         Text {
             text: " + "
             color: Theme.colors.textSecondary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeLabelSmall
+            font.pointSize: Theme.metrics.fontSizeBase
         }
 
         Text {
             text: "out: " + chat.outputTokens
             color: Theme.colors.textSecondary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeLabelSmall
+            font.pointSize: Theme.metrics.fontSizeBase
         }
 
         Text {
             text: " = "
             color: Theme.colors.textSecondary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeLabelSmall
+            font.pointSize: Theme.metrics.fontSizeBase
         }
 
         Text {
             text: "total: " + (chat.inputTokens + chat.outputTokens)
             color: Theme.colors.accentAmber
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeLabelSmall
+            font.pointSize: Theme.metrics.fontSizeBase
             font.bold: true
         }
     }

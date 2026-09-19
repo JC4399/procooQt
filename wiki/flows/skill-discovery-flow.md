@@ -70,8 +70,16 @@ watchdog thread** and, per the concurrency rules, only emits a Qt signal:
 and `_rebuild_skill_sidebar` rebuilds the `SkillTreeModel` and `ToolModeModel`
 (preserving selections that still exist).
 
-The editor file tree is built from `skills_dir` by `EditorController.start`
-and file clicks; it is not rebuilt by the skill watcher.
+`SkillController.skill_files_changed` also drives the editor.
+`EditorController._handle_skill_files_changed` runs while the editor window is
+showing: it rebuilds the `FileTreeModel` (`_refresh_from_watcher`) and then
+reconciles the open file with disk (`_reload_open_file_if_changed`). While the
+window is hidden the watcher is ignored editor-side; showing the window
+(`_handle_window_visibility`) triggers a full re-sync. A deleted or externally
+modified open file raises `EditorController.file_conflict`, which
+`EditorPanel.qml` renders as a themed modal dialog asking whether to keep the
+editor buffer or take the on-disk state. The tree is also built at startup by
+`EditorController.start` and toggled by file clicks / folder toggles.
 
 ## Validation levels
 

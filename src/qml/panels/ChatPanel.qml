@@ -25,7 +25,7 @@ Rectangle {
         implicitHeight: 28
         implicitWidth: Theme.metrics.buttonWidthMedium
         font.family: Theme.fontMono
-        font.pixelSize: Theme.metrics.fontSizeLabelSmall
+        font.pointSize: Theme.metrics.fontSizeBase
 
         background: Rectangle {
             color: control.down ? Theme.colors.hoverBg : control.baseColor
@@ -75,17 +75,27 @@ Rectangle {
                 cacheBuffer: 500
 
                 onCountChanged: {
-                    if (atYEnd || contentHeight <= height)
+                    if (autoScrollToggle.checked || atYEnd || contentHeight <= height)
+                        positionViewAtEnd()
+                }
+
+                onContentHeightChanged: {
+                    if (autoScrollToggle.checked)
                         positionViewAtEnd()
                 }
 
                 delegate: Item {
                     width: chatList.width
-                    height: cardLoader.item ? cardLoader.item.implicitHeight : 0
+                    height: cardLoader.item
+                            ? cardLoader.item.implicitHeight
+                              + cardLoader.item.padTop
+                              + cardLoader.item.padBottom
+                            : 0
 
                     Loader {
                         id: cardLoader
                         width: parent.width
+                        y: cardLoader.item ? cardLoader.item.padTop : 0
 
                         sourceComponent: {
                             switch (model.kind) {
@@ -165,6 +175,18 @@ Rectangle {
                 implicitWidth: 32
                 implicitHeight: 32
             }
+
+            AutoScrollToggle {
+                id: autoScrollToggle
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: 12
+                z: 20
+                onToggled: {
+                    if (checked)
+                        chatList.positionViewAtEnd()
+                }
+            }
         }
 
         // ----------------------------------------------------------
@@ -199,7 +221,7 @@ Rectangle {
                 color: Theme.colors.inputText
                 placeholderTextColor: Theme.colors.textDisabled
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeBody
+                font.pointSize: Theme.metrics.fontSizeBase
                 background: Rectangle {
                     color: Theme.colors.inputFill
                     border.color: input.activeFocus

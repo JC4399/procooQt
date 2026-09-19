@@ -4,9 +4,11 @@ import QtQuick.Layouts
 
 import "../components"
 
-// Editor tab: code editor on the left and a collapsible file tree on the right,
-// matching the Flet editor | resize | file-tree order. The editor is read-only
-// until Edit is pressed; Save/Cancel/Reload drive the controller slots.
+// Editor window content: a collapsible file tree on the left and a code editor
+// on the right, matching the layout of a typical text editor. The editor is
+// read-only until Edit is pressed; Save/Cancel/Reload drive the controller
+// slots. External file changes and deletions raise a themed conflict dialog
+// that asks whether to keep the buffer or take the on-disk state.
 SplitView {
     id: editorPanel
 
@@ -27,7 +29,7 @@ SplitView {
         implicitHeight: 26
         implicitWidth: Theme.metrics.buttonWidthMedium
         font.family: Theme.fontMono
-        font.pixelSize: Theme.metrics.fontSizeLabelSmall
+        font.pointSize: Theme.metrics.fontSizeBase
 
         background: Rectangle {
             color: control.down ? Theme.colors.hoverBg : control.baseColor
@@ -46,7 +48,43 @@ SplitView {
     }
 
     // --------------------------------------------------------------
-    //  Editor pane
+    //  File tree pane (left)
+    // --------------------------------------------------------------
+    Rectangle {
+        id: fileTreePane
+        SplitView.preferredWidth: 220
+        SplitView.minimumWidth: 120
+        SplitView.maximumWidth: 500
+        color: Theme.colors.surfaceBg
+        border.color: Theme.colors.borderDefault
+        border.width: 1
+        radius: 0
+
+        ListView {
+            id: fileList
+            anchors.fill: parent
+            clip: true
+            spacing: 0
+            model: editor.file_model
+
+            delegate: FileNode {
+                width: fileList.width
+                path: model.path
+                name: model.name
+                icon: model.icon
+                depth: model.depth
+                isFolder: model.is_folder
+                selected: model.path === editor.currentFile
+                expanded: editor.isFolderExpanded(model.path)
+                onActivated: function (path, isFolder) {
+                    editor._handle_file_click(path, isFolder)
+                }
+            }
+        }
+    }
+
+    // --------------------------------------------------------------
+    //  Editor pane (right)
     // --------------------------------------------------------------
     ColumnLayout {
         id: editorPane
@@ -94,7 +132,7 @@ SplitView {
                 text: editor.language
                 color: Theme.colors.textDisabled
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeGutter
+                font.pointSize: Theme.metrics.fontSizeBase
             }
         }
 
@@ -122,7 +160,7 @@ SplitView {
                 readOnly: !editor.editing
                 textFormat: TextEdit.PlainText
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeBody
+                font.pointSize: Theme.metrics.fontSizeBase
                 color: Theme.colors.textPrimary
                 selectionColor: Theme.colors.accentCyan
                 selectedTextColor: Theme.colors.pageBg
@@ -149,38 +187,96 @@ SplitView {
     }
 
     // --------------------------------------------------------------
-    //  File tree pane
+    //  Conflict dialog (deleted / externally modified file)
     // --------------------------------------------------------------
-    Rectangle {
-        id: fileTreePane
-        SplitView.preferredWidth: 220
-        SplitView.minimumWidth: 120
-        SplitView.maximumWidth: 500
-        color: Theme.colors.surfaceBg
-        border.color: Theme.colors.borderDefault
-        border.width: 1
-        radius: 0
+    Dialog {
+        id: conflictDialog
 
-        ListView {
-            id: fileList
-            anchors.fill: parent
-            clip: true
-            spacing: 0
-            model: editor.file_model
+        property string kind: ""
+        property string filePath: ""
 
-            delegate: FileNode {
-                width: fileList.width
-                path: model.path
-                name: model.name
-                icon: model.icon
-                depth: model.depth
-                isFolder: model.is_folder
-                selected: model.path === editor.currentFile
-                expanded: editor.isFolderExpanded(model.path)
-                onActivated: function (path, isFolder) {
-                    editor._handle_file_click(path, isFolder)
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        focus: true
+        width: 400
+        padding: 12
+
+        background: Rectangle {
+            color: Theme.colors.surfaceBg
+            border.color: Theme.colors.borderDefault
+            border.width: 1
+            radius: 0
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 10
+
+            Text {
+                Layout.fillWidth: true
+                text: conflictDialog.kind === "deleted"
+                      ? qsTr("File deleted")
+                      : qsTr("File changed on disk")
+                color: Theme.colors.textPrimary
+                font.family: Theme.fontMono
+                font.pointSize: Theme.metrics.fontSizeBase
+                font.bold: true
+                wrapMode: Text.WordWrap
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: conflictDialog.kind === "deleted"
+                      ? qsTr("This file was removed: ")
+                        + conflictDialog.filePath
+                        + qsTr("\nKeep it by recreating it from the editor, or remove it.")
+                      : qsTr("This file was modified outside the editor: ")
+                        + conflictDialog.filePath
+                        + qsTr("\nKeep the editor content, or discard it and reload.")
+                color: Theme.colors.textSecondary
+                font.family: Theme.fontMono
+                font.pointSize: Theme.metrics.fontSizeBase
+                wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 6
+
+                Item { Layout.fillWidth: true }
+
+                FlatButton {
+                    implicitWidth: 160
+                    text: conflictDialog.kind === "deleted"
+                          ? qsTr("Keep file")
+                          : qsTr("Keep editor content")
+                    onClicked: {
+                        editor._handle_conflict_keep()
+                        conflictDialog.close()
+                    }
+                }
+
+                FlatButton {
+                    implicitWidth: 160
+                    text: conflictDialog.kind === "deleted"
+                          ? qsTr("Remove file")
+                          : qsTr("Discard & reload")
+                    baseColor: Theme.colors.accentRed
+                    labelColor: Theme.colors.pageBg
+                    onClicked: {
+                        editor._handle_conflict_discard()
+                        conflictDialog.close()
+                    }
                 }
             }
+        }
+    }
+
+    Connections {
+        target: editor
+        function onFile_conflict(kind, path) {
+            conflictDialog.kind = kind
+            conflictDialog.filePath = path
+            conflictDialog.open()
         }
     }
 }

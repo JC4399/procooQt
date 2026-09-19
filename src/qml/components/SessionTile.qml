@@ -69,7 +69,7 @@ Rectangle {
                 text: "\u283f"
                 color: Theme.colors.dragIcon
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeBody
+                font.pointSize: Theme.metrics.fontSizeBase
             }
 
             Text {
@@ -77,7 +77,7 @@ Rectangle {
                 text: tile.title
                 color: Theme.colors.textPrimary
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeBody
+                font.pointSize: Theme.metrics.fontSizeBase
                 elide: Text.ElideRight
                 maximumLineCount: 1
             }
@@ -129,7 +129,7 @@ Rectangle {
                 text: tile.title
                 color: Theme.colors.textPrimary
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeBody
+                font.pointSize: Theme.metrics.fontSizeBase
                 elide: Text.ElideRight
                 maximumLineCount: 1
             }
@@ -139,7 +139,7 @@ Rectangle {
                 text: tile.messageCount + " msg"
                 color: Theme.colors.textSecondary
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                font.pointSize: Theme.metrics.fontSizeBase
                 elide: Text.ElideRight
                 maximumLineCount: 1
             }
@@ -160,7 +160,7 @@ Rectangle {
                 text: "\u00d7"
                 color: Theme.colors.textSecondary
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeBody
+                font.pointSize: Theme.metrics.fontSizeBase
             }
 
             MouseArea {

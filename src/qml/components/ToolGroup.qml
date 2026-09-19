@@ -74,7 +74,7 @@ Rectangle {
                 text: group.skillDisplayName
                 color: Theme.colors.textSecondary
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeTree
+                font.pointSize: Theme.metrics.fontSizeBase
                 elide: Text.ElideRight
             }
         }
@@ -90,7 +90,7 @@ Rectangle {
                 text: group.toolName
                 color: Theme.colors.textPrimary
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeTree
+                font.pointSize: Theme.metrics.fontSizeBase
                 elide: Text.ElideRight
                 maximumLineCount: 1
                 verticalAlignment: Text.AlignVCenter

@@ -21,6 +21,7 @@ import json
 
 from .markdown import render_markdown
 from .qt_roles import ChatRole
+from .theme import FONT_MONO, LINE_HEIGHT_BODY
 from .yaml_highlight import highlight_yaml_html
 
 # ------------------------------------------------------------------
@@ -145,7 +146,10 @@ def _plain_body(text: str) -> str:
     Returns:
         An HTML ``<pre>`` block preserving whitespace and newlines.
     """
-    return f'<pre style="white-space:pre-wrap;margin:0">{html.escape(text)}</pre>'
+    return (
+        f'<pre style="white-space:pre-wrap;margin:0;font-family:{FONT_MONO};'
+        f'line-height:{LINE_HEIGHT_BODY}">{html.escape(text)}</pre>'
+    )
 
 
 # ------------------------------------------------------------------

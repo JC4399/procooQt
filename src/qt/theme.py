@@ -36,6 +36,22 @@ COLOR_ACCENT_MAGENTA = "#bc8cff"
 COLOR_ACCENT_BLUE = "#388bfd"
 
 # ------------------------------------------------------------------
+# Markdown (terminal-style) palette
+# ------------------------------------------------------------------
+# Consumed by ``src/qt/markdown.py`` when rendering chat markdown. The single
+# exception is ``COLOR_MD_TEXT``, which QML applies to markdown card bodies.
+COLOR_MD_TEXT = "#eeeeee"
+COLOR_MD_HEADING = "#9d7cd8"
+COLOR_MD_BOLD = "#f5a742"
+COLOR_MD_ITALIC = "#e5c07b"
+COLOR_MD_CODE = "#7fd88f"
+COLOR_MD_LINK = "#56b6c2"
+COLOR_MD_LIST_MARKER = "#d19a66"
+COLOR_MD_LIST_NUMBER = COLOR_MD_LINK
+COLOR_MD_QUOTE = "#5c6370"
+COLOR_MD_RULE = COLOR_MD_QUOTE
+
+# ------------------------------------------------------------------
 # Border colors
 # ------------------------------------------------------------------
 COLOR_BORDER_DEFAULT = "#30363d"
@@ -177,12 +193,20 @@ ICON_SIZE_SMALL = 14
 ICON_SIZE_MEDIUM = 14
 ICON_SIZE_LARGE = 18
 
+# Font sizes are point sizes. ``FONT_SIZE_BASE`` is the single size used by all
+# non-markdown UI text; ``FONT_SIZE_MARKDOWN`` applies only to chat markdown bodies.
 FONT_SIZE_GUTTER = 12
-FONT_SIZE_TREE = 14
+FONT_SIZE_TREE = 12
+FONT_SIZE_BASE = 12
+FONT_SIZE_MARKDOWN = 12
+
+#: CSS ``line-height`` for chat card bodies (plain text and markdown), as a
+#: percentage of the font size. 150% ≈ 1.5 line spacing.
+LINE_HEIGHT_BODY = "150%"
 
 FONT_MONO = "Sarasa Fixed TC"
-FONT_SIZE_BODY = 14
-FONT_SIZE_LABEL_SMALL = 13
+FONT_SIZE_BODY = 12
+FONT_SIZE_LABEL_SMALL = 12
 FONT_SIZE_TITLE_SMALL = 16
 FONT_SIZE_TITLE_MEDIUM = 18
 FONT_SIZE_TITLE_LARGE = 24
@@ -201,6 +225,7 @@ COLORS: dict[str, str] = {
     "textPrimary": COLOR_TEXT_PRIMARY,
     "textSecondary": COLOR_TEXT_SECONDARY,
     "textDisabled": COLOR_TEXT_DISABLED,
+    "mdText": COLOR_MD_TEXT,
     "accentCyan": COLOR_ACCENT_CYAN,
     "accentGreen": COLOR_ACCENT_GREEN,
     "accentAmber": COLOR_ACCENT_AMBER,
@@ -290,6 +315,8 @@ METRICS: dict[str, int] = {
     "iconSizeLarge": ICON_SIZE_LARGE,
     "fontSizeGutter": FONT_SIZE_GUTTER,
     "fontSizeTree": FONT_SIZE_TREE,
+    "fontSizeBase": FONT_SIZE_BASE,
+    "fontSizeMarkdown": FONT_SIZE_MARKDOWN,
     "fontSizeBody": FONT_SIZE_BODY,
     "fontSizeLabelSmall": FONT_SIZE_LABEL_SMALL,
     "fontSizeTitleSmall": FONT_SIZE_TITLE_SMALL,

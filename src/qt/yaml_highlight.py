@@ -17,6 +17,8 @@ from .theme import (
     COLOR_ACCENT_GREEN,
     COLOR_ACCENT_MAGENTA,
     COLOR_TEXT_SECONDARY,
+    FONT_MONO,
+    LINE_HEIGHT_BODY,
 )
 
 # ------------------------------------------------------------------
@@ -202,4 +204,7 @@ def highlight_yaml_html(text: str) -> str:
     """
     lines = [_tokenize_line(line) for line in text.splitlines()]
     body = "\n".join(lines)
-    return f'<pre style="white-space:pre-wrap;margin:0">{body}</pre>'
+    return (
+        f'<pre style="white-space:pre-wrap;margin:0;font-family:{FONT_MONO};'
+        f'line-height:{LINE_HEIGHT_BODY}">{body}</pre>'
+    )

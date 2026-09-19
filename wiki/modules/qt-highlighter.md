@@ -4,8 +4,8 @@ Source: `src/qt/highlighter.py`
 
 ## Purpose
 
-A `QSyntaxHighlighter` subclass that gives the QML code editor (right "Editor"
-tab) per-language syntax colouring. It attaches to a QML `TextArea`'s
+A `QSyntaxHighlighter` subclass that gives the QML code editor (in the separate
+`EditorWindow`) per-language syntax colouring. It attaches to a QML `TextArea`'s
 `QTextDocument` and applies a rule set chosen by `set_language`. Dedicated rule
 sets exist for Python, YAML, JSON, Bash, JavaScript, SQL, HTML, CSS, and
 Markdown; every other language normalises to a generic `"plain"` set.

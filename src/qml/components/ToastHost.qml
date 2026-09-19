@@ -39,7 +39,7 @@ Item {
                     text: model.message
                     color: Theme.colors.toastText
                     font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeBody
+                    font.pointSize: Theme.metrics.fontSizeBase
                     wrapMode: Text.WordWrap
                 }
 

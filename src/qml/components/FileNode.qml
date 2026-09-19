@@ -41,7 +41,7 @@ Rectangle {
             text: node.expanded ? "\u25be" : "\u25b8"
             color: Theme.colors.textSecondary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeGutter
+            font.pointSize: Theme.metrics.fontSizeBase
         }
 
         Text {
@@ -49,7 +49,7 @@ Rectangle {
             text: node.icon
             color: node.isFolder ? Theme.colors.accentCyan : Theme.colors.textSecondary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeGutter
+            font.pointSize: Theme.metrics.fontSizeBase
             elide: Text.ElideRight
         }
 
@@ -58,7 +58,7 @@ Rectangle {
             text: node.name
             color: node.selected ? Theme.colors.accentCyan : Theme.colors.textPrimary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeTree
+            font.pointSize: Theme.metrics.fontSizeBase
             elide: Text.ElideRight
             maximumLineCount: 1
         }

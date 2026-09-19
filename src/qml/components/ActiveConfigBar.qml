@@ -43,7 +43,7 @@ Rectangle {
                     text: bar.expanded ? "\u25bc" : "\u25b6"
                     color: Theme.colors.textSecondary
                     font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeLabelSmall
+                    font.pointSize: Theme.metrics.fontSizeBase
                 }
 
                 Text {
@@ -51,7 +51,7 @@ Rectangle {
                     text: qsTr("Active Skills & Tools")
                     color: Theme.colors.textSecondary
                     font.family: Theme.fontMono
-                    font.pixelSize: Theme.metrics.fontSizeBody
+                    font.pointSize: Theme.metrics.fontSizeBase
                     elide: Text.ElideRight
                 }
             }
@@ -69,7 +69,7 @@ Rectangle {
                 text: qsTr("No skills or tools configured for this session.")
                 color: Theme.colors.textDisabled
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeTree
+                font.pointSize: Theme.metrics.fontSizeBase
                 font.italic: true
             }
 
@@ -90,7 +90,7 @@ Rectangle {
                         text: modelData.label
                         color: modelData.fg
                         font.family: Theme.fontMono
-                        font.pixelSize: Theme.metrics.fontSizeGutter
+                        font.pointSize: Theme.metrics.fontSizeBase
                     }
                 }
             }

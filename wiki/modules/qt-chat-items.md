@@ -38,8 +38,15 @@ body (rich-text HTML) or BusyIndicator while isPending
 
 `CardBase.qml` is the single header implementation; each concrete card
 (`UserCard.qml`, `ThinkingCard.qml`, …) only sets `iconGlyph`, accent colours,
-and border style. Pending variants keep the same header and set `isPending`,
-which swaps the body for a `BusyIndicator`. `ChatPanel.qml` binds each delegate
+border style, and vertical padding. `CardBase` exposes `padTop`/`padBottom`
+(default 8 px; `UserCard` uses 24 px) which the `ChatPanel.qml` delegate applies
+as margins outside the card border to space cards apart; `ContextBanner.qml`
+mirrors the same 8 px default. Pending variants keep
+the same header and set `isPending`, which swaps the body for a
+`BusyIndicator`. The body `TextEdit` uses
+`Theme.colors.mdText` for markdown kinds (`thinking`/`response`) and
+`Theme.colors.textPrimary` otherwise, and opens clicked links with
+`Qt.openUrlExternally`. `ChatPanel.qml` binds each delegate
 from the `ChatListModel` roles (`kind`, `title`, `body_html`, `token_text`,
 `mode`, `is_pending`, `tool_name`, `sections`, `is_delta`).
 
@@ -61,9 +68,14 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 ## Body HTML generation
 
 1. **User / tool result** — `_plain_body` escapes the text with `html.escape`
-   and wraps it in `<pre style="white-space:pre-wrap;margin:0">`.
+   and wraps it in
+   `<pre style="white-space:pre-wrap;margin:0;font-family:Sarasa Fixed TC;line-height:150%">`
+   (the `font-family` keeps Qt's `<pre>` from substituting its system monospace
+   font, matching `Theme.fontMono`; `line-height` comes from
+   `Theme.LINE_HEIGHT_BODY` so plain text matches markdown leading).
 2. **Thinking / response** — `render_markdown` returns sanitized, inline-styled
-   HTML for a QML `TextEdit.RichText`.
+   HTML for a QML `TextEdit.RichText` (terminal-style colours, CSS bordered
+   tables, clickable links; see [`qt-markdown`](qt-markdown.md)).
 3. **Tool call** — `_to_yaml_string` serializes `{name, mode, arguments}` and
    `highlight_yaml_html` colourises it into a `<pre>` HTML block.
 
@@ -76,7 +88,7 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 | `make_item(kind, *, title="", body_html="", token_text="", collapsed=False, is_pending=False, mode="", tool_name="", tool_call_id="", sections="", is_delta=False) -> dict[int, object]` | `kind` — `KIND_*`; `title`/`body_html`/`token_text` — header and body; `collapsed`/`is_pending` — defaults; `mode`/`tool_name`/`tool_call_id`/`sections`/`is_delta` — tool and banner fields | role-keyed dict (`int(ChatRole.*)` → value) | Maps every argument onto its `ChatRole` key | None |
 | `_card_item(kind, *, title, body_html="", token_count=0, is_pending=False, mode="", tool_name="", tool_call_id="") -> dict[int, object]` | Card fields with a raw `token_count` | role-keyed dict | Calls `make_item` with `token_text=_token_text(token_count)` | None |
 | `_token_text(token_count: int) -> str` | `token_count` | `"42 tk"` | f-string format | None |
-| `_plain_body(text: str) -> str` | `text` | escaped `<pre>` block | `html.escape` into `<pre style="white-space:pre-wrap;margin:0">` | None |
+| `_plain_body(text: str) -> str` | `text` | escaped `<pre>` block | `html.escape` into `<pre style="white-space:pre-wrap;margin:0;font-family:…;line-height:150%">` | None |
 
 ### Item builders
 

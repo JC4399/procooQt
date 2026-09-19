@@ -5,6 +5,11 @@ Owns the file tree model and the editor state. Behavior ports from
 rooted at the skills directory, plus Edit/Save/Cancel/Reload. File reads and writes are
 offloaded with :func:`asyncio.to_thread` so the qasync loop never blocks.
 
+The skill watcher drives realtime reconciliation: while the editor window is showing,
+directory changes rebuild the file tree and the open file is compared with disk. A
+deleted or externally modified open file raises :attr:`file_conflict` for the QML layer
+to prompt the user (keep the buffer vs. take the on-disk state).
+
 The :class:`CodeHighlighter` attaches to the QML ``TextArea`` through its
 ``textDocument`` property (see :meth:`attachHighlighter`).
 """
@@ -84,6 +89,7 @@ class EditorController(QObject):
     file_tree_changed = Signal()
     current_file_changed = Signal(str)
     edit_mode_changed = Signal(bool)
+    file_conflict = Signal(str, str)
     toast_requested = Signal(str, str)
 
     if TYPE_CHECKING:
@@ -96,6 +102,11 @@ class EditorController(QObject):
         _current_text: str
         _language: str
         _is_editing: bool
+        _active: bool
+        _disk_mtime: float | None
+        _conflict_path: str | None
+        _conflict_kind: str
+        _conflict_mtime: float
         _highlighter: CodeHighlighter | None
         _document: QTextDocument | None
         _document_wrapper: Any | None
@@ -126,6 +137,11 @@ class EditorController(QObject):
         self._current_text = ""
         self._language = "plain"
         self._is_editing = False
+        self._active = False
+        self._disk_mtime = None
+        self._conflict_path = None
+        self._conflict_kind = ""
+        self._conflict_mtime = 0.0
         self._highlighter = None
         self._document = None
         self._document_wrapper = None
@@ -194,6 +210,143 @@ class EditorController(QObject):
     def start(self) -> None:
         """(Re)build the file tree from the skills directory."""
         self._refresh_file_tree()
+
+    # ------------------------------------------------------------------
+    #  Slot: Window visibility
+    # ------------------------------------------------------------------
+
+    @Slot(bool)
+    def _handle_window_visibility(self, visible: bool) -> None:
+        """Track editor-window visibility and re-sync when it becomes visible.
+
+        Hidden windows skip watcher reconciliation entirely so no conflict prompt
+        is raised off-screen; showing the window triggers a full refresh (and
+        re-raises any conflict that was left pending).
+
+        Args:
+            visible: Whether the editor window is currently showing.
+        """
+        self._active = visible
+        if not visible:
+            return
+        if self._conflict_path is not None:
+            self.file_conflict.emit(self._conflict_kind, self._conflict_path)
+            return
+        self._spawn(self._refresh_from_watcher())
+
+    # ------------------------------------------------------------------
+    #  Slot: Watcher refresh
+    # ------------------------------------------------------------------
+
+    @Slot()
+    def _handle_skill_files_changed(self) -> None:
+        """Reconcile the editor after a skill-directory change (GUI thread).
+
+        A no-op while the editor window is hidden; the tree and open file are
+        re-synchronised when the window is next shown.
+        """
+        if not self._active:
+            return
+        self._spawn(self._refresh_from_watcher())
+
+    async def _refresh_from_watcher(self) -> None:
+        """Rebuild the file tree off-loop, then reconcile the open file."""
+        try:
+            await asyncio.to_thread(self._file_model.rebuild, self.app.skill_manager.skills_dir)
+        except Exception as error:
+            logger.error("Editor tree refresh failed: %s", error)
+            return
+        self.file_tree_changed.emit()
+        await self._reload_open_file_if_changed()
+
+    async def _reload_open_file_if_changed(self) -> None:
+        """Compare the open file with disk and prompt on a conflict.
+
+        Raises :attr:`file_conflict` for a deleted or externally modified open
+        file. The prompt is suppressed while a conflict is already pending, and
+        re-reads that match the buffer only update the known disk mtime.
+        """
+        path = self._current_path
+        if not path or self._conflict_path is not None:
+            return
+        try:
+            stat = await asyncio.to_thread(Path(path).stat)
+        except OSError:
+            self._open_conflict("deleted", path, 0.0)
+            return
+        mtime = stat.st_mtime
+        if self._disk_mtime is not None and mtime == self._disk_mtime:
+            return
+        try:
+            content = await asyncio.to_thread(Path(path).read_text, encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            logger.debug("Editor reconcile read failed for %s: %s", path, exc)
+            return
+        if content == self._current_text:
+            self._disk_mtime = mtime
+            return
+        self._open_conflict("modified", path, mtime)
+
+    def _open_conflict(self, kind: str, path: str, mtime: float) -> None:
+        """Record a pending file conflict and ask QML to prompt.
+
+        Args:
+            kind: Either ``"deleted"`` or ``"modified"``.
+            path: The conflicted file path.
+            mtime: The external modification time (``0.0`` when deleted).
+        """
+        self._conflict_kind = kind
+        self._conflict_path = path
+        self._conflict_mtime = mtime
+        logger.warning("Editor conflict (%s): %s", kind, path)
+        self.file_conflict.emit(kind, path)
+
+    # ------------------------------------------------------------------
+    #  Slot: Conflict resolution
+    # ------------------------------------------------------------------
+
+    @Slot()
+    def _handle_conflict_keep(self) -> None:
+        """Resolve a conflict by keeping the editor buffer.
+
+        A deleted file is recreated from the buffer; an externally modified file
+        keeps the buffer and records the new disk mtime so it is not re-prompted
+        until the file changes again.
+        """
+        kind = self._conflict_kind
+        if kind == "deleted":
+            self._spawn(self._save(self._current_text))
+        elif kind == "modified":
+            self._disk_mtime = self._conflict_mtime
+        self._clear_conflict()
+
+    @Slot()
+    def _handle_conflict_discard(self) -> None:
+        """Resolve a conflict by taking the on-disk state.
+
+        A deleted file is closed in the editor; an externally modified file is
+        reloaded from disk (leaving edit mode first).
+        """
+        kind = self._conflict_kind
+        path = self._conflict_path
+        self._clear_conflict()
+        if kind == "deleted":
+            self._set_editing(False)
+            self._current_path = None
+            self._current_text = ""
+            self._language = "plain"
+            if self._highlighter is not None:
+                self._highlighter.set_language(self._language)
+            self.current_file_changed.emit("")
+        elif kind == "modified" and path:
+            self._set_editing(False)
+            self._spawn(self._load_file_into_editor(path))
+
+    def _clear_conflict(self) -> None:
+        """Clear the pending conflict state."""
+        self._conflict_path = None
+        self._conflict_kind = ""
+        self._conflict_mtime = 0.0
 
     # ------------------------------------------------------------------
     #  Slot: File click
@@ -353,7 +506,7 @@ class EditorController(QObject):
             filepath: Absolute path to the file to load.
         """
         try:
-            content = await asyncio.to_thread(Path(filepath).read_text, encoding="utf-8")
+            content, mtime = await asyncio.to_thread(self._read_file, filepath)
         except (OSError, UnicodeDecodeError) as exc:
             logger.error("Failed to read %s: %s", filepath, exc)
             self.toast_requested.emit(f"Failed to read file: {exc}", TOAST_ERROR)
@@ -361,6 +514,7 @@ class EditorController(QObject):
 
         self._current_path = filepath
         self._current_text = content
+        self._disk_mtime = mtime
         self._language = detect_language(filepath)
         if self._highlighter is not None:
             self._highlighter.set_language(self._language)
@@ -377,7 +531,7 @@ class EditorController(QObject):
         if not path:
             return
         try:
-            await asyncio.to_thread(Path(path).write_text, text, encoding="utf-8")
+            mtime = await asyncio.to_thread(self._write_file, path, text)
         except OSError as exc:
             logger.error("Failed to save %s: %s", path, exc)
             self.toast_requested.emit(f"Failed to save file: {exc}", TOAST_ERROR)
@@ -385,6 +539,7 @@ class EditorController(QObject):
 
         logger.info("Saved editor content to %s", path)
         self._current_text = text
+        self._disk_mtime = mtime
         self._set_editing(False)
         self.toast_requested.emit(f"Saved {Path(path).name}.", TOAST_INFO)
         self.current_file_changed.emit(path)
@@ -416,6 +571,41 @@ class EditorController(QObject):
     # ------------------------------------------------------------------
     #  Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _read_file(path: str) -> tuple[str, float]:
+        """Read a file and its modification time (blocking).
+
+        Args:
+            path: Absolute path to read.
+
+        Returns:
+            Tuple of file content and ``st_mtime``.
+
+        Raises:
+            OSError: When the file cannot be read.
+            UnicodeDecodeError: When the file is not valid UTF-8.
+        """
+        file = Path(path)
+        return file.read_text(encoding="utf-8"), file.stat().st_mtime
+
+    @staticmethod
+    def _write_file(path: str, text: str) -> float:
+        """Write text to a file and return its modification time (blocking).
+
+        Args:
+            path: Absolute path to write.
+            text: Content to persist.
+
+        Returns:
+            The file's ``st_mtime`` after the write.
+
+        Raises:
+            OSError: When the file cannot be written.
+        """
+        file = Path(path)
+        file.write_text(text, encoding="utf-8")
+        return file.stat().st_mtime
 
     def _spawn(self, coro: Coroutine[Any, Any, Any]) -> None:
         """Schedule a coroutine and keep a reference until it completes.

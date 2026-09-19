@@ -28,12 +28,13 @@
 ┌──────────────▼───────────────────────────────────────────────────────────────┐
 │  QML view layer (view-only; src/qml/)                                        │
 │    Main.qml — ApplicationWindow + 3-pane SplitView                           │
-│    src/qml/panels/     SessionPanel · ChatPanel · SkillPanel · EditorPanel   │
+│    src/qml/panels/     SessionPanel · ChatPanel · SkillPanel                 │
+│    src/qml/windows/    EditorWindow (separate code editor window)            │
 │    src/qml/cards/      User · Thinking · Response · ToolCall · ToolResult ·  │
 │                        ContextBanner · CardBase                              │
 │    src/qml/components/ SessionTile · FolderHeader · SkillNode · ToolGroup ·  │
 │                        PresetBar · ActiveConfigBar · ApprovalBar · TokenBar ·│
-│                        FileNode · ToastHost                                  │
+│                        FileNode · ToastHost · AutoScrollToggle               │
 └──────────────┬───────────────────────────────────────────────────────────────┘
                │ binds model roles / calls @Slot methods
 ┌──────────────▼───────────────────────────────────────────────────────────────┐

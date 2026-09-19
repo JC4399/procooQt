@@ -18,7 +18,10 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
   toasts, session status, cards, chips, tool-mode badges, toast, drag feedback,
   resize handle, inputs).
 - Sizing/font constants (`BUTTON_RADIUS`, `CARD_RADIUS`, `STATUS_DOT_RADIUS`,
-  `FONT_MONO`, `FONT_SIZE_BODY`, `BUTTON_WIDTH_*`, …).
+  `FONT_MONO`, `FONT_SIZE_BASE`, `FONT_SIZE_MARKDOWN`, `LINE_HEIGHT_BODY`,
+  `BUTTON_WIDTH_*`, …).
+- Markdown palette constants (`COLOR_MD_*`) consumed by
+  [`qt.markdown`](qt-markdown.md); only `COLOR_MD_TEXT` is registered for QML.
 - `COLORS: dict[str, str]` — camelCase color-name registry.
 - `METRICS: dict[str, int]` — camelCase numeric registry.
 - `Theme(QObject)` exposing three constant `Property` values: `colors`,
@@ -41,6 +44,7 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
 | Cards | `COLOR_THINKING_*`, `COLOR_TOOL_CALL_*`, `COLOR_TOOL_RESULT_*`, `COLOR_CARD_HEADER_DIVIDER` |
 | Chips | `COLOR_CHIP_{PRIMARY,SECONDARY,ALLOW,ASK,BLOCK}_{BG,FG}` |
 | Tool modes | `COLOR_TOOL_MODE_{ALLOW,ASK,BLOCK,DEFAULT}_{BG,FG}` |
+| Markdown | `COLOR_MD_TEXT` (#eeeeee), `_HEADING`, `_BOLD`, `_ITALIC`, `_CODE`, `_LINK`, `_LIST_MARKER`, `_LIST_NUMBER`, `_QUOTE`, `_RULE` |
 | Inputs | `INPUT_BORDER_COLOR`, `INPUT_FOCUSED_BORDER_COLOR`, `INPUT_FILL_COLOR`, `INPUT_CURSOR_COLOR`, `INPUT_TEXT_COLOR` |
 
 ## Registry naming
@@ -52,8 +56,17 @@ so Python and QML agree on one vocabulary:
 COLORS["pageBg"]              # "#0d1117"
 COLORS["sessionWaiting"]      # COLOR_ACCENT_AMBER
 METRICS["cardRadius"]         # 0
-METRICS["fontSizeBody"]       # 14
+METRICS["fontSizeBase"]       # 12
+METRICS["fontSizeMarkdown"]   # 12
 ```
+
+Font metrics are **point** sizes (QML uses `font.pointSize`). Every non-markdown
+text element uses `fontSizeBase` (12 pt); `fontSizeMarkdown` (12 pt) applies only
+to chat markdown bodies rendered by `CardBase.qml`. `LINE_HEIGHT_BODY` (`150%`)
+is the CSS line height applied to every chat card body — plain-text `<pre>`
+blocks and markdown paragraphs/lists/code. The `fontSizeGutter`,
+`fontSizeTree`, `fontSizeBody`, `fontSizeLabelSmall` and `fontSizeTitle*` entries
+remain registered but unused.
 
 Because the properties are `QVariantMap`s, QML reaches them with dot syntax, as
 used throughout `src/qml/**`:

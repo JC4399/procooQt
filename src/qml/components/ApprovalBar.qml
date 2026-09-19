@@ -30,7 +30,7 @@ Rectangle {
         implicitHeight: 28
         implicitWidth: Theme.metrics.buttonWidthMedium
         font.family: Theme.fontMono
-        font.pixelSize: Theme.metrics.fontSizeLabelSmall
+        font.pointSize: Theme.metrics.fontSizeBase
 
         background: Rectangle {
             color: control.down ? Theme.colors.hoverBg : control.baseColor
@@ -61,7 +61,7 @@ Rectangle {
             text: chat.approvalText
             color: Theme.colors.textPrimary
             font.family: Theme.fontMono
-            font.pixelSize: Theme.metrics.fontSizeBody
+            font.pointSize: Theme.metrics.fontSizeBase
             wrapMode: Text.WordWrap
         }
 
@@ -96,7 +96,7 @@ Rectangle {
                 color: Theme.colors.inputText
                 placeholderTextColor: Theme.colors.textDisabled
                 font.family: Theme.fontMono
-                font.pixelSize: Theme.metrics.fontSizeBody
+                font.pointSize: Theme.metrics.fontSizeBase
                 background: Rectangle {
                     color: Theme.colors.inputFill
                     border.color: reasonField.activeFocus

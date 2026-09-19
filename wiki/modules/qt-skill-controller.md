@@ -34,7 +34,7 @@ view-only and calls these slots.
 | `config_changed` | — | Active-config chips rebuilt; notifies `configChips`. |
 | `preset_name_changed` | — | `presetName` set; notifies that property. |
 | `toast_requested` | `str, str` | A user-visible message + toast level (`TOAST_ERROR` / `TOAST_WARNING`). |
-| `skill_files_changed` | — | Watchdog callback (background thread) → queued to the GUI slot. |
+| `skill_files_changed` | — | Watchdog callback (background thread) → queued to the GUI slot. Also wired to `editor._handle_skill_files_changed` by `qt-ui`. |
 
 | Property | Type | Notify | Meaning |
 |---|---|---|---|
@@ -64,7 +64,9 @@ view-only and calls these slots.
 1. `watchdog` calls `_on_skill_files_changed` on a **background thread**; it only
    emits `skill_files_changed` and never touches models.
 2. The connected `_handle_skill_files_changed` slot runs queued on the GUI thread
-   and schedules `_refresh_skills`.
+   and schedules `_refresh_skills`. `ProcooQtUI` connects the same signal to
+   `editor._handle_skill_files_changed`, which independently reconciles the editor
+   window (see [`qt-editor-controller`](qt-editor-controller.md)).
 3. `_refresh_skills` `await asyncio.to_thread(skill_manager.refresh)`, then
    `_rebuild_skill_sidebar`. Failures toast an error.
 
@@ -157,6 +159,6 @@ view-only and calls these slots.
 
 - [`qt-context-banner`](qt-context-banner.md) — delta section builder.
 - [`qt-chat-items`](qt-chat-items.md) — chat item builders the rebuilt display consumes.
-- [`qt-editor-controller`](qt-editor-controller.md) — sibling right-sidebar tab.
+- [`qt-editor-controller`](qt-editor-controller.md) — the same watcher signal drives editor reconciliation.
 - Rebuild plan: [`../00-Rebuild-Plan.md`](../00-Rebuild-Plan.md).
 - Flet counterpart: [`flet-skill-panel`](../../../wiki/modules/flet-skill-panel.md).

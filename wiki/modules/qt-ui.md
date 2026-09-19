@@ -47,11 +47,15 @@ Cross-controller signal connections made in `__init__`:
 | `chat.toast_requested` | `notifier.toast_requested` |
 | `skill.toast_requested` | `notifier.toast_requested` |
 | `editor.toast_requested` | `notifier.toast_requested` |
+| `skill.skill_files_changed` | `editor._handle_skill_files_changed` |
 
 `active_session_changed` is the single activation bus: the
 [session controller](qt-session-controller.md) emits it and the chat and skill
 controllers react. `ErrorNotifier` fans the four `toast_requested` streams into
-the `toasts` context property consumed by `ToastHost.qml`.
+the `toasts` context property consumed by `ToastHost.qml`. The
+[skill controller](qt-skill-controller.md)'s `skill_files_changed` is emitted on
+the watchdog thread and queued to the [editor controller](qt-editor-controller.md)
+so it can reconcile the code editor window.
 
 ## Steps / Flow
 
@@ -62,7 +66,7 @@ the `toasts` context property consumed by `ToastHost.qml`.
 3. Create the four controllers: `session`, `chat`, `skill`, `editor`.
 4. Inject cross-controller references (`chat.session`, `skill.session`,
    `skill.chat`, `skill.notifier`).
-5. Connect the toast and session-activation signals listed above.
+5. Connect the toast, session-activation, and skill-watcher signals listed above.
 6. `_build_controllers()` then `_expose_to_qml()`.
 
 ### `start` (from `app.py`)
