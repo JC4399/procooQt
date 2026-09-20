@@ -144,7 +144,10 @@ Rectangle {
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: card.bodyCollapsed = !card.bodyCollapsed
+                onClicked: {
+                    bodyHost.animateBody = true
+                    card.bodyCollapsed = !card.bodyCollapsed
+                }
             }
         }
 
@@ -158,8 +161,10 @@ Rectangle {
             clip: true
 
             property real bodyHeight: card.bodyCollapsed ? 0 : (body.implicitHeight + 14)
+            property bool animateBody: false
 
             Behavior on bodyHeight {
+                enabled: bodyHost.animateBody
                 NumberAnimation {
                     duration: 160
                     easing.type: Easing.InOutQuad

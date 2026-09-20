@@ -94,9 +94,30 @@ Rectangle {
                     font.pointSize: Theme.metrics.fontSizeBase
                 }
 
+                popup: Popup {
+                    y: presetCombo.height
+                    width: presetCombo.width
+                    implicitHeight: contentItem.implicitHeight
+                    padding: 0
+                    background: Rectangle {
+                        color: Theme.colors.surfaceBg
+                        border.color: Theme.colors.borderDefault
+                        border.width: 1
+                        radius: 0
+                    }
+                    contentItem: ListView {
+                        clip: true
+                        implicitHeight: contentHeight
+                        model: presetCombo.delegateModel
+                        currentIndex: presetCombo.highlightedIndex
+                        highlightMoveDuration: 0
+                    }
+                }
+
                 delegate: ItemDelegate {
                     width: presetCombo.width
                     height: 24
+                    padding: 0
                     highlighted: presetCombo.highlightedIndex === index
                     background: Rectangle {
                         color: highlighted ? Theme.colors.hoverBg : Theme.colors.surfaceBg
@@ -105,6 +126,7 @@ Rectangle {
                         radius: 0
                     }
                     contentItem: Text {
+                        leftPadding: 6
                         text: modelData
                         color: Theme.colors.textPrimary
                         font.family: Theme.fontMono

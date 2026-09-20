@@ -19,7 +19,7 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
   resize handle, inputs).
 - Sizing/font constants (`BUTTON_RADIUS`, `CARD_RADIUS`, `STATUS_DOT_RADIUS`,
   `FONT_MONO`, `FONT_SIZE_BASE`, `FONT_SIZE_MARKDOWN`, `LINE_HEIGHT_BODY`,
-  `BUTTON_WIDTH_*`, …).
+  `BUTTON_WIDTH_*`, `WHEEL_SCROLL_STEP`, …).
 - Markdown palette constants (`COLOR_MD_*`) consumed by
   [`qt.markdown`](qt-markdown.md); only `COLOR_MD_TEXT` is registered for QML.
 - `COLORS: dict[str, str]` — camelCase color-name registry.
@@ -47,6 +47,10 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
 | Markdown | `COLOR_MD_TEXT` (#eeeeee), `_HEADING`, `_BOLD`, `_ITALIC`, `_CODE`, `_LINK`, `_LIST_MARKER`, `_LIST_NUMBER`, `_QUOTE`, `_RULE` |
 | Inputs | `INPUT_BORDER_COLOR`, `INPUT_FOCUSED_BORDER_COLOR`, `INPUT_FILL_COLOR`, `INPUT_CURSOR_COLOR`, `INPUT_TEXT_COLOR` |
 
+Chat card surfaces (`COLOR_BUBBLE_USER`, `COLOR_BUBBLE_ASSISTANT`,
+`COLOR_THINKING_BG`, `COLOR_TOOL_CALL_BG`, `COLOR_TOOL_RESULT_BG`) all alias
+`COLOR_PAGE_BG`, so cards blend into the chat canvas and read as outlines.
+
 ## Registry naming
 
 `COLORS` and `METRICS` map each `UPPER_SNAKE` constant to a camelCase QML key,
@@ -67,6 +71,9 @@ is the CSS line height applied to every chat card body — plain-text `<pre>`
 blocks and markdown paragraphs/lists/code. The `fontSizeGutter`,
 `fontSizeTree`, `fontSizeBody`, `fontSizeLabelSmall` and `fontSizeTitle*` entries
 remain registered but unused.
+
+`WHEEL_SCROLL_STEP` (120 px) is the distance the chat list moves per discrete
+mouse-wheel notch; `ChatPanel.qml` reads it as `Theme.metrics.wheelScrollStep`.
 
 Because the properties are `QVariantMap`s, QML reaches them with dot syntax, as
 used throughout `src/qml/**`:

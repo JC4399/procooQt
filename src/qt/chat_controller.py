@@ -148,12 +148,11 @@ def _count_trailing_tool_results(messages: list[dict], after_idx: int) -> int:
 
 
 def _compute_assistant_keys(
-    state: SessionState, msg: dict, messages: list[dict], idx: int, is_last_busy: bool
+    msg: dict, messages: list[dict], idx: int, is_last_busy: bool
 ) -> list[str]:
     """Compute render keys for one assistant message.
 
     Args:
-        state: The session's UI state (carries live pending token counts).
         msg: The assistant message dict.
         messages: Full message list (for looking ahead at tool results).
         idx: Current message index.
@@ -170,12 +169,12 @@ def _compute_assistant_keys(
             if d["thinking_done"]:
                 keys.append("t:" + _content_hash(d["thinking_text"]) + ":done")
             else:
-                keys.append("t:pending:" + str(state.thinking.token_count))
+                keys.append("t:pending")
         if d["content_text"]:
             if d["response_done"]:
                 keys.append("r:" + _content_hash(d["content_text"]) + ":done")
             else:
-                keys.append("r:pending:" + str(state.response.token_count))
+                keys.append("r:pending")
         for tc in d["effective_tool_calls"]:
             tc_id = tc.get("id", "")
             name = tc.get("function", {}).get("name", "")
@@ -936,7 +935,7 @@ class ChatController(QObject):
             if role == "user":
                 keys.append("u:" + _content_hash(msg.get("content", "")))
             elif role == "assistant":
-                keys.extend(_compute_assistant_keys(state, msg, messages, i, is_last_busy))
+                keys.extend(_compute_assistant_keys(msg, messages, i, is_last_busy))
             elif role == "tool":
                 name = msg.get("name", "")
                 keys.append("tr:" + name + ":" + _content_hash(msg.get("content", "")))

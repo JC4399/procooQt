@@ -33,7 +33,7 @@ view-only and calls these slots.
 | `presets_changed` | — | Preset list reloaded; notifies `presetNames`. |
 | `config_changed` | — | Active-config chips rebuilt; notifies `configChips`. |
 | `preset_name_changed` | — | `presetName` set; notifies that property. |
-| `toast_requested` | `str, str` | A user-visible message + toast level (`TOAST_ERROR` / `TOAST_WARNING`). |
+| `toast_requested` | `str, str` | A user-visible message + toast level (`TOAST_ERROR` / `TOAST_WARNING` / `TOAST_INFO`). Preset save/load/delete emit `TOAST_INFO`; missing presets emit `TOAST_WARNING`. |
 | `skill_files_changed` | — | Watchdog callback (background thread) → queued to the GUI slot. Also wired to `editor._handle_skill_files_changed` by `qt-ui`. |
 
 | Property | Type | Notify | Meaning |
@@ -109,9 +109,9 @@ view-only and calls these slots.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `_handle_save_preset() -> None` | — (name from `presetName`) | `None` | Validate name (else error toast); collect config; `preset_store.save_preset`; refresh | Emits `preset_name_changed`, `presets_changed`; may emit `toast_requested` |
-| `_handle_load_preset(name: str) -> None` | `name` (empty clears) | `None` | Empty → clear; else load, apply selection/modes under the loading flag, refresh chips, schedule sync | Emits `tool_modes_changed`, `config_changed`; schedules sync |
-| `_handle_delete_preset(name: str) -> None` | `name` | `None` | `preset_store.delete_preset`; clear typed name if it matched; refresh | Emits `preset_name_changed`, `presets_changed` |
+| `_handle_save_preset() -> None` | — (name from `presetName`) | `None` | Validate name (else error toast); collect config; `preset_store.save_preset`; refresh | Emits `preset_name_changed`, `presets_changed`, `toast_requested` (info on success, error on empty name) |
+| `_handle_load_preset(name: str) -> None` | `name` (empty clears) | `None` | Empty → clear; else load, apply selection/modes under the loading flag, refresh chips, schedule sync | Emits `tool_modes_changed`, `config_changed`, `toast_requested` (info on load/clear, warning if preset missing); schedules sync |
+| `_handle_delete_preset(name: str) -> None` | `name` | `None` | `preset_store.delete_preset`; clear typed name if it matched; refresh | Emits `preset_name_changed`, `presets_changed`, `toast_requested` (info on success) |
 
 ### Collectors (DRY)
 

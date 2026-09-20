@@ -69,9 +69,9 @@ COLOR_BUTTON_APPROVE_FG = COLOR_PAGE_BG
 # ------------------------------------------------------------------
 # Chat bubble colors
 # ------------------------------------------------------------------
-COLOR_BUBBLE_USER = "#000000"
+COLOR_BUBBLE_USER = COLOR_PAGE_BG
 COLOR_BUBBLE_USER_BORDER = COLOR_ACCENT_GREEN
-COLOR_BUBBLE_ASSISTANT = "#000000"
+COLOR_BUBBLE_ASSISTANT = COLOR_PAGE_BG
 COLOR_BUBBLE_ASSISTANT_BORDER = COLOR_ACCENT_AMBER
 
 # ------------------------------------------------------------------
@@ -113,11 +113,11 @@ COLOR_SESSION_FLASH = "#e6edf3"
 # ------------------------------------------------------------------
 # Content cards (thinking, tool call, tool result)
 # ------------------------------------------------------------------
-COLOR_THINKING_BG = "#000000"
+COLOR_THINKING_BG = COLOR_PAGE_BG
 COLOR_THINKING_BORDER = COLOR_ACCENT_BLUE
-COLOR_TOOL_CALL_BG = "#000000"
+COLOR_TOOL_CALL_BG = COLOR_PAGE_BG
 COLOR_TOOL_CALL_BORDER = COLOR_ACCENT_MAGENTA
-COLOR_TOOL_RESULT_BG = "#000000"
+COLOR_TOOL_RESULT_BG = COLOR_PAGE_BG
 COLOR_TOOL_RESULT_BORDER = COLOR_ACCENT_MAGENTA
 COLOR_CARD_HEADER_DIVIDER = COLOR_BORDER_LIGHT
 
@@ -215,6 +215,9 @@ BUTTON_WIDTH_SMALL = 60
 BUTTON_WIDTH_MEDIUM = 120
 BUTTON_WIDTH_LARGE = 180
 BUTTON_WIDTH_SEGMENTED = BUTTON_WIDTH_MEDIUM * 2
+
+#: Distance (logical px) the chat list moves per mouse-wheel notch.
+WHEEL_SCROLL_STEP = 120
 
 #: Color registry exposed to QML as ``Theme.colors.<name>``.
 COLORS: dict[str, str] = {
@@ -326,6 +329,7 @@ METRICS: dict[str, int] = {
     "buttonWidthMedium": BUTTON_WIDTH_MEDIUM,
     "buttonWidthLarge": BUTTON_WIDTH_LARGE,
     "buttonWidthSegmented": BUTTON_WIDTH_SEGMENTED,
+    "wheelScrollStep": WHEEL_SCROLL_STEP,
 }
 
 

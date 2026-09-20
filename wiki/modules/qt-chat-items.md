@@ -50,6 +50,33 @@ the same header and set `isPending`, which swaps the body for a
 from the `ChatListModel` roles (`kind`, `title`, `body_html`, `token_text`,
 `mode`, `is_pending`, `tool_name`, `sections`, `is_delta`).
 
+The collapsible body height in `CardBase.qml` is only animated when the user
+clicks the header (`bodyHost.animateBody` gates the `Behavior`); creation and
+streaming-driven height growth apply instantly, so they do not churn the scroll
+position.
+
+The chat list in `ChatPanel.qml` is a **non-virtualized** `Flickable` + `Column` +
+`Repeater`, not a `ListView`: every card is instantiated so `contentHeight` is
+exact. A virtualized `ListView` was tried and abandoned — with these
+variable-height cards its `contentHeight` is only an estimate, and
+`positionViewAtEnd()` against that estimate shifted `originY` without bound
+(runaway scrolling, a jumping scrollbar, and a middle-of-viewport landing).
+Auto-scroll sets `contentY = contentHeight - height` through a 30 ms debounce
+`Timer` guarded by `!moving && !flicking`, following the newest card while
+`autoScrollToggle.checked || followTail`; `followTail` tracks `atYEnd` on
+`onContentYChanged`. `boundsBehavior: Flickable.StopAtBounds` prevents dragging
+past the last card.
+
+Mouse-wheel scrolling is handled explicitly by a `WheelHandler` on the chat
+`Flickable`, overriding Qt's small platform default step: high-resolution or
+trackpad `pixelDelta` is applied verbatim, while discrete notches step by
+`Theme.metrics.wheelScrollStep` (120 px). The handler offsets `contentY` and
+then calls `returnToBounds()`, so it never uses `contentHeight` arithmetic and
+cannot scroll past the true end. `onContentYChanged` updates `followTail` from
+`atYEnd`, so wheeling up stops auto-follow and wheeling back to the end resumes
+it. A vertical `ScrollBar` (`ScrollBar.AsNeeded`) provides feedback and
+drag-scroll.
+
 ## Card types
 
 | Card | `kind` | QML delegate | Border | Header | Body |

@@ -29,7 +29,7 @@ from ..util.log.formatter import (
     format_tool_change,
 )
 from .context_banner import build_delta_context_sections
-from .error_handler import TOAST_ERROR, TOAST_WARNING
+from .error_handler import TOAST_ERROR, TOAST_INFO, TOAST_WARNING
 from .models.skill_tree_model import SkillTreeModel
 from .models.tool_mode_model import ToolModeModel
 from .theme import (
@@ -336,6 +336,7 @@ class SkillController(QObject):
         self._preset_name = cleaned
         self.preset_name_changed.emit()
         self._refresh_presets()
+        self.toast_requested.emit(f"Preset '{cleaned}' saved.", TOAST_INFO)
 
     @Slot(str)
     def _handle_load_preset(self, name: str) -> None:
@@ -353,10 +354,12 @@ class SkillController(QObject):
                 self._loading_session_config = False
             self._refresh_tool_model()
             self._update_config_chips()
+            self.toast_requested.emit("Preset selections cleared.", TOAST_INFO)
             return
 
         preset = self.app.preset_store.load_preset(name)
         if not preset:
+            self.toast_requested.emit(f"Preset '{name}' not found.", TOAST_WARNING)
             return
         primary = set(preset.get("primary_skills", []))
         secondary = set(preset.get("secondary_skills", []))
@@ -379,6 +382,7 @@ class SkillController(QObject):
         self._refresh_tool_model()
         self._update_config_chips()
         self._schedule_sync()
+        self.toast_requested.emit(f"Preset '{name}' loaded.", TOAST_INFO)
 
     @Slot(str)
     def _handle_delete_preset(self, name: str) -> None:
@@ -393,6 +397,7 @@ class SkillController(QObject):
             if self._preset_name == name:
                 self._preset_name = ""
                 self.preset_name_changed.emit()
+            self.toast_requested.emit(f"Preset '{name}' deleted.", TOAST_INFO)
         self._refresh_presets()
 
     # ------------------------------------------------------------------

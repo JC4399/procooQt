@@ -74,13 +74,16 @@ def build_context_banner_item(
         is_delta: Whether to use the delta (orange) colour scheme.
 
     Returns:
-        A role-keyed chat item dictionary with kind ``"context_banner"``.
+        A role-keyed chat item dictionary with kind ``"context_banner"``. The
+        initial (non-delta) banner starts collapsed; delta banners start
+        expanded so config changes remain visible.
     """
     normalized = _normalize_sections(sections)
     return make_item(
         KIND_CONTEXT_BANNER,
         title=title,
         sections=json.dumps(normalized),
+        collapsed=not is_delta,
         is_delta=is_delta,
     )
 

@@ -131,7 +131,8 @@ live messages (falling back to stored messages), then:
 `_compute_render_keys` emits `b:i` for the initial context banner, `b:d:<hash>`
 for each delta banner in `context_banners_data`, `u:<hash>` for user messages,
 one or more keys for assistant messages from `_compute_assistant_keys` (pending
-cards are keyed by live token counts, completed cards by content hash), and
+cards use stable `t:pending` / `r:pending` keys so token-label updates never
+remove/re-insert their row; completed cards use content hashes), and
 `tr:<name>:<hash>` for tool results. `_build_items` mirrors the same order using
 the `chat_items` / `context_banner` builders and records
 `thinking.item_index`, `response.item_index`, and `tool_call_indices` so live
@@ -253,5 +254,5 @@ the newly appended suffix of each text field.
 | `def normalize_content(content: str \| list) -> str` | content | String | Normalises message content for hashing/display |
 | `def _assistant_decision(msg: dict) -> dict` | assistant message | Decision dict | Common thinking/response/tool-call state shared by keys and builders |
 | `def _count_trailing_tool_results(messages: list[dict], after_idx: int) -> int` | messages, index | Count | Consecutive `role == "tool"` messages after the index |
-| `def _compute_assistant_keys(state, msg, messages, idx, is_last_busy) -> list[str]` | state + message | Render keys | Pending cards keyed by live token counts; completed cards by content hash |
+| `def _compute_assistant_keys(msg, messages, idx, is_last_busy) -> list[str]` | message, messages, index, busy flag | Render keys | Pending cards use stable `t:pending` / `r:pending` keys (token counts refresh via `update_item`); completed cards by content hash |
 | `def _accumulate_tokens(text: str, previous: str, current: int) -> int` | full text, counted prefix, current count | Updated count | Counts only the appended suffix; recomputes on shrink |

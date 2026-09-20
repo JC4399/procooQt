@@ -24,9 +24,13 @@ items only — `session.messages` remains canonical. Builders return plain
    section's content into a `list[str]` (list-of-lines entries are joined with
    `"\n"`).
 2. `make_item(KIND_CONTEXT_BANNER, title=…, sections=json.dumps(normalized),
-   is_delta=…)` returns the role-keyed dict.
+   collapsed=not is_delta, is_delta=…)` returns the role-keyed dict. The initial
+   (non-delta) banner starts collapsed; delta banners start expanded.
 3. `ContextBanner.qml` parses `sectionsJson`, picks the neutral or orange delta
-   scheme from `isDelta`, and animates the collapsible body height.
+   scheme from `isDelta`, seeds `bodyCollapsed` from the `collapsed` role, and
+   animates the collapsible body height only when the user toggles the header.
+   Creation and content-driven height changes are not animated, so a deferred
+   `ChatPanel` auto-scroll never chases a moving height.
 
 ### Initial context (snapshot)
 
@@ -47,7 +51,7 @@ delta so at most one delta is shown.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `build_context_banner_item(title: str, sections: list[dict], *, is_delta=False) -> dict[int, object]` | `title` — headline; `sections` — `{header, content}` dicts (content = list of str or list of lists); `is_delta` — orange scheme | role-keyed dict with kind `context_banner` | `_normalize_sections` → `json.dumps` into `sections` role → `make_item` | None |
+| `build_context_banner_item(title: str, sections: list[dict], *, is_delta=False) -> dict[int, object]` | `title` — headline; `sections` — `{header, content}` dicts (content = list of str or list of lists); `is_delta` — orange scheme | role-keyed dict with kind `context_banner` | `_normalize_sections` → `json.dumps` into `sections` role → `make_item` with `collapsed=not is_delta` | None |
 | `build_context_sections_from_snapshot(snapshot: dict) -> list[dict]` | `snapshot` — stored context snapshot | list of `{header, content}` dicts | Reads `system_prompt`, `pending_additions`, `primary_skills`, `secondary_skills`, `tools` + `tool_config`; builds only non-empty sections | None |
 | `build_delta_context_sections(added_primary: list[dict], added_secondary: list[dict], added_tools: list[dict], mode_changes: dict[str, tuple[str, str]]) -> list[dict]` | Added skill/tool content dicts; `mode_changes` — tool → `(old, new)` | list of `{header, content}` dicts | Builds "Added Primary/Secondary Skills", "Added Tools", "Tool Mode Changes" sections, only when non-empty; sorts mode changes | None |
 

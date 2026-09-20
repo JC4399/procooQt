@@ -65,104 +65,174 @@ Rectangle {
             border.width: 1
             radius: Theme.metrics.chatContainerRadius
 
-            ListView {
+            // Non-virtualized so contentHeight is exact; ListView's height
+            // estimation was unstable for these variable-height cards.
+            Flickable {
                 id: chatList
                 anchors.fill: parent
                 anchors.margins: 8
                 clip: true
-                spacing: 6
-                model: chat.activeModel
-                cacheBuffer: 500
+                boundsBehavior: Flickable.StopAtBounds
+                contentWidth: width
+                contentHeight: chatColumn.implicitHeight
 
-                onCountChanged: {
-                    if (autoScrollToggle.checked || atYEnd || contentHeight <= height)
-                        positionViewAtEnd()
+                // Follow the newest card while the user has not scrolled away.
+                // Toggle ON forces follow; OFF follows only while pinned to the end.
+                property bool followTail: true
+                property bool _autoScrolling: false
+
+                function scrollToBottom() {
+                    _autoScrolling = true
+                    contentY = Math.max(0, contentHeight - height)
+                    _autoScrolling = false
                 }
 
-                onContentHeightChanged: {
-                    if (autoScrollToggle.checked)
-                        positionViewAtEnd()
+                function scheduleScroll() {
+                    if (autoScrollToggle.checked || followTail)
+                        scrollDebounce.restart()
                 }
 
-                delegate: Item {
+                onContentYChanged: {
+                    if (!_autoScrolling)
+                        followTail = atYEnd
+                }
+
+                onContentHeightChanged: scheduleScroll()
+                onMovementEnded: scheduleScroll()
+
+                Timer {
+                    id: scrollDebounce
+                    interval: 30
+                    repeat: false
+                    onTriggered: {
+                        if (!chatList.moving && !chatList.flicking)
+                            chatList.scrollToBottom()
+                    }
+                }
+
+                ScrollBar.vertical: ScrollBar {
+                    id: chatScrollBar
+                    policy: ScrollBar.AsNeeded
+
+                    background: Rectangle {
+                        color: "transparent"
+                    }
+
+                    contentItem: Rectangle {
+                        implicitWidth: 6
+                        radius: 0
+                        color: Theme.colors.borderStrong
+                        opacity: chatScrollBar.size < 1.0 ? 1 : 0
+                    }
+                }
+
+                WheelHandler {
+                    onWheel: function (event) {
+                        const pixel = event.pixelDelta.y
+                        const step = pixel !== 0
+                                     ? pixel
+                                     : (event.angleDelta.y / 120) * Theme.metrics.wheelScrollStep
+                        chatList.contentY -= step
+                        chatList.returnToBounds()
+                        event.accepted = true
+                    }
+                }
+
+                Column {
+                    id: chatColumn
                     width: chatList.width
-                    height: cardLoader.item
-                            ? cardLoader.item.implicitHeight
-                              + cardLoader.item.padTop
-                              + cardLoader.item.padBottom
-                            : 0
+                    spacing: 6
 
-                    Loader {
-                        id: cardLoader
-                        width: parent.width
-                        y: cardLoader.item ? cardLoader.item.padTop : 0
+                    Repeater {
+                        model: chat.activeModel
 
-                        sourceComponent: {
-                            switch (model.kind) {
-                            case "user":
-                                return userCardComponent
-                            case "thinking":
-                                return thinkingCardComponent
-                            case "response":
-                                return responseCardComponent
-                            case "tool_call":
-                                return toolCallCardComponent
-                            case "tool_result":
-                                return toolResultCardComponent
-                            case "context_banner":
-                                return contextBannerComponent
-                            default:
-                                return null
+                        delegate: Item {
+                            width: chatColumn.width
+                            height: cardLoader.item
+                                    ? cardLoader.item.implicitHeight
+                                      + cardLoader.item.padTop
+                                      + cardLoader.item.padBottom
+                                    : 0
+
+                            Loader {
+                                id: cardLoader
+                                width: parent.width
+                                y: cardLoader.item ? cardLoader.item.padTop : 0
+
+                                sourceComponent: {
+                                    switch (model.kind) {
+                                    case "user":
+                                        return userCardComponent
+                                    case "thinking":
+                                        return thinkingCardComponent
+                                    case "response":
+                                        return responseCardComponent
+                                    case "tool_call":
+                                        return toolCallCardComponent
+                                    case "tool_result":
+                                        return toolResultCardComponent
+                                    case "context_banner":
+                                        return contextBannerComponent
+                                    default:
+                                        return null
+                                    }
+                                }
+
+                                Binding {
+                                    target: cardLoader.item
+                                    property: "bodyHtml"
+                                    value: model.body_html
+                                    when: cardLoader.item !== null
+                                }
+                                Binding {
+                                    target: cardLoader.item
+                                    property: "tokenText"
+                                    value: model.token_text
+                                    when: cardLoader.item !== null
+                                }
+                                Binding {
+                                    target: cardLoader.item
+                                    property: "mode"
+                                    value: model.mode
+                                    when: cardLoader.item !== null
+                                }
+                                Binding {
+                                    target: cardLoader.item
+                                    property: "isPending"
+                                    value: model.is_pending
+                                    when: cardLoader.item !== null
+                                }
+                                Binding {
+                                    target: cardLoader.item
+                                    property: "subtitle"
+                                    value: model.tool_name
+                                    when: cardLoader.item !== null
+                                }
+                                Binding {
+                                    target: cardLoader.item
+                                    property: "title"
+                                    value: model.title
+                                    when: cardLoader.item !== null && model.kind === "context_banner"
+                                }
+                                Binding {
+                                    target: cardLoader.item
+                                    property: "sectionsJson"
+                                    value: model.sections
+                                    when: cardLoader.item !== null && model.kind === "context_banner"
+                                }
+                                Binding {
+                                    target: cardLoader.item
+                                    property: "isDelta"
+                                    value: model.is_delta
+                                    when: cardLoader.item !== null && model.kind === "context_banner"
+                                }
+                                Binding {
+                                    target: cardLoader.item
+                                    property: "bodyCollapsed"
+                                    value: model.collapsed
+                                    when: cardLoader.item !== null && model.kind === "context_banner"
+                                }
                             }
-                        }
-
-                        Binding {
-                            target: cardLoader.item
-                            property: "bodyHtml"
-                            value: model.body_html
-                            when: cardLoader.item !== null
-                        }
-                        Binding {
-                            target: cardLoader.item
-                            property: "tokenText"
-                            value: model.token_text
-                            when: cardLoader.item !== null
-                        }
-                        Binding {
-                            target: cardLoader.item
-                            property: "mode"
-                            value: model.mode
-                            when: cardLoader.item !== null
-                        }
-                        Binding {
-                            target: cardLoader.item
-                            property: "isPending"
-                            value: model.is_pending
-                            when: cardLoader.item !== null
-                        }
-                        Binding {
-                            target: cardLoader.item
-                            property: "subtitle"
-                            value: model.tool_name
-                            when: cardLoader.item !== null
-                        }
-                        Binding {
-                            target: cardLoader.item
-                            property: "title"
-                            value: model.title
-                            when: cardLoader.item !== null && model.kind === "context_banner"
-                        }
-                        Binding {
-                            target: cardLoader.item
-                            property: "sectionsJson"
-                            value: model.sections
-                            when: cardLoader.item !== null && model.kind === "context_banner"
-                        }
-                        Binding {
-                            target: cardLoader.item
-                            property: "isDelta"
-                            value: model.is_delta
-                            when: cardLoader.item !== null && model.kind === "context_banner"
                         }
                     }
                 }
@@ -184,7 +254,7 @@ Rectangle {
                 z: 20
                 onToggled: {
                     if (checked)
-                        chatList.positionViewAtEnd()
+                        chatList.scrollToBottom()
                 }
             }
         }
@@ -211,17 +281,12 @@ Rectangle {
             Layout.margins: 8
             spacing: 8
 
-            TextArea {
-                id: input
+            ScrollView {
+                id: inputScroll
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(140, Math.max(72, contentHeight + 12))
-                placeholderText: qsTr("Type a message...")
-                wrapMode: TextArea.Wrap
-                enabled: !chat.busy
-                color: Theme.colors.inputText
-                placeholderTextColor: Theme.colors.textDisabled
-                font.family: Theme.fontMono
-                font.pointSize: Theme.metrics.fontSizeBase
+                Layout.preferredHeight: Math.min(140, Math.max(72, input.contentHeight + 12))
+                clip: true
+
                 background: Rectangle {
                     color: Theme.colors.inputFill
                     border.color: input.activeFocus
@@ -231,13 +296,47 @@ Rectangle {
                     radius: 0
                 }
 
-                Keys.onPressed: function (event) {
-                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                        if (event.modifiers & Qt.ShiftModifier) {
-                            event.accepted = false
-                        } else {
-                            event.accepted = true
-                            panel.submit()
+                ScrollBar.vertical: ScrollBar {
+                    id: inputBar
+                    parent: inputScroll
+                    x: inputScroll.mirrored ? 0 : inputScroll.width - width
+                    y: inputScroll.topPadding
+                    height: inputScroll.availableHeight
+                    policy: ScrollBar.AsNeeded
+
+                    background: Rectangle {
+                        color: Theme.colors.inputFill
+                    }
+
+                    contentItem: Rectangle {
+                        implicitWidth: 6
+                        implicitHeight: 6
+                        radius: 0
+                        color: Theme.colors.borderStrong
+                        opacity: inputBar.size < 1.0 ? 1 : 0
+                    }
+                }
+
+                TextArea {
+                    id: input
+                    width: inputScroll.availableWidth
+                    placeholderText: qsTr("Type a message...")
+                    wrapMode: TextArea.Wrap
+                    enabled: !chat.busy
+                    color: Theme.colors.inputText
+                    placeholderTextColor: Theme.colors.textDisabled
+                    font.family: Theme.fontMono
+                    font.pointSize: Theme.metrics.fontSizeBase
+                    background: null
+
+                    Keys.onPressed: function (event) {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            if (event.modifiers & Qt.ShiftModifier) {
+                                event.accepted = false
+                            } else {
+                                event.accepted = true
+                                panel.submit()
+                            }
                         }
                     }
                 }

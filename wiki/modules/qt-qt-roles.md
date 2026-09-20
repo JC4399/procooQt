@@ -46,7 +46,7 @@ enum into the `{role id: bytes}` mapping Qt expects.
 | `TITLE` | 2 | Card header label |
 | `BODY_HTML` | 3 | Inline-styled rendered HTML body |
 | `TOKEN_TEXT` | 4 | Token-count label |
-| `COLLAPSED` | 5 | Collapse state |
+| `COLLAPSED` | 5 | Initial body collapse state (bound to `bodyCollapsed` for context banners) |
 | `IS_PENDING` | 6 | `True` for a streaming placeholder card |
 | `MODE` | 7 | Tool-approval mode (allow/ask/block) |
 | `TOOL_NAME` | 8 | Tool name |

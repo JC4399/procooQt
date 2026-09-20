@@ -98,7 +98,10 @@ Rectangle {
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: banner.bodyCollapsed = !banner.bodyCollapsed
+                onClicked: {
+                    bodyHost.animateBody = true
+                    banner.bodyCollapsed = !banner.bodyCollapsed
+                }
             }
         }
 
@@ -112,8 +115,10 @@ Rectangle {
             clip: true
 
             property real bodyHeight: banner.bodyCollapsed ? 0 : (body.implicitHeight + 12)
+            property bool animateBody: false
 
             Behavior on bodyHeight {
+                enabled: bodyHost.animateBody
                 NumberAnimation {
                     duration: 160
                     easing.type: Easing.InOutQuad
