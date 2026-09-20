@@ -1,9 +1,9 @@
 """Context banner items and section formatters.
 
-Ports the Flet edition's ``SystemContextBanner`` card and the section builders used by
-the chat and skill panels. Banners are derived UI items only: ``session.messages``
-remains canonical. Builders return plain role-keyed dicts consumed by
-``ChatListModel``; they never touch QML objects.
+Builders produce the context banner card and the section builders used by the chat
+and skill panels. Banners are derived UI items only: ``session.messages`` remains
+canonical. Builders return plain role-keyed dicts consumed by ``ChatListModel``; they
+never touch QML objects.
 """
 
 from __future__ import annotations
@@ -96,8 +96,7 @@ def build_context_banner_item(
 def build_context_sections_from_snapshot(snapshot: dict) -> list[dict]:
     """Convert a context snapshot dict into displayable section dicts.
 
-    Extracts the system prompt, pending additions, primary/secondary skills, and
-    tool definitions and formats them for a context banner.
+    Only the full system prompt is emitted; no other snapshot fields follow.
 
     Args:
         snapshot: A context snapshot dict as stored in session data.
@@ -109,32 +108,7 @@ def build_context_sections_from_snapshot(snapshot: dict) -> list[dict]:
 
     sys_prompt = snapshot.get("system_prompt", "")
     if sys_prompt:
-        truncated = _shorten(sys_prompt, 2000)
-        sections.append({"header": "System Prompt", "content": [f"```\n{truncated}\n```"]})
-
-    pending = snapshot.get("pending_additions", "")
-    if pending:
-        sections.append({"header": "Pending Additions (not yet sent to LLM)", "content": [pending]})
-
-    primary = snapshot.get("primary_skills", [])
-    if primary:
-        lines = [f"- **{name}**" for name in sorted(primary)]
-        sections.append({"header": "Primary Skills", "content": ["\n".join(lines)]})
-
-    secondary = snapshot.get("secondary_skills", [])
-    if secondary:
-        lines = [f"- **{name}**" for name in sorted(secondary)]
-        sections.append({"header": "Secondary Skills", "content": ["\n".join(lines)]})
-
-    tools = snapshot.get("tools", {})
-    tool_config = snapshot.get("tool_config", {})
-    if tools:
-        tool_lines = []
-        for name, tool_def in sorted(tools.items()):
-            desc = tool_def.get("description", "") if isinstance(tool_def, dict) else ""
-            mode = tool_config.get(name, "ask")
-            tool_lines.append(f"- `{name}` [{mode}] — {_shorten(desc, 80)}")
-        sections.append({"header": f"Tools ({len(tools)})", "content": ["\n".join(tool_lines)]})
+        sections.append({"header": "System Prompt", "content": [f"```\n{sys_prompt}\n```"]})
 
     return sections
 

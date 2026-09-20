@@ -4,10 +4,9 @@ Source: `src/qt/yaml_highlight.py`
 
 ## Purpose
 
-The Qt port of the Flet edition's YAML tokenizer. It turns tool-call argument
-YAML into a `<pre>` block of inline-styled spans so QML `TextEdit.RichText`
-renders the same colours as the Flet `ft.TextSpan` version. It handles comment
-lines, `key:` mapping lines, list items, nested indentation, and inline
+A YAML tokenizer. It turns tool-call argument YAML into a `<pre>` block of
+inline-styled spans so QML `TextEdit.RichText` renders syntax colours. It handles
+comment lines, `key:` mapping lines, list items, nested indentation, and inline
 string/number/boolean detection.
 
 ## Deliverables
@@ -22,7 +21,7 @@ string/number/boolean detection.
 2. Tokenize each line with `_tokenize_line`.
 3. Join the line fragments with `\n`.
 4. Wrap in
-   `<pre style="white-space:pre-wrap;margin:0;font-family:Sarasa Fixed TC;line-height:150%">…</pre>`
+   `<pre style="white-space:pre-wrap;margin:0;font-family:Sarasa Fixed TC;line-height:125%">…</pre>`
    (`pre-wrap` preserves indentation while still wrapping long values; the
    explicit family keeps Qt's system monospace out, and `line-height` uses
    `Theme.LINE_HEIGHT_BODY`).

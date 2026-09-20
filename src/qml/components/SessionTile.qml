@@ -41,7 +41,7 @@ Rectangle {
         }
     }
 
-    // Drag feedback proxy matching the Flet edition's ``content_feedback``.
+    // Drag feedback proxy.
     // It follows the cursor via ``drag.target``; the Drag attached properties
     // live on this proxy (the real drag target) while ``Drag.source`` points
     // back at the tile so drop areas can read ``sessionId``.

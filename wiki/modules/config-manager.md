@@ -15,9 +15,6 @@ properties. Raises `ConfigError` on missing keys (fail-fast at startup).
   `agent_summary_prompt`, `llm_model_name`, `llm_api_key`, `llm_api_base`.
 - `ConfigError` with `brief` + `detail` on missing/invalid config.
 
-The Qt edition has no `server` config section, so the Flet `host` / `port`
-properties have been removed.
-
 See also: [Configuration overview](../02-Configuration.md).
 
 ## Function Reference

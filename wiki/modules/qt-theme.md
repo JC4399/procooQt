@@ -66,7 +66,7 @@ METRICS["fontSizeMarkdown"]   # 12
 
 Font metrics are **point** sizes (QML uses `font.pointSize`). Every non-markdown
 text element uses `fontSizeBase` (12 pt); `fontSizeMarkdown` (12 pt) applies only
-to chat markdown bodies rendered by `CardBase.qml`. `LINE_HEIGHT_BODY` (`150%`)
+to chat markdown bodies rendered by `CardBase.qml`. `LINE_HEIGHT_BODY` (`125%`)
 is the CSS line height applied to every chat card body — plain-text `<pre>`
 blocks and markdown paragraphs/lists/code. The `fontSizeGutter`,
 `fontSizeTree`, `fontSizeBody`, `fontSizeLabelSmall` and `fontSizeTitle*` entries

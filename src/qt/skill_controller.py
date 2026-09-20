@@ -1,10 +1,9 @@
 """``SkillController`` — skill tree, tool modes, presets, and live config sync.
 
-Owns the skill tree and tool-mode models. Behavior ports from
-``src/flet/skill_panel.py``: the right sidebar's primary/secondary checkboxes, per-tool
-allow/ask/block modes, preset load/save/delete, search filtering, the active-config
-chip bar, and the config-sync flow that pushes selections to the live session and
-appends a delta context banner.
+Owns the skill tree and tool-mode models: the right sidebar's primary/secondary
+checkboxes, per-tool allow/ask/block modes, preset load/save/delete, search filtering,
+the active-config chip bar, and the config-sync flow that pushes selections to the
+live session and appends a delta context banner.
 
 The skill watcher runs on a ``watchdog`` background thread. Its callback only emits
 :attr:`skill_files_changed`; the connected slot runs queued on the GUI thread and

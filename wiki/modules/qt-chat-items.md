@@ -7,7 +7,7 @@ Source: `src/qt/chat_items.py`
 Build role-keyed chat-item dictionaries for `ChatListModel`, rendered by the QML
 card delegates under `src/qml/cards/`. Builders never touch QML objects. Body HTML is
 pre-rendered here: escaped `<pre>` for user/tool-result, `render_markdown` for
-thinking/response, and `highlight_yaml_html` over the ported YAML serializer for
+thinking/response, and `highlight_yaml_html` over the YAML serializer for
 tool calls.
 
 ## Deliverables
@@ -42,8 +42,9 @@ border style, and vertical padding. `CardBase` exposes `padTop`/`padBottom`
 (default 8 px; `UserCard` uses 24 px) which the `ChatPanel.qml` delegate applies
 as margins outside the card border to space cards apart; `ContextBanner.qml`
 mirrors the same 8 px default. Pending variants keep
-the same header and set `isPending`, which swaps the body for a
-`BusyIndicator`. The body `TextEdit` uses
+the same header and set `isPending`; `CardBase` shows a `BusyIndicator` only while
+pending with no body yet, so a streaming thinking/response card renders its
+growing body instead of the spinner. The body `TextEdit` uses
 `Theme.colors.mdText` for markdown kinds (`thinking`/`response`) and
 `Theme.colors.textPrimary` otherwise, and opens clicked links with
 `Qt.openUrlExternally`. `ChatPanel.qml` binds each delegate
@@ -64,26 +65,30 @@ variable-height cards its `contentHeight` is only an estimate, and
 Auto-scroll sets `contentY = contentHeight - height` through a 30 ms debounce
 `Timer` guarded by `!moving && !flicking`, following the newest card while
 `autoScrollToggle.checked || followTail`; `followTail` tracks `atYEnd` on
-`onContentYChanged`. `boundsBehavior: Flickable.StopAtBounds` prevents dragging
-past the last card.
+`onContentYChanged`. If the user scrolls up while the toggle is on, the toggle
+calls `deactivateWithBlink()`: it switches `checked` off, blinks twice, then
+hides itself in the normal unchecked state. `boundsBehavior:
+Flickable.StopAtBounds` prevents dragging past the last card.
 
-Mouse-wheel scrolling is handled explicitly by a `WheelHandler` on the chat
-`Flickable`, overriding Qt's small platform default step: high-resolution or
-trackpad `pixelDelta` is applied verbatim, while discrete notches step by
-`Theme.metrics.wheelScrollStep` (120 px). The handler offsets `contentY` and
-then calls `returnToBounds()`, so it never uses `contentHeight` arithmetic and
-cannot scroll past the true end. `onContentYChanged` updates `followTail` from
-`atYEnd`, so wheeling up stops auto-follow and wheeling back to the end resumes
-it. A vertical `ScrollBar` (`ScrollBar.AsNeeded`) provides feedback and
-drag-scroll.
+Mouse-wheel scrolling is handled by a `WheelHandler` on the chat `Flickable`,
+because Qt exposes no wheel-step property and the native platform step is much
+smaller: high-resolution or trackpad `pixelDelta` is applied verbatim, while
+discrete notches step by `Theme.metrics.wheelScrollStep` (120 px). Unlike a
+naive offset, the handler **clamps** the new `contentY` to
+`[0, contentHeight - height]` instead of calling `returnToBounds()`, so it never
+overshoots the true bounds and cannot show blank space beyond the first/last
+card. `onContentYChanged` updates `followTail` from `atYEnd`, so wheeling up
+stops auto-follow (deactivating an active `autoScrollToggle` via
+`deactivateWithBlink()`) and wheeling back to the end resumes it. A vertical
+`ScrollBar` (`ScrollBar.AsNeeded`) provides feedback and drag-scroll.
 
 ## Card types
 
 | Card | `kind` | QML delegate | Border | Header | Body |
 |---|---|---|---|---|---|
 | User | `user` | `UserCard.qml` | 3px green | `❯` + "User" | escaped `<pre>` |
-| Thinking | `thinking` | `ThinkingCard.qml` | top/bottom blue | `◌` + "Thinking" | `render_markdown` |
-| Response | `response` | `ResponseCard.qml` | 3px amber | `◆` + "Response" | `render_markdown` |
+| Thinking | `thinking` | `ThinkingCard.qml` | top/bottom blue | `◌` + "Thinking" | `render_markdown` (streamed while pending) |
+| Response | `response` | `ResponseCard.qml` | 3px amber | `◆` + "Response" | `render_markdown` (streamed while pending) |
 | Tool call | `tool_call` | `ToolCallCard.qml` | top/bottom magenta | `⚙` + "Tool Call" + mode badge | `highlight_yaml_html` |
 | Tool result | `tool_result` | `ToolResultCard.qml` | top/bottom magenta | `▤` + "Tool Result" (subtitle = tool name) | escaped `<pre>` |
 | Context banner | `context_banner` | `ContextBanner.qml` | neutral / orange delta | title + section count | structured sections (JSON) |
@@ -96,7 +101,7 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 
 1. **User / tool result** — `_plain_body` escapes the text with `html.escape`
    and wraps it in
-   `<pre style="white-space:pre-wrap;margin:0;font-family:Sarasa Fixed TC;line-height:150%">`
+   `<pre style="white-space:pre-wrap;margin:0;font-family:Sarasa Fixed TC;line-height:125%">`
    (the `font-family` keeps Qt's `<pre>` from substituting its system monospace
    font, matching `Theme.fontMono`; `line-height` comes from
    `Theme.LINE_HEIGHT_BODY` so plain text matches markdown leading).
@@ -115,7 +120,7 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 | `make_item(kind, *, title="", body_html="", token_text="", collapsed=False, is_pending=False, mode="", tool_name="", tool_call_id="", sections="", is_delta=False) -> dict[int, object]` | `kind` — `KIND_*`; `title`/`body_html`/`token_text` — header and body; `collapsed`/`is_pending` — defaults; `mode`/`tool_name`/`tool_call_id`/`sections`/`is_delta` — tool and banner fields | role-keyed dict (`int(ChatRole.*)` → value) | Maps every argument onto its `ChatRole` key | None |
 | `_card_item(kind, *, title, body_html="", token_count=0, is_pending=False, mode="", tool_name="", tool_call_id="") -> dict[int, object]` | Card fields with a raw `token_count` | role-keyed dict | Calls `make_item` with `token_text=_token_text(token_count)` | None |
 | `_token_text(token_count: int) -> str` | `token_count` | `"42 tk"` | f-string format | None |
-| `_plain_body(text: str) -> str` | `text` | escaped `<pre>` block | `html.escape` into `<pre style="white-space:pre-wrap;margin:0;font-family:…;line-height:150%">` | None |
+| `_plain_body(text: str) -> str` | `text` | escaped `<pre>` block | `html.escape` into `<pre style="white-space:pre-wrap;margin:0;font-family:…;line-height:125%">` | None |
 
 ### Item builders
 
@@ -123,9 +128,9 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 |---|---|---|---|---|
 | `build_user_item(text: str) -> dict[int, object]` | `text` | role-keyed dict | `_card_item(KIND_USER, title="User", body_html=_plain_body(text))` | None |
 | `build_thinking_item(text: str, *, token_count=0) -> dict[int, object]` | `text`; `token_count` | role-keyed dict | Body = `render_markdown(text)`, title "Thinking" | None |
-| `build_thinking_pending_item(token_count=0) -> dict[int, object]` | `token_count` | role-keyed dict | `is_pending=True`, empty body | None |
+| `build_thinking_pending_item(text="", *, token_count=0) -> dict[int, object]` | `text` — partial streamed content; `token_count` | role-keyed dict | Body = `render_markdown(text)`, title "Thinking", `is_pending=True` | None |
 | `build_response_item(text: str, *, token_count=0) -> dict[int, object]` | `text`; `token_count` | role-keyed dict | Body = `render_markdown(text)`, title "Response" | None |
-| `build_response_pending_item(token_count=0) -> dict[int, object]` | `token_count` | role-keyed dict | `is_pending=True`, empty body | None |
+| `build_response_pending_item(text="", *, token_count=0) -> dict[int, object]` | `text` — partial streamed content; `token_count` | role-keyed dict | Body = `render_markdown(text)`, title "Response", `is_pending=True` | None |
 | `build_tool_call_item(entry: dict, *, token_count=0) -> dict[int, object]` | `entry` — `{name, mode, arguments}` | role-keyed dict | `_to_yaml_string` → `highlight_yaml_html`; stores `mode` + `tool_name` | None |
 | `build_tool_call_pending_item(name: str, mode: str, token_count=0) -> dict[int, object]` | `name`; `mode`; `token_count` | role-keyed dict | `is_pending=True`, keeps `mode`/`tool_name` | None |
 | `build_tool_result_item(name: str, content: str, *, token_count=0) -> dict[int, object]` | `name`; `content`; `token_count` | role-keyed dict | Body = `_plain_body(content)`, stores `tool_name` | None |
@@ -144,4 +149,3 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 
 - [`qt-context-banner`](qt-context-banner.md) — banner items built on `make_item`.
 - [`qt-skill-controller`](qt-skill-controller.md) — appends the delta context banner and rebuilds the chat display.
-- Flet counterpart: [`flet-chat-widgets`](../../../wiki/modules/flet-chat-widgets.md).

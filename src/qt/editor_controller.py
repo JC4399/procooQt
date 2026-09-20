@@ -1,9 +1,9 @@
 """``EditorController`` — code editor, file tree, and syntax highlighter.
 
-Owns the file tree model and the editor state. Behavior ports from
-``src/flet/editor_panel.py``: a read-only code editor with a collapsible file tree
-rooted at the skills directory, plus Edit/Save/Cancel/Reload. File reads and writes are
-offloaded with :func:`asyncio.to_thread` so the qasync loop never blocks.
+Owns the file tree model and the editor state: a read-only code editor with a
+collapsible file tree rooted at the skills directory, plus Edit/Save/Cancel/Reload.
+File reads and writes are offloaded with :func:`asyncio.to_thread` so the qasync loop
+never blocks.
 
 The skill watcher drives realtime reconciliation: while the editor window is showing,
 directory changes rebuild the file tree and the open file is compared with disk. A
@@ -34,8 +34,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("procoo_qt")
 
-#: Extension → language name passed to :class:`CodeHighlighter`. Mirrors the Flet
-#: ``_EXT_TO_LANGUAGE`` map; unsupported extensions normalise to ``"plain"``.
+#: Extension → language name passed to :class:`CodeHighlighter`; unsupported
+#: extensions normalise to ``"plain"``.
 _EXT_TO_LANGUAGE: dict[str, str] = {
     ".py": "python",
     ".pyi": "python",

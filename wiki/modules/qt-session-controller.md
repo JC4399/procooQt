@@ -6,8 +6,7 @@ Source: `src/qt/session_controller.py`
 
 Owns the session sidebar model and the per-session [`SessionState`](qt-session-state.md)
 registry. Implements session creation, switching, deletion, persistence, and
-hydration. Behavior ports from the Flet edition's `session_panel.py` and
-`session_lifecycle.py`; all panel interaction is exposed to QML through typed
+hydration. All panel interaction is exposed to QML through typed
 `Signal`, `Slot`, and `Property` members.
 
 ## Deliverables

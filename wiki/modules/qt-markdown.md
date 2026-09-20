@@ -65,18 +65,21 @@ reaches QML.
 
 | Token | Output |
 |---|---|
-| `heading_*` | `<p>` in `COLOR_MD_HEADING`, bold; `h1` also underlined (no font-size change) |
-| `paragraph_*` | `<p style="margin:0">`; a list item's first paragraph becomes its marker `<div>` |
+| `heading_*` | `<p>` in `COLOR_MD_HEADING`, bold, with a one-line bottom margin; `h1` also underlined (no font-size change) |
+| `paragraph_*` | `<p style="margin:0 0 12px 0">` (a blank line in the source renders as one visible empty line); a list item's first paragraph becomes its marker `<div>` |
 | `blockquote_*` | two-cell `<table>`: a 2px background-filled stripe cell + padded italic yellow content (Qt Quick does not paint `border-left`) |
 | `hr` | grey rule |
-| `fence` | `<pre>` with grey ```` ```lang ```` fences around pygments-highlighted code |
-| `code_block` | plain `<pre>` |
+| `fence` | `<pre>` with a one-line bottom margin, grey ```` ```lang ```` fences around pygments-highlighted code |
+| `code_block` | plain `<pre>` with a one-line bottom margin |
 | `bullet_list_*` / `ordered_list_*` / `list_item_*` | literal `-`/`1.` markers, coloured and hanging-indented |
-| `table_*`, `thead/tbody/tr/th/td` | CSS `<table border="1">` with `border-color`; collapsed grey grid; alignment from markdown column hints |
+| `table_*`, `thead/tbody/tr/th/td` | CSS `<table border="1">` with `border-color`, a one-line bottom margin; collapsed grey grid; alignment from markdown column hints |
 
-Every body block carries `line-height:150%` from `Theme.LINE_HEIGHT_BODY`, so
+Every body block carries `line-height:125%` from `Theme.LINE_HEIGHT_BODY`, so
 markdown text matches the plain-text card bodies. Headings, paragraphs, list
-marker `<div>`s, block quote cells, and code `<pre>`s all include it.
+marker `<div>`s, block quote cells, and code `<pre>`s all include it. Top-level
+paragraphs, headings, fenced/indented code blocks, and tables additionally carry
+a `_BLANK_LINE_PX` (12px) bottom margin, so a blank line between two blocks
+renders as a single visible empty line.
 
 ### Lists
 
@@ -91,9 +94,9 @@ exists at render time in headless contexts.
 ### Tables
 
 `table_open` emits
-`<table border="1" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border-color:#5c6370;margin:0">`
+`<table border="1" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border-color:#5c6370;margin:0 0 12px 0">`
 and each row is a plain `<tr>`. `th_open`/`td_open` call `_cell_open`, which
-applies `_CELL_STYLE` (`padding:4px; line-height:150%`) and appends the column
+applies `_CELL_STYLE` (`padding:4px; line-height:125%`) and appends the column
 alignment that `markdown-it-py` puts on the cell token's `style` attribute. Cell
 inline content is rendered normally, so bold/links/code inside cells keep their
 styling.
@@ -163,6 +166,7 @@ rendering through a real `QQuickView`:
 |---|---|
 | `_FORMATTER` | pygments `HtmlFormatter(nowrap=True, noclasses=True, style=_MarkdownCodeStyle)` |
 | `_CHAR_PX` | Estimated monospace cell width for list hanging indents |
+| `_BLANK_LINE_PX` | Paragraph/heading bottom margin that renders a source blank line as one empty line |
 | `_SCRIPT_STYLE_RE` | `<script>` / `<style>` block matcher |
 | `_EVENT_ATTR_RE` | inline `on*` attribute matcher |
 | `_JS_URL_RE` | `javascript:` `href`/`src` matcher |

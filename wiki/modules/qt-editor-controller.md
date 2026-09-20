@@ -14,8 +14,7 @@ While the window is showing, the skill watcher keeps the tree and the open file
 in sync with disk. A deleted or externally modified open file raises
 `file_conflict`; QML prompts (keep buffer vs. take disk state) and resolves it
 through the conflict slots. File reads and writes are offloaded with
-`asyncio.to_thread` so the qasync loop never blocks. Behavior ports from the Flet
-`editor_panel` mixin; QML stays view-only.
+`asyncio.to_thread` so the qasync loop never blocks. QML stays view-only.
 
 ## Deliverables
 
@@ -243,5 +242,3 @@ call `_handle_conflict_keep` / `_handle_conflict_discard`.
 - [`qt-skill-controller`](qt-skill-controller.md) — its `skill_files_changed` watcher drives editor reconciliation.
 - [`qt-ui`](qt-ui.md) — wires `skill.skill_files_changed` → `editor._handle_skill_files_changed`.
 - [`qt-chat-items`](qt-chat-items.md) — chat card items.
-- Rebuild plan: [`../00-Rebuild-Plan.md`](../00-Rebuild-Plan.md).
-- Flet counterpart: [`flet-editor-panel`](../../../wiki/modules/flet-editor-panel.md).

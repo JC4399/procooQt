@@ -104,8 +104,7 @@ class ListModel(QAbstractListModel):
 
         Rows whose key matches the existing row at the same index are left
         untouched; the first mismatching index and everything after it is
-        removed and re-inserted. This is the Qt equivalent of the Flet
-        renderer's content-hash suffix rebuild.
+        removed and re-inserted.
 
         Args:
             items: The new list of role-keyed rows.

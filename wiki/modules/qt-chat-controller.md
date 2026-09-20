@@ -5,9 +5,8 @@ Source: `src/qt/chat_controller.py`
 ## Purpose
 
 Owns one [`ChatListModel`](#per-session-model-cache) per live session and drives
-the ReAct event loop. The class merges the Flet edition's `chat_panel`
-(build/render) and `chat_loop` (events/streaming) mixins into a single
-`QObject`. `session.messages` stays canonical: the render plan is derived from
+the ReAct event loop. It handles both build/render and events/streaming.
+`session.messages` stays canonical: the render plan is derived from
 it, diffed by content hash, and clipped into the model. Approval blocks the loop
 on an `asyncio.Event`, and long streams are rendered with throttled in-place
 updates.
@@ -143,12 +142,14 @@ updates can find the rows later.
 - **Structural** changes — tool-call count, tool-result count, or streaming
   tool calls that appear before any tool-call row exists — force an immediate
   `_rebuild_chat_display`.
-- A response whose pending row does not exist yet rebuilds when the 1-second
-  `last_rebuild_time` gate allows.
+- A thinking/response text whose pending row does not exist yet rebuilds
+  immediately, so the streaming card is created the first time its text arrives
+  (guarded by the `thinking_done`/`response_done` decision flags).
 - **Content-only** changes (thinking/response text) and streaming-tool-call
-  argument updates are throttled to one second via `last_content_update_time`
-  and applied in place by `_apply_streaming_item_updates`, which rewrites the
-  pending card's `TOKEN_TEXT` role.
+  argument updates are throttled to `_STREAM_UPDATE_INTERVAL` (0.08 s) via
+  `last_content_update_time` and applied in place by
+  `_apply_streaming_item_updates`, which re-renders the accumulated markdown into
+  the pending card's `BODY_HTML` role and refreshes its `TOKEN_TEXT` role.
 - `_track_rendered_state` snapshots the rendered text/counts so the next call
   can diff.
 
@@ -234,11 +235,11 @@ the newly appended suffix of each text field.
 | `def _compute_render_keys(self, state: SessionState, messages: list[dict], snapshot: dict \| None) -> list[str]` | state, messages, snapshot | Render keys | banners → user/assistant/tool keys | — |
 | `def _build_items(self, state: SessionState, messages: list[dict], snapshot: dict \| None) -> list[dict]` | state, messages, snapshot | Chat items | banners → per-message builders | Resets card/row indices |
 | `def _build_assistant_items(self, state: SessionState, msg: dict, messages: list[dict], idx: int, is_last_busy: bool, items: list[dict]) -> None` | state, message, context | `None` | streaming branch, else thinking/response/tool-call items | Appends to `items` |
-| `def _build_streaming_assistant_items(self, state: SessionState, d: dict, messages: list[dict], idx: int, items: list[dict]) -> None` | state, decision dict, context | `None` | pending/completed thinking + response + tool calls + pending results | Records row indices |
+| `def _build_streaming_assistant_items(self, state: SessionState, d: dict, messages: list[dict], idx: int, items: list[dict]) -> None` | state, decision dict, context | `None` | pending (body pre-rendered from partial text) / completed thinking + response + tool calls + pending results | Records row indices |
 | `def _append_user_message(self, text: str) -> None` | text | `None` | `model.append_item(user item, key)` | Inserts a row |
 | `def _swap_pending_result_card(self, tool_call_id: str, tool_name: str, content: str) -> None` | tool call id/name, content | `None` | find pending row → replace item; else rebuild | Replaces a row |
-| `def _update_live_assistant(self, state: SessionState) -> None` | state | `None` | structural rebuild vs 1s-throttled content update | Mutates model/state |
-| `def _apply_streaming_item_updates(self, state: SessionState, thinking_text: str, content_text: str, streaming_tcs: list \| None, thinking_changed: bool, content_changed: bool) -> None` | current texts + flags | `None` | accumulate tokens → `update_item(TOKEN_TEXT)` | Updates rows/state |
+| `def _update_live_assistant(self, state: SessionState) -> None` | state | `None` | structural/missing-card rebuild vs `_STREAM_UPDATE_INTERVAL`-throttled body update | Mutates model/state |
+| `def _apply_streaming_item_updates(self, state: SessionState, thinking_text: str, content_text: str, streaming_tcs: list \| None, thinking_changed: bool, content_changed: bool) -> None` | current texts + flags | `None` | accumulate tokens → `update_item(BODY_HTML, TOKEN_TEXT)` | Updates rows/state |
 | `def _track_rendered_state(self, state: SessionState) -> None` | state | `None` | snapshot last assistant text/counts | Mutates state |
 | `def _update_token_bar(self, state: SessionState \| None = None) -> None` | optional state | `None` | true counts or estimate → `_set_token_counts` | Emits token signal |
 | `def _set_token_counts(self, input_tokens: int, output_tokens: int) -> None` | counts | `None` | store + emit `token_counts_changed` | Emits signal |

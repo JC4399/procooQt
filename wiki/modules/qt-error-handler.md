@@ -4,10 +4,9 @@ Source: `src/qt/error_handler.py`
 
 ## Purpose
 
-Route UI errors and warnings to QML toasts. Where the Flet edition pushed a
-toast onto `page.overlay`, the Qt edition emits a `toast_requested` signal and a
-QML `ToastHost` component renders it. Errors carry a short `brief` (shown in the
-toast) and a `detail` (logged).
+Route UI errors and warnings to QML toasts. The notifier emits a
+`toast_requested` signal and a QML `ToastHost` component renders it. Errors carry
+a short `brief` (shown in the toast) and a `detail` (logged).
 
 ## Deliverables
 

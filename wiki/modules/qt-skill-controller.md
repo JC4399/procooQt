@@ -8,8 +8,7 @@ Owns the right sidebar's data: the flattened skill tree, per-tool permission
 modes, saved presets, the search filter, the active-config chip list, and the
 config-sync flow that pushes sidebar selections to the live session and appends a
 delta context banner. It also bridges the `watchdog` skill-directory watcher onto
-the Qt GUI thread. Behavior ports from the Flet `skill_panel` mixin; QML stays
-view-only and calls these slots.
+the Qt GUI thread. QML stays view-only and calls these slots.
 
 ## Deliverables
 
@@ -160,5 +159,3 @@ view-only and calls these slots.
 - [`qt-context-banner`](qt-context-banner.md) — delta section builder.
 - [`qt-chat-items`](qt-chat-items.md) — chat item builders the rebuilt display consumes.
 - [`qt-editor-controller`](qt-editor-controller.md) — the same watcher signal drives editor reconciliation.
-- Rebuild plan: [`../00-Rebuild-Plan.md`](../00-Rebuild-Plan.md).
-- Flet counterpart: [`flet-skill-panel`](../../../wiki/modules/flet-skill-panel.md).

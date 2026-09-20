@@ -1,8 +1,8 @@
 """Per-session UI state for the Procoo Qt UI.
 
 Each live session owns a :class:`SessionState` so several sessions can generate
-concurrently while the user switches between them. Widget references from the Flet
-edition are replaced by model row indices and small value objects.
+concurrently while the user switches between them. The state holds model row indices
+and small value objects, never QML objects.
 """
 
 from __future__ import annotations

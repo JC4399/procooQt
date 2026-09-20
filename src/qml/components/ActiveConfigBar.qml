@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
-// Active skills & tools bar shown above the chat list (mirrors the Flet edition's
-// config tile). Collapsible header plus chips from ``skill.configChips``.
+// Active skills & tools bar shown above the chat list. Collapsible header plus
+// chips from ``skill.configChips``.
 Rectangle {
     id: bar
 

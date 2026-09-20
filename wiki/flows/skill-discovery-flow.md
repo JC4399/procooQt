@@ -4,8 +4,8 @@ How the `skills/` directory becomes skills, tools, and OpenAI tool schemas.
 
 Related: [`skill-manager`](../modules/skill-manager.md), [`skill-models`](../modules/skill-models.md), [`qt-skill-controller`](../modules/qt-skill-controller.md).
 
-The library is shared with the Flet edition at `../skills` (resolved against
-the procooQt project root); only `_presets/` is written by this app.
+The library lives at `../skills` (resolved against the procooQt project root);
+only `_presets/` is written by this app.
 
 ## Directory layout
 

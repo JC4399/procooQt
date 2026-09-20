@@ -26,6 +26,9 @@ Rectangle {
     // border; UserCard overrides both to 24 px.
     property int padTop: 8
     property int padBottom: 8
+    // True once a body exists. Pending thinking/response cards stream their body
+    // in; the spinner is shown only while pending with no body yet.
+    readonly property bool hasBody: card.bodyHtml !== ""
 
     function modeBg(value) {
         if (value === "allow")
@@ -183,8 +186,8 @@ Rectangle {
 
                 BusyIndicator {
                     Layout.alignment: Qt.AlignHCenter
-                    visible: card.isPending
-                    running: card.isPending
+                    visible: card.isPending && !card.hasBody
+                    running: card.isPending && !card.hasBody
                     implicitWidth: 24
                     implicitHeight: 24
                 }
@@ -192,7 +195,7 @@ Rectangle {
                 TextEdit {
                     Layout.fillWidth: true
                     Layout.preferredHeight: contentHeight
-                    visible: !card.isPending
+                    visible: card.hasBody
                     readOnly: true
                     textFormat: TextEdit.RichText
                     text: card.bodyHtml

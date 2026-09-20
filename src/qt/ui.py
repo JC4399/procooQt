@@ -2,8 +2,8 @@
 
 Uses composition (not multiple inheritance): the orchestrator owns one controller per
 panel and exposes them, plus the backend and theme, as QML context properties. The
-Flet edition's six mixins map to ``session``, ``chat``, ``skill``, ``editor``
-controllers here (chat panel and chat loop are merged into ``ChatController``).
+``session``, ``chat``, ``skill``, and ``editor`` controllers cover the four panels,
+with chat rendering and streaming both handled by ``ChatController``.
 """
 
 from __future__ import annotations

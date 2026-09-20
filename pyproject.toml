@@ -11,7 +11,7 @@ dependencies = [
     # GUI / async bridge
     "PySide6>=6.11",
     "qasync>=0.28",
-    # Backend (shared with the Flet edition)
+    # Backend
     "openai",
     "json-repair",
     "watchdog>=4.0.0",

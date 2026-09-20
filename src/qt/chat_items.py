@@ -10,7 +10,7 @@ Body HTML is pre-rendered here:
 
 * user / tool result — escaped text inside a ``<pre>`` block;
 * thinking / response — :func:`render_markdown`;
-* tool call — :func:`highlight_yaml_html` over the ported YAML serializer.
+* tool call — :func:`highlight_yaml_html` over the YAML serializer.
 """
 
 from __future__ import annotations
@@ -192,16 +192,27 @@ def build_thinking_item(text: str, *, token_count: int = 0) -> dict[int, object]
     )
 
 
-def build_thinking_pending_item(token_count: int = 0) -> dict[int, object]:
-    """Build a pending thinking card item.
+def build_thinking_pending_item(text: str = "", *, token_count: int = 0) -> dict[int, object]:
+    """Build a pending (streaming) thinking card item.
+
+    The body is rendered from the partial text so the card streams live; it stays
+    ``is_pending`` until the message finalises. An empty ``text`` yields a
+    body-less card that QML shows as a spinner.
 
     Args:
+        text: Partial thinking content to render as the streaming body.
         token_count: Initial token count displayed in the header.
 
     Returns:
         A role-keyed chat item dictionary.
     """
-    return _card_item(KIND_THINKING, title="Thinking", token_count=token_count, is_pending=True)
+    return _card_item(
+        KIND_THINKING,
+        title="Thinking",
+        body_html=render_markdown(text),
+        token_count=token_count,
+        is_pending=True,
+    )
 
 
 # ------------------------------------------------------------------
@@ -227,16 +238,27 @@ def build_response_item(text: str, *, token_count: int = 0) -> dict[int, object]
     )
 
 
-def build_response_pending_item(token_count: int = 0) -> dict[int, object]:
-    """Build a pending assistant response card item.
+def build_response_pending_item(text: str = "", *, token_count: int = 0) -> dict[int, object]:
+    """Build a pending (streaming) assistant response card item.
+
+    The body is rendered from the partial text so the card streams live; it stays
+    ``is_pending`` until the message finalises. An empty ``text`` yields a
+    body-less card that QML shows as a spinner.
 
     Args:
+        text: Partial response content to render as the streaming body.
         token_count: Initial token count displayed in the header.
 
     Returns:
         A role-keyed chat item dictionary.
     """
-    return _card_item(KIND_RESPONSE, title="Response", token_count=token_count, is_pending=True)
+    return _card_item(
+        KIND_RESPONSE,
+        title="Response",
+        body_html=render_markdown(text),
+        token_count=token_count,
+        is_pending=True,
+    )
 
 
 # ------------------------------------------------------------------

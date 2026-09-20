@@ -1,7 +1,6 @@
 """``SessionController`` — session sidebar, lifecycle, and persistence.
 
 Owns the session list model and the per-session :class:`SessionState` registry.
-Behavior ports from ``src/flet/session_panel.py`` and ``src/flet/session_lifecycle.py``.
 """
 
 from __future__ import annotations
@@ -255,8 +254,8 @@ class SessionController(QObject):
     def _handle_drop_on_folder(self, session_id: str, folder: str) -> None:
         """Move a dragged session into a folder, or unfiled when empty.
 
-        Mirrors the Flet edition's ``_on_drop_on_folder``: the target folder is
-        ``None`` for the unfiled drop zone. A missing session surfaces as a toast.
+        The target folder is ``None`` for the unfiled drop zone. A missing session
+        surfaces as a toast.
 
         Args:
             session_id: The dragged session id.

@@ -1,8 +1,7 @@
 """``FileTreeModel`` — flattened file/folder tree for ``EditorPanel.qml``.
 
 The skills directory is walked recursively and flattened into one row per visible
-entry, tagged with a depth so a QML delegate can indent it. Ports the Flet builder
-(``_build_tree_nodes`` / ``_build_folder_node`` / ``_build_file_node``): folder-first
+entry, tagged with a depth so a QML delegate can indent it. Rows use folder-first
 ordering, hidden-name and ``__pycache__`` filtering, and per-folder expand/collapse.
 QML has no matching icon set, so :attr:`FileRole.ICON` carries a short extension label
 (``"py"``, ``"md"``, …) or the folder marker ``"dir"``.
@@ -22,8 +21,7 @@ FOLDER_ICON = "dir"
 #: Fallback label for files whose extension is not in :data:`_EXT_TO_LABEL`.
 FILE_ICON = "file"
 
-#: Extension → short label. Mirrors the extension set of the Flet ``_EXT_TO_LANGUAGE``
-#: map (and its sibling ``_EXT_TO_ICON``).
+#: Extension → short label shown for file rows.
 _EXT_TO_LABEL: dict[str, str] = {
     ".py": "py",
     ".pyi": "py",
@@ -108,7 +106,7 @@ class FileTreeModel(ListModel):
     def is_folder_expanded(self, path: str) -> bool:
         """Return whether a folder's children are currently shown.
 
-        Folders start collapsed (matching the Flet tree).
+        Folders start collapsed.
 
         Args:
             path: The folder's path relative to the root.
@@ -217,8 +215,8 @@ class FileTreeModel(ListModel):
     def _is_hidden(entry: Path) -> bool:
         """Return whether an entry is filtered out of the tree.
 
-        Ports the Flet rule: skip names beginning with ``"."`` (except
-        ``".gitignore"``) and the ``__pycache__`` directory.
+        Skips names beginning with ``"."`` (except ``".gitignore"``) and the
+        ``__pycache__`` directory.
 
         Args:
             entry: The directory entry to test.

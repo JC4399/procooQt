@@ -152,6 +152,10 @@ def _safe_href(url: str) -> str:
 #: ``QGuiApplication`` exists at render time in headless/test contexts.
 _CHAR_PX = FONT_SIZE_MARKDOWN * 2 / 3
 
+#: Bottom margin (logical pixels) applied to top-level paragraphs and headings so
+#: a blank line in the Markdown source renders as one visible empty line.
+_BLANK_LINE_PX = FONT_SIZE_MARKDOWN
+
 
 # ------------------------------------------------------------------
 #  Terminal renderer
@@ -438,7 +442,7 @@ class _TerminalRenderer(RendererHTML):
         """
         underline = "text-decoration:underline;" if tokens[idx].tag == "h1" else ""
         return (
-            f'<p style="margin:0;color:{COLOR_MD_HEADING};font-weight:bold;'
+            f'<p style="margin:0 0 {_BLANK_LINE_PX}px 0;color:{COLOR_MD_HEADING};font-weight:bold;'
             f'{underline}line-height:{LINE_HEIGHT_BODY}">'
         )
 
@@ -477,7 +481,7 @@ class _TerminalRenderer(RendererHTML):
             )
         if tokens[idx].hidden:
             return ""
-        return f'<p style="margin:0;line-height:{LINE_HEIGHT_BODY}">'
+        return f'<p style="margin:0 0 {_BLANK_LINE_PX}px 0;line-height:{LINE_HEIGHT_BODY}">'
 
     def paragraph_close(
         self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
@@ -549,7 +553,8 @@ class _TerminalRenderer(RendererHTML):
         body = body.rstrip("\n")
         fence = f'<font color="{COLOR_MD_RULE}">```{escapeHtml(lang)}</font>'
         return (
-            f'<pre style="white-space:pre-wrap;margin:0;font-family:{FONT_MONO};'
+            f'<pre style="white-space:pre-wrap;margin:0 0 {_BLANK_LINE_PX}px 0;'
+            f'font-family:{FONT_MONO};'
             f'line-height:{LINE_HEIGHT_BODY}">'
             f"{fence}\n{body}\n"
             f'<font color="{COLOR_MD_RULE}">```</font></pre>\n'
@@ -571,7 +576,8 @@ class _TerminalRenderer(RendererHTML):
         """
         body = escapeHtml(tokens[idx].content).rstrip("\n")
         return (
-            f'<pre style="white-space:pre-wrap;margin:0;font-family:{FONT_MONO};'
+            f'<pre style="white-space:pre-wrap;margin:0 0 {_BLANK_LINE_PX}px 0;'
+            f'font-family:{FONT_MONO};'
             f'line-height:{LINE_HEIGHT_BODY}">{body}</pre>\n'
         )
 
@@ -736,7 +742,8 @@ class _TerminalRenderer(RendererHTML):
         """
         return (
             f'<table border="1" cellspacing="0" cellpadding="0" '
-            f'style="border-collapse:collapse;border-color:{COLOR_MD_RULE};margin:0">'
+            f'style="border-collapse:collapse;border-color:{COLOR_MD_RULE};'
+            f'margin:0 0 {_BLANK_LINE_PX}px 0">'
         )
 
     def table_close(

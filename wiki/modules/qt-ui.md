@@ -4,12 +4,11 @@ Source: `src/qt/ui.py`
 
 ## Purpose
 
-Top-level UI object exposed to QML as the `ui` context property. Unlike the
-Flet edition's six-mixin `ProcooFletUI`, it uses **composition**: it owns one
-controller per panel plus the theme and notifier, wires their signals, builds
-their models, and publishes every object to the QML root context. The Flet
-mixins map to controllers here (`chat_panel` and `chat_loop` are merged into
-[`qt-chat-controller`](qt-chat-controller.md)).
+Top-level UI object exposed to QML as the `ui` context property. It uses
+**composition**: it owns one controller per panel plus the theme and notifier,
+wires their signals, builds their models, and publishes every object to the QML
+root context. Chat rendering and streaming are both handled by
+[`qt-chat-controller`](qt-chat-controller.md).
 
 ## Deliverables
 

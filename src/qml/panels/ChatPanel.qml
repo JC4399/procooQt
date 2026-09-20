@@ -80,6 +80,7 @@ Rectangle {
                 // Toggle ON forces follow; OFF follows only while pinned to the end.
                 property bool followTail: true
                 property bool _autoScrolling: false
+                property real _lastContentY: 0
 
                 function scrollToBottom() {
                     _autoScrolling = true
@@ -93,8 +94,15 @@ Rectangle {
                 }
 
                 onContentYChanged: {
-                    if (!_autoScrolling)
-                        followTail = atYEnd
+                    if (_autoScrolling) {
+                        _lastContentY = contentY
+                        return
+                    }
+                    const scrolledUp = contentY < _lastContentY
+                    _lastContentY = contentY
+                    followTail = atYEnd
+                    if (scrolledUp && autoScrollToggle.checked)
+                        autoScrollToggle.deactivateWithBlink()
                 }
 
                 onContentHeightChanged: scheduleScroll()
@@ -105,7 +113,8 @@ Rectangle {
                     interval: 30
                     repeat: false
                     onTriggered: {
-                        if (!chatList.moving && !chatList.flicking)
+                        if (!chatList.moving && !chatList.flicking
+                                && (autoScrollToggle.checked || chatList.followTail))
                             chatList.scrollToBottom()
                     }
                 }
@@ -132,8 +141,12 @@ Rectangle {
                         const step = pixel !== 0
                                      ? pixel
                                      : (event.angleDelta.y / 120) * Theme.metrics.wheelScrollStep
-                        chatList.contentY -= step
-                        chatList.returnToBounds()
+                        if (step > 0 && autoScrollToggle.checked)
+                            autoScrollToggle.deactivateWithBlink()
+                        // Qt exposes no wheel-step knob on Flickable; clamp the
+                        // manual move so it can never overshoot the true bounds.
+                        const maxY = Math.max(0, chatList.contentHeight - chatList.height)
+                        chatList.contentY = Math.max(0, Math.min(maxY, chatList.contentY - step))
                         event.accepted = true
                     }
                 }
@@ -356,8 +369,8 @@ Rectangle {
                 ActionButton {
                     text: qsTr("Stop")
                     visible: chat.busy
-                    baseColor: Theme.colors.accentRed
-                    labelColor: Theme.colors.pageBg
+                    baseColor: Theme.colors.buttonPrimaryBg
+                    labelColor: Theme.colors.buttonPrimaryFg
                     onClicked: chat._handle_stop()
                 }
 

@@ -6,9 +6,8 @@ Source: `src/qt/session_state.py`
 
 Per-session mutable UI state for the Procoo Qt UI. Each live session owns a
 `SessionState`, so several sessions can generate concurrently while the user
-switches between them. The Flet edition's widget references are replaced by
-[`ChatListModel`](qt-chat-controller.md) row indices and small value objects —
-the UI state never holds a QML object.
+switches between them. The state holds [`ChatListModel`](qt-chat-controller.md)
+row indices and small value objects — it never holds a QML object.
 
 ## Deliverables
 

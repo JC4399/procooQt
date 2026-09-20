@@ -1,8 +1,7 @@
 """Error routing and toast notifications for the Qt UI.
 
-The Flet edition pushed toasts onto ``page.overlay``. Here the controller emits a
-``toast_requested`` signal and a QML ``Toast`` component renders it. Errors carry a
-short ``brief`` (shown in the toast) and a ``detail`` (logged).
+The controller emits a ``toast_requested`` signal and a QML ``Toast`` component renders
+it. Errors carry a short ``brief`` (shown in the toast) and a ``detail`` (logged).
 """
 
 from __future__ import annotations

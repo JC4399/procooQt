@@ -203,7 +203,7 @@ Rules:
 # Concurrency
 
 - The app runs **one asyncio event loop fused with Qt** via `qasync.QEventLoop`. There is exactly one loop, on the GUI thread.
-- Async work is scheduled with `asyncio.ensure_future(...)`; never `page.run_task` (Flet-only).
+- Async work is scheduled with `asyncio.ensure_future(...)`.
 - Because everything runs on the GUI thread, controllers may update models and properties directly from `async` slots. No locks.
 - **Never block the loop**: wrap synchronous file I/O (`SessionStore`, large skill scans) in `await asyncio.to_thread(...)`.
 - Tool subprocesses use `asyncio.create_subprocess_exec` inside `asyncio.gather` — do not use `QProcess`.

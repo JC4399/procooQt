@@ -5,8 +5,7 @@
 `ConfigManager` (`src/config/manager.py`) loads application configuration
 from a YAML file and exposes validated accessors for paths, session limits, and
 the LLM model. Missing keys raise `ConfigError` so the app fails fast at
-startup. The Qt edition has **no `server` section** — the desktop app no longer
-serves a web view — so `host`/`port` are neither defined nor read.
+startup.
 
 Full function reference: [`modules/config-manager`](modules/config-manager.md).
 
@@ -15,11 +14,11 @@ Full function reference: [`modules/config-manager`](modules/config-manager.md).
 ```yaml
 paths:
   # Relative to the procooQt project root (resolved against _PROJECT_ROOT in app.py).
-  skills_dir: "../skills"    # shared with the Flet app
-  storage_dir: "./storage"   # fresh, Qt-only session storage
+  skills_dir: "../skills"
+  storage_dir: "./storage"   # session storage
 
 auth:
-  api_keys: []               # accepted for parity; not yet read by ConfigManager
+  api_keys: []               # not yet read by ConfigManager
 
 limits:
   max_session_mb: 70          # 0 disables the byte-size limit
@@ -49,8 +48,8 @@ any relative path absolute against `_PROJECT_ROOT` = the `procooQt/` directory
 
 | Config value | Resolves to |
 |---|---|
-| `skills_dir: "../skills"` | `<repo-root>/skills` (shared library) |
-| `storage_dir: "./storage"` | `<procooQt>/storage` (fresh) |
+| `skills_dir: "../skills"` | `<repo-root>/skills` |
+| `storage_dir: "./storage"` | `<procooQt>/storage` |
 
 Absolute paths are used as-is. The resolved `skills_dir` also seeds the
 `_presets/` subdirectory used by `PresetStore`.
@@ -74,8 +73,8 @@ disables that limit. When a key is absent, the manager falls back to
 
 A non-empty list of model entries. Exactly one entry must have `enable: true`;
 that entry is the active model and must provide `model_name`, `api_key`, and
-`api_base`. `auth.api_keys` is present in the file for parity with the Flet
-edition but is not currently exposed by an accessor.
+`api_base`. `auth.api_keys` is present in the file but is not currently exposed
+by an accessor.
 
 ## Loading flow
 

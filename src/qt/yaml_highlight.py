@@ -1,9 +1,8 @@
 """YAML highlighting for tool-call argument cards.
 
-A full port of the Flet edition's YAML tokenizer that emits inline-styled HTML instead
-of ``ft.TextSpan`` objects, so QML ``TextEdit.RichText`` renders the same colours. It
-handles comment lines, ``key:`` mapping lines, list items, nested indentation, and
-inline string/number/boolean detection.
+A YAML tokenizer that emits inline-styled HTML so QML ``TextEdit.RichText`` can render
+syntax colours. It handles comment lines, ``key:`` mapping lines, list items, nested
+indentation, and inline string/number/boolean detection.
 """
 
 from __future__ import annotations

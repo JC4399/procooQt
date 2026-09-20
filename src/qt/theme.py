@@ -201,8 +201,8 @@ FONT_SIZE_BASE = 12
 FONT_SIZE_MARKDOWN = 12
 
 #: CSS ``line-height`` for chat card bodies (plain text and markdown), as a
-#: percentage of the font size. 150% ≈ 1.5 line spacing.
-LINE_HEIGHT_BODY = "150%"
+#: percentage of the font size.
+LINE_HEIGHT_BODY = "125%"
 
 FONT_MONO = "Sarasa Fixed TC"
 FONT_SIZE_BODY = 12

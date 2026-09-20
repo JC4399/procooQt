@@ -1,8 +1,8 @@
 paths:
   # Relative to the procooQt project root (resolved against _PROJECT_ROOT in app.py).
-  # The skills library is shared with the Flet app at ../skills.
+  # The skills library at ../skills.
   skills_dir: "../skills"
-  # Fresh, Qt-only session storage. Never shared with the Flet app.
+  # Session storage.
   storage_dir: "./storage"
 
 auth:

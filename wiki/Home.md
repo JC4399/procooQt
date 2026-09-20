@@ -3,10 +3,9 @@
 Procoo is a **Qt Quick / QML multi-column chat UI** for interactive LLM agent
 sessions. It lets a user select "skills" (bundles of instructions + tool
 scripts), configure per-tool permissions, and converse with an LLM agent that
-can execute those tools via subprocess with an approval workflow. The backend
-is a fork of the Flet edition; the Qt front end replaces Flet controls with QML
-views driven by Python controllers and list models on a single `qasync` event
-loop.
+can execute those tools via subprocess with an approval workflow. The front end
+is QML views driven by Python controllers and list models on a single `qasync`
+event loop.
 
 ## What the app does
 
@@ -55,7 +54,7 @@ uv run python -m src.app
 
 or double-click `start_procoo_qt.bat` (activates `.venv` and runs the same
 module). `skills_dir` points at the shared `../skills` library; `storage_dir`
-is a fresh `procooQt/storage/` never shared with the Flet app.
+points at `procooQt/storage/`.
 
 ## Documentation map
 
@@ -63,7 +62,6 @@ is a fresh `procooQt/storage/` never shared with the Flet app.
 
 - [Architecture](01-Architecture.md) — subsystems, data flow, key concepts.
 - [Configuration](02-Configuration.md) — `config.yaml` schema and loading.
-- [Rebuild plan](00-Rebuild-Plan.md) — Flet → Qt port tracker and parity checklist.
 
 ### Cross-module flows
 
@@ -103,7 +101,7 @@ Function reference tables use these columns:
 | Flow | step-by-step (non-trivial methods only) |
 | Raises / Side effects | exceptions, mutations, emitted events |
 
-The Qt edition names things after its toolkit: `QObject` controllers composed
+Names follow the Qt toolkit: `QObject` controllers composed
 by `ProcooQtUI`, `@Signal`/`@Slot` boundaries to QML, `_handle_*` handlers, the
 `procoo_qt` logger, and QML views under `src/qml/`. Authoring conventions for the
 Qt codebase live in [`../AGENTS.md`](../AGENTS.md).

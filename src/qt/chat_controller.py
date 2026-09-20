@@ -1,9 +1,8 @@
 """``ChatController`` — chat rendering, streaming, approval, and token bar.
 
-Owns one :class:`ChatListModel` per live session and drives the ReAct event loop. The
-class merges the Flet edition's ``chat_panel`` (build/render) and ``chat_loop``
-(events/streaming) mixins. ``session.messages`` stays canonical: the render plan is
-derived from it, diffed by content hash, and clipped into the model.
+Owns one :class:`ChatListModel` per live session and drives the ReAct event loop. It
+handles both build/render and events/streaming. ``session.messages`` stays canonical:
+the render plan is derived from it, diffed by content hash, and clipped into the model.
 """
 
 from __future__ import annotations
@@ -34,6 +33,7 @@ from .chat_items import (
 )
 from .context_banner import build_context_banner_item, build_context_sections_from_snapshot
 from .error_handler import TOAST_ERROR
+from .markdown import render_markdown
 from .models.chat_list_model import ChatListModel
 from .qt_roles import ChatRole
 
@@ -45,9 +45,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("procoo_qt")
 
+#: Minimum seconds between in-place streaming body updates for thinking/response
+#: cards. Structural changes rebuild immediately; this only paces text re-renders
+#: of the accumulated markdown so long outputs do not thrash the rich-text layout.
+_STREAM_UPDATE_INTERVAL = 0.08
+
 
 # ------------------------------------------------------------------
-#  Module-level content helpers (ported from chat_panel)
+#  Module-level content helpers
 # ------------------------------------------------------------------
 
 
@@ -1061,7 +1066,11 @@ class ChatController(QObject):
                 )
             else:
                 state.thinking.item_index = len(items)
-                items.append(build_thinking_pending_item(state.thinking.token_count))
+                items.append(
+                    build_thinking_pending_item(
+                        d["thinking_text"], token_count=state.thinking.token_count
+                    )
+                )
         if d["content_text"]:
             if d["response_done"]:
                 items.append(
@@ -1071,7 +1080,11 @@ class ChatController(QObject):
                 )
             else:
                 state.response.item_index = len(items)
-                items.append(build_response_pending_item(state.response.token_count))
+                items.append(
+                    build_response_pending_item(
+                        d["content_text"], token_count=state.response.token_count
+                    )
+                )
         state.tool_call_indices = []
         for tc in d["effective_tool_calls"]:
             tc_id = tc.get("id", "")
@@ -1130,11 +1143,13 @@ class ChatController(QObject):
         model.replace_item(row, item, "tr:" + tool_name + ":" + _content_hash(content))
 
     def _update_live_assistant(self, state: SessionState) -> None:
-        """Live render the streaming assistant message with a 1s throttle.
+        """Live render the streaming assistant message with a short throttle.
 
         Structural changes (tool calls/results appearing, streaming tool calls
-        first appearing) rebuild immediately. Content-only updates are throttled
-        to one-second intervals and applied in place via ``update_item``.
+        first appearing) rebuild immediately. A pending thinking/response card is
+        rebuilt into existence the first time its text arrives. Content-only
+        updates are throttled to :data:`_STREAM_UPDATE_INTERVAL` and applied in
+        place via ``update_item``.
 
         Args:
             state: The session's UI state.
@@ -1151,8 +1166,9 @@ class ChatController(QObject):
         if not messages or messages[-1].get("role") != "assistant":
             return
         last_msg = messages[-1]
-        thinking_text = last_msg.get("reasoning_content", "")
-        content_text = last_msg.get("content", "") or ""
+        decision = _assistant_decision(last_msg)
+        thinking_text = decision["thinking_text"]
+        content_text = decision["content_text"]
         thinking_changed = thinking_text != state.last_rendered_thinking_text
         content_changed = content_text != state.last_rendered_message_text
         tool_calls_changed = len(last_msg.get("tool_calls", [])) != state.last_rendered_tool_calls
@@ -1164,14 +1180,16 @@ class ChatController(QObject):
         )
         streaming_tc_needs_rebuild = streaming_tc_changed and not state.tool_call_indices
         now = time.monotonic()
-        rebuild_ok = now - state.last_rebuild_time >= 1.0
 
         if tool_calls_changed or tool_results_changed or streaming_tc_needs_rebuild:
             state.last_rebuild_time = now
             self._rebuild_chat_display(self.active_session_id)
             self._track_rendered_state(state)
             return
-        if content_text and state.response.item_index is None and rebuild_ok:
+        missing_pending_card = (
+            thinking_text and not decision["thinking_done"] and state.thinking.item_index is None
+        ) or (content_text and not decision["response_done"] and state.response.item_index is None)
+        if missing_pending_card:
             state.last_rebuild_time = now
             self._rebuild_chat_display(self.active_session_id)
             self._track_rendered_state(state)
@@ -1180,7 +1198,7 @@ class ChatController(QObject):
         streaming_active = streaming_tc_changed and bool(state.tool_call_indices)
         if not (content_only or streaming_active):
             return
-        if now - state.last_content_update_time < 1.0:
+        if now - state.last_content_update_time < _STREAM_UPDATE_INTERVAL:
             self._track_rendered_state(state)
             return
         state.last_content_update_time = now
@@ -1198,7 +1216,10 @@ class ChatController(QObject):
         thinking_changed: bool,
         content_changed: bool,
     ) -> None:
-        """Apply throttled content-only updates to pending card rows.
+        """Apply throttled content-only updates to the streaming card rows.
+
+        Re-renders the accumulated thinking/response markdown into ``BODY_HTML``
+        and refreshes the header token text and live tool-call token counts.
 
         Args:
             state: The session's UI state.
@@ -1219,7 +1240,10 @@ class ChatController(QObject):
             if state.thinking.item_index is not None:
                 model.update_item(
                     state.thinking.item_index,
-                    {int(ChatRole.TOKEN_TEXT): f"{state.thinking.token_count} tk"},
+                    {
+                        int(ChatRole.BODY_HTML): render_markdown(thinking_text),
+                        int(ChatRole.TOKEN_TEXT): f"{state.thinking.token_count} tk",
+                    },
                 )
         if content_changed:
             state.response.token_count = _accumulate_tokens(
@@ -1229,7 +1253,10 @@ class ChatController(QObject):
             if state.response.item_index is not None:
                 model.update_item(
                     state.response.item_index,
-                    {int(ChatRole.TOKEN_TEXT): f"{state.response.token_count} tk"},
+                    {
+                        int(ChatRole.BODY_HTML): render_markdown(content_text),
+                        int(ChatRole.TOKEN_TEXT): f"{state.response.token_count} tk",
+                    },
                 )
         if streaming_tcs:
             for idx, tc in enumerate(streaming_tcs):

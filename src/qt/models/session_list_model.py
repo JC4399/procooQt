@@ -17,9 +17,9 @@ class SessionListModel(ListModel):
     Rows are flattened from stored session summaries and folder names. A folder
     header row is always emitted; its session rows follow only while the folder
     is expanded (see :meth:`set_folder_expansion`). Unfiled sessions are
-    rendered directly after the folders with no synthetic header, matching the
-    Flet edition's unfiled drop zone. Session summaries must be pre-enriched by
-    the controller with ``title`` and ``status`` keys.
+    rendered directly after the folders with no synthetic header. Session
+    summaries must be pre-enriched by the controller with ``title`` and
+    ``status`` keys.
 
     Attributes:
         roles: Session role mapping (inherited).
