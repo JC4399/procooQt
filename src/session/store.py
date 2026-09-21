@@ -31,14 +31,19 @@ class SessionStore:
     def save_session(self, session_id: str, data: dict) -> None:
         """Persist a session dictionary to disk, updating its timestamp.
 
+        The write is atomic (temp file + replace) so a concurrent reader on a
+        worker thread never sees a partially written file.
+
         Args:
             session_id: Unique session identifier (used as the JSON filename).
             data: Session data dictionary.
         """
         data["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
         path = self.sessions_dir / f"{session_id}.json"
-        with open(path, "w") as f:
+        tmp = path.parent / (path.name + ".tmp")
+        with open(tmp, "w") as f:
             json.dump(data, f, indent=2, default=str)
+        tmp.replace(path)
 
     def load_session(self, session_id: str) -> dict | None:
         """Load a previously saved session.
@@ -55,30 +60,50 @@ class SessionStore:
         with open(path) as f:
             return json.load(f)
 
-    def list_sessions(self) -> list[dict]:
-        """Return summary metadata for all saved sessions, newest first."""
+    def load_all_sessions(self) -> list[dict]:
+        """Return the full parsed data for all saved sessions, newest first.
+
+        Parses each session JSON exactly once, so callers that need message
+        content (derived titles, statuses) do not re-read the files.
+
+        Returns:
+            A list of full session dicts, each carrying an ``"id"`` key set to the
+            filename stem.
+        """
         sessions = []
-        for f in sorted(
-            self.sessions_dir.glob("*.json"),
-            key=lambda p: p.name,
-            reverse=True,
-        ):
+        for f in sorted(self.sessions_dir.glob("*.json"), key=lambda p: p.name, reverse=True):
             try:
                 with open(f) as fh:
                     data = json.load(fh)
-                sessions.append(
-                    {
-                        "id": f.stem,
-                        "folder": data.get("folder"),
-                        "skills": data.get("skills", []),
-                        "created_at": data.get("created_at", ""),
-                        "updated_at": data.get("updated_at", ""),
-                        "message_count": data.get("message_count", 0),
-                    }
-                )
             except Exception as e:
                 logger.error("Corrupt session file %s: %s", f.name, e)
+                continue
+            data["id"] = f.stem
+            sessions.append(data)
         return sessions
+
+    def list_session_ids(self) -> list[str]:
+        """Return all saved session ids, newest first, without parsing any JSON.
+
+        Returns:
+            A list of session id strings.
+        """
+        paths = sorted(self.sessions_dir.glob("*.json"), key=lambda p: p.name, reverse=True)
+        return [p.stem for p in paths]
+
+    def list_sessions(self) -> list[dict]:
+        """Return summary metadata for all saved sessions, newest first."""
+        return [
+            {
+                "id": data.get("id", ""),
+                "folder": data.get("folder"),
+                "skills": data.get("skills", []),
+                "created_at": data.get("created_at", ""),
+                "updated_at": data.get("updated_at", ""),
+                "message_count": data.get("message_count", 0),
+            }
+            for data in self.load_all_sessions()
+        ]
 
     def delete_session(self, session_id: str) -> None:
         """Remove a session file from disk if it exists.

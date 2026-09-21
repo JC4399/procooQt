@@ -11,7 +11,7 @@ is a single JSON file under `storage/sessions/`; folders live in
 ## Deliverables
 
 - Session persistence: `save_session`, `load_session`, `list_sessions`,
-  `delete_session`.
+  `load_all_sessions`, `list_session_ids`, `delete_session`.
 - Folder management: `list_folders`, `create_folder`, `delete_folder`,
   `set_session_folder`.
 
@@ -48,7 +48,7 @@ is a single JSON file under `storage/sessions/`; folders live in
 | Signature | `def save_session(self, session_id: str, data: dict) -> None` |
 | Inputs | `session_id` — used as filename; `data` — session dict. |
 | Output | `None` |
-| Side effects | sets `updated_at`, writes `<id>.json` (indent 2). |
+| Side effects | sets `updated_at`, writes `<id>.json` (indent 2) **atomically** (`<id>.json.tmp` + `replace`), so a concurrent worker-thread reader never sees a partial file. |
 
 ### `load_session`
 
@@ -63,7 +63,25 @@ is a single JSON file under `storage/sessions/`; folders live in
 |---|---|
 | Signature | `def list_sessions(self) -> list[dict]` |
 | Output | summary dicts (`id`, `folder`, `skills`, `created_at`, `updated_at`, `message_count`), newest first. |
+| Flow | thin projection over `load_all_sessions` (each file parsed once). |
 | Side effects | logs corrupt files, skips them. |
+
+### `load_all_sessions`
+
+| | |
+|---|---|
+| Signature | `def load_all_sessions(self) -> list[dict]` |
+| Output | full parsed session dicts, each carrying an `"id"` key (filename stem), newest first. |
+| Flow | globs `*.json`, `json.load` once per file. |
+| Side effects | logs corrupt files, skips them. |
+
+### `list_session_ids`
+
+| | |
+|---|---|
+| Signature | `def list_session_ids(self) -> list[str]` |
+| Output | session id strings (filename stems), newest first. |
+| Flow | globs `*.json` only — no JSON parsing. |
 
 ### `delete_session`
 

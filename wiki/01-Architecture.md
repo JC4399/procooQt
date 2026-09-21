@@ -34,7 +34,9 @@
 │                        ContextBanner · CardBase                              │
 │    src/qml/components/ SessionTile · FolderHeader · SkillNode · ToolGroup ·  │
 │                        PresetBar · ActiveConfigBar · ApprovalBar · TokenBar ·│
-│                        FileNode · ToastHost · AutoScrollToggle               │
+│                        FileNode · ToastHost · AutoScrollToggle ·             │
+│                        KnightRiderSpinner · FlatCheckBox · FlatRadio ·       │
+│                        FlatIndicator                                         │
 └──────────────┬───────────────────────────────────────────────────────────────┘
                │ binds model roles / calls @Slot methods
 ┌──────────────▼───────────────────────────────────────────────────────────────┐

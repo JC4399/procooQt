@@ -175,6 +175,13 @@ INPUT_CURSOR_COLOR = COLOR_TEXT_PRIMARY
 INPUT_TEXT_COLOR = COLOR_TEXT_PRIMARY
 
 # ------------------------------------------------------------------
+# Toggle control metrics (shared checkbox / radio indicator)
+# ------------------------------------------------------------------
+CONTROL_INDICATOR_SIZE = 12
+CONTROL_INDICATOR_RADIUS = 2
+CONTROL_DOT_SIZE = 6
+
+# ------------------------------------------------------------------
 # Radius / sizing metrics (all square)
 # ------------------------------------------------------------------
 BUTTON_RADIUS = 0
@@ -313,6 +320,9 @@ METRICS: dict[str, int] = {
     "modeBadgeRadius": MODE_BADGE_RADIUS,
     "configChipRadius": CONFIG_CHIP_RADIUS,
     "contextBannerRadius": CONTEXT_BANNER_RADIUS,
+    "controlIndicatorSize": CONTROL_INDICATOR_SIZE,
+    "controlIndicatorRadius": CONTROL_INDICATOR_RADIUS,
+    "controlDotSize": CONTROL_DOT_SIZE,
     "iconSizeSmall": ICON_SIZE_SMALL,
     "iconSizeMedium": ICON_SIZE_MEDIUM,
     "iconSizeLarge": ICON_SIZE_LARGE,

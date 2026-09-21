@@ -1,13 +1,16 @@
 import QtQuick
 
-// Floating flat toggle that reveals itself on hover when unchecked and stays
-// visible while checked. View-only: the owner reacts to ``toggled``/``checked``.
+// Floating flat auto-scroll toggle. It fades in when auto-scroll becomes
+// active (the chat is pinned to the newest card) and fades out when the user
+// scrolls away; hovering a faded-out toggle reveals it so it stays clickable.
+// View-only: the owner reacts to ``toggled``/``checked`` and drives the state
+// through ``activateWithFade`` / ``deactivateWithFade``.
 Item {
     id: control
 
-    property bool checked: false
-    property bool blinking: false
-    property real blinkOpacity: 0
+    property bool checked: true
+    property bool animating: false
+    property real animOpacity: 0
 
     signal toggled()
 
@@ -17,52 +20,66 @@ Item {
     implicitWidth: row.implicitWidth + 16
     implicitHeight: 26
 
-    // Blink once (visible → hidden → visible) then fade out to hidden. Used to
-    // signal that auto-scroll was switched off because the user scrolled away.
+    // Symmetric 500 ms fades: in when auto-scroll activates, out when it stops.
     SequentialAnimation {
-        id: blinkAnim
+        id: fadeInAnim
 
         NumberAnimation {
             target: control
-            property: "blinkOpacity"
-            from: 1
-            to: 0
-            duration: 500
-        }
-        NumberAnimation {
-            target: control
-            property: "blinkOpacity"
-            from: 0
+            property: "animOpacity"
             to: 1
             duration: 500
+            easing.type: Easing.InOutQuad
         }
+        ScriptAction {
+            script: control.animating = false
+        }
+    }
+
+    SequentialAnimation {
+        id: fadeOutAnim
+
         NumberAnimation {
-            id: fadeOut
             target: control
-            property: "blinkOpacity"
-            from: 1
+            property: "animOpacity"
             to: 0
             duration: 500
             easing.type: Easing.InOutQuad
         }
         ScriptAction {
-            script: control.blinking = false
+            script: control.animating = false
         }
     }
 
-    function deactivateWithBlink() {
-        if (!checked)
+    function activateWithFade() {
+        if (checked)
             return
-        checked = false
-        blinking = true
-        blinkAnim.restart()
+        animOpacity = opacity
+        checked = true
+        animating = true
+        fadeInAnim.restart()
     }
 
-    opacity: control.blinking ? control.blinkOpacity
-                              : (control.checked || mouseArea.containsMouse ? 1 : 0)
+    function deactivateWithFade() {
+        if (!checked)
+            return
+        // While hovered the toggle stays visible anyway, so skip the fade that
+        // would otherwise pop back to full opacity when the hover takes over.
+        if (mouseArea.containsMouse) {
+            checked = false
+            return
+        }
+        animOpacity = opacity
+        checked = false
+        animating = true
+        fadeOutAnim.restart()
+    }
+
+    opacity: control.animating ? control.animOpacity
+                               : (control.checked || mouseArea.containsMouse ? 1 : 0)
 
     Behavior on opacity {
-        enabled: !control.blinking
+        enabled: !control.animating
         NumberAnimation {
             duration: 120
         }
@@ -81,14 +98,10 @@ Item {
             anchors.centerIn: parent
             spacing: 6
 
-            Rectangle {
-                width: 10
-                height: 10
+            FlatIndicator {
                 anchors.verticalCenter: parent.verticalCenter
-                color: control.checked ? Theme.colors.accentCyan : "transparent"
-                border.color: Theme.colors.textSecondary
-                border.width: 1
-                radius: 0
+                checked: control.checked
+                accent: Theme.colors.accentCyan
             }
 
             Text {
@@ -106,7 +119,10 @@ Item {
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onClicked: {
-                control.checked = !control.checked
+                if (control.checked)
+                    control.deactivateWithFade()
+                else
+                    control.activateWithFade()
                 control.toggled()
             }
         }

@@ -166,6 +166,23 @@ class ListModel(QAbstractListModel):
         self.endInsertRows()
         return row
 
+    def append_items(self, items: list[Item], keys: list[str] | None = None) -> None:
+        """Append several rows in one insertion batch.
+
+        Args:
+            items: The role-keyed rows to append.
+            keys: Optional per-row identity keys. Defaults to empty keys.
+        """
+        if not items:
+            return
+        if keys is None:
+            keys = [""] * len(items)
+        start = len(self._items)
+        self.beginInsertRows(QModelIndex(), start, start + len(items) - 1)
+        self._items.extend(items)
+        self._keys.extend(keys)
+        self.endInsertRows()
+
     def update_item(self, row: int, values: Item) -> None:
         """Merge ``values`` into an existing row and notify QML.
 

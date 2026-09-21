@@ -56,6 +56,7 @@ class SessionController(QObject):
 
     sessions_changed = Signal()
     active_session_changed = Signal(str)
+    session_switch_started = Signal(str)
     toast_requested = Signal(str, str)
     new_folder_requested = Signal()
 
@@ -94,7 +95,7 @@ class SessionController(QObject):
         self._states = {}
         self._tasks = set()
         self.active_session_id = None
-        self.session_ids = [s["id"] for s in self.app.session_store.list_sessions()]
+        self.session_ids = []
         self._refresh_model()
 
     # ------------------------------------------------------------------
@@ -162,6 +163,7 @@ class SessionController(QObject):
         session_id = self._generate_unique_session_id()
         self._create_stored_session(session_id)
         self.session_ids = [session_id, *self.session_ids]
+        self.session_switch_started.emit(session_id)
         self._spawn(self._switch_to_session(session_id))
 
     # ------------------------------------------------------------------
@@ -177,6 +179,9 @@ class SessionController(QObject):
         """
         if not session_id:
             return
+        if session_id == self.active_session_id:
+            return
+        self.session_switch_started.emit(session_id)
         self._spawn(self._switch_to_session(session_id))
 
     # ------------------------------------------------------------------
@@ -321,28 +326,60 @@ class SessionController(QObject):
 
     def _refresh_model(self) -> None:
         """Reload session summaries and folders into the list model."""
-        summaries = self.app.session_store.list_sessions()
-        self.session_ids = [s["id"] for s in summaries]
-        enriched = [self._enrich_session(summary) for summary in summaries]
+        enriched, folders = self._collect_summaries()
+        self._apply_summaries(enriched, folders)
+
+    def _collect_summaries(self) -> tuple[list[dict[str, Any]], list[str]]:
+        """Read and enrich every session summary in a single disk pass.
+
+        Parses each session file once (via ``load_all_sessions``) and derives the
+        display title and status from that same data. Touches no Qt objects, so it
+        is safe to run on a worker thread through ``asyncio.to_thread``.
+
+        Returns:
+            ``(enriched, folders)`` — the enriched summary list and folder names.
+        """
+        states = dict(self._states)
+        stored = self.app.session_store.load_all_sessions()
+        enriched = [self._enrich_session(data, states) for data in stored]
         folders = self.app.session_store.list_folders()
+        return enriched, folders
+
+    def _apply_summaries(self, enriched: list[dict[str, Any]], folders: list[str]) -> None:
+        """Apply collected session summaries to the sidebar model.
+
+        Must run on the GUI thread (updates the ``QAbstractListModel``).
+
+        Args:
+            enriched: Enriched session summary dicts.
+            folders: Folder names in display order.
+        """
+        self.session_ids = [s["id"] for s in enriched]
         self._session_model.set_sessions(enriched, folders, self.active_session_id, self._states)
         self.sessions_changed.emit()
 
-    def _enrich_session(self, summary: dict[str, Any]) -> dict[str, Any]:
-        """Attach a derived title and status to a session summary.
+    def _enrich_session(
+        self, stored: dict[str, Any], states: dict[str, SessionState]
+    ) -> dict[str, Any]:
+        """Attach a derived title and status to a stored session dict.
 
         Args:
-            summary: A summary dict from ``SessionStore.list_sessions``.
+            stored: A full session dict from ``SessionStore.load_all_sessions``.
+            states: Snapshot of the per-session UI states.
 
         Returns:
             The summary extended with ``title`` and ``status`` keys.
         """
-        session_id = summary["id"]
-        stored = self.app.session_store.load_session(session_id)
+        session_id = str(stored.get("id", ""))
         return {
-            **summary,
-            "title": self._derive_session_title(stored or {"id": session_id}),
-            "status": self._derive_session_status(session_id, stored),
+            "id": session_id,
+            "folder": stored.get("folder"),
+            "skills": stored.get("skills", []),
+            "created_at": stored.get("created_at", ""),
+            "updated_at": stored.get("updated_at", ""),
+            "message_count": stored.get("message_count", 0),
+            "title": self._derive_session_title(stored),
+            "status": self._derive_session_status(session_id, stored, states),
         }
 
     # ------------------------------------------------------------------
@@ -368,17 +405,20 @@ class SessionController(QObject):
                 return title[:30] + ("..." if len(title) > 30 else "")
         return sess.get("id", "")[:15]
 
-    def _derive_session_status(self, sid: str, stored: dict | None) -> str:
+    def _derive_session_status(
+        self, sid: str, stored: dict | None, states: dict[str, SessionState]
+    ) -> str:
         """Determine a session's status from its UI state and stored messages.
 
         Args:
             sid: Session id.
             stored: The stored session data dict, or ``None``.
+            states: Snapshot of the per-session UI states.
 
         Returns:
             One of the :class:`SessionStatus` values.
         """
-        state = self._states.get(sid)
+        state = states.get(sid)
         if state and state.is_busy:
             return SessionStatus.WAITING if state.pending_tool_info else SessionStatus.RUNNING
         if not stored:
@@ -435,22 +475,48 @@ class SessionController(QObject):
             },
         )
 
-    def _save_current_session_for(self, session_id: str) -> None:
+    def _session_save_snapshot(
+        self, session_id: str
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
+        """Capture a live session's messages and context on the GUI thread.
+
+        Args:
+            session_id: The session id to snapshot.
+
+        Returns:
+            ``(messages, context_snapshot)``, or ``None`` when no live session
+            exists for the id.
+        """
+        session = session_manager.get_session(session_id)
+        if session is None:
+            return None
+        return list(session.messages), self._build_context_snapshot(session)
+
+    def _save_current_session_for(
+        self,
+        session_id: str,
+        snapshot: tuple[list[dict[str, Any]], dict[str, Any]] | None = None,
+    ) -> None:
         """Persist live in-memory messages and context for a session.
 
         Args:
             session_id: The session id to persist.
+            snapshot: Optional ``(messages, context_snapshot)`` captured on the
+                GUI thread. Passed when this runs on a worker thread so a message
+                list being appended to concurrently is not serialized mid-mutation.
         """
         if not session_id:
             return
-        session = session_manager.get_session(session_id)
-        if not session:
-            return
+        if snapshot is None:
+            snapshot = self._session_save_snapshot(session_id)
+            if snapshot is None:
+                return
+        messages, context_snapshot = snapshot
         stored = self.app.session_store.load_session(session_id)
         if stored:
-            stored["messages"] = session.messages
-            stored["message_count"] = len(session.messages)
-            stored["context_snapshot"] = self._build_context_snapshot(session)
+            stored["messages"] = messages
+            stored["message_count"] = len(messages)
+            stored["context_snapshot"] = context_snapshot
             self.app.session_store.save_session(session_id, stored)
 
     def _generate_unique_session_id(self) -> str:
@@ -462,7 +528,7 @@ class SessionController(QObject):
         base = time.strftime("%Y%m%d_%H%M%S")
         candidate = base
         suffix = 1
-        existing = {s["id"] for s in self.app.session_store.list_sessions()}
+        existing = set(self.app.session_store.list_session_ids())
         existing.update(self.session_ids)
         while candidate in existing:
             suffix += 1
@@ -488,7 +554,7 @@ class SessionController(QObject):
         if existing is not None:
             return existing
         if stored is None:
-            stored = self.app.session_store.load_session(session_id)
+            stored = await asyncio.to_thread(self.app.session_store.load_session, session_id)
         if not stored:
             self.toast_requested.emit(f"Session '{session_id}' not found.", TOAST_ERROR)
             return None
@@ -497,7 +563,9 @@ class SessionController(QObject):
         primary = skills_cfg.get("primary", [])
         secondary = skills_cfg.get("secondary", [])
         try:
-            session = await self._create_manager_session(session_id, stored, primary, secondary)
+            session = await asyncio.to_thread(
+                self._create_manager_session, session_id, stored, primary, secondary
+            )
         except Exception as error:
             session_error = SessionError(
                 brief=f"Failed to create session '{session_id}'",
@@ -510,10 +578,10 @@ class SessionController(QObject):
         await session.refresh_estimated()
         if not stored.get("context_snapshot"):
             stored["context_snapshot"] = self._build_context_snapshot(session)
-            self.app.session_store.save_session(session_id, stored)
+            await asyncio.to_thread(self.app.session_store.save_session, session_id, stored)
         return session
 
-    async def _create_manager_session(
+    def _create_manager_session(
         self,
         session_id: str,
         stored: dict,
@@ -532,7 +600,7 @@ class SessionController(QObject):
             The newly created session from ``session_manager``.
         """
         tools_cfg = stored.get("skills_config", {}).get("tools", {})
-        return await session_manager.create_session(
+        return session_manager.create_session(
             session_id=session_id,
             model={
                 "model_name": self.app.config.llm_model_name,
@@ -560,17 +628,35 @@ class SessionController(QObject):
     async def _switch_to_session(self, session_id: str) -> None:
         """Save the previous session, then activate and hydrate the target.
 
+        Blocking disk I/O (saving the previous session, reloading the sidebar, and
+        loading the target record) runs on worker threads via ``asyncio.to_thread``
+        so the GUI thread keeps painting the loading scanner. Each await re-checks
+        ``active_session_id`` so a newer switch supersedes this one.
+
         Args:
             session_id: The session id to switch to.
         """
         old_sid = self.active_session_id
-        if old_sid and old_sid != session_id:
-            self._save_current_session_for(old_sid)
         self.active_session_id = session_id
         self._get_or_create_state(session_id)
-        self._refresh_model()
+
+        if old_sid and old_sid != session_id:
+            snapshot = self._session_save_snapshot(old_sid)
+            if snapshot is not None:
+                await asyncio.to_thread(self._save_current_session_for, old_sid, snapshot)
+        if self.active_session_id != session_id:
+            return
+
+        enriched, folders = await asyncio.to_thread(self._collect_summaries)
+        if self.active_session_id != session_id:
+            return
+        self._apply_summaries(enriched, folders)
+
         self.active_session_changed.emit(session_id)
-        stored = self.app.session_store.load_session(session_id)
+
+        stored = await asyncio.to_thread(self.app.session_store.load_session, session_id)
+        if self.active_session_id != session_id:
+            return
         if session_manager.get_session(session_id) is None and stored and stored.get("messages"):
             await self._hydrate_session(session_id, stored)
 
@@ -583,6 +669,7 @@ class SessionController(QObject):
         if self.session_ids:
             latest_id = self.session_ids[0]
             logger.info("Auto-selecting session '%s' on startup", latest_id)
+            self.session_switch_started.emit(latest_id)
             self._spawn(self._switch_to_session(latest_id))
             return
         session_id = time.strftime("%Y%m%d_%H%M%S")
@@ -591,6 +678,7 @@ class SessionController(QObject):
         self.session_ids = [session_id, *self.session_ids]
         self.active_session_id = session_id
         self._get_or_create_state(session_id)
+        self.session_switch_started.emit(session_id)
         self._refresh_model()
         self.active_session_changed.emit(session_id)
 
@@ -615,6 +703,8 @@ class SessionController(QObject):
         self.session_ids = [s for s in self.session_ids if s != session_id]
         if was_active:
             self.active_session_id = self.session_ids[0] if self.session_ids else None
+            if self.active_session_id:
+                self.session_switch_started.emit(self.active_session_id)
         self._refresh_model()
         if not was_active:
             return

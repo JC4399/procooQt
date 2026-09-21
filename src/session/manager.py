@@ -19,7 +19,7 @@ class SessionManager:
     def __init__(self) -> None:
         self.sessions: dict[str, Agent] = {}
 
-    async def create_session(
+    def create_session(
         self,
         session_id: str,
         model: dict | None = None,

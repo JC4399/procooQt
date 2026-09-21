@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 
 // One row of the flattened skill tree: either a collapsible folder header or a
@@ -28,36 +27,6 @@ Rectangle {
     border.color: node.isFolder ? Theme.colors.borderLight : "transparent"
     border.width: node.isFolder ? 1 : 0
     radius: 0
-
-    component FlatCheckBox: CheckBox {
-        id: control
-
-        property color accent: Theme.colors.accentCyan
-
-        implicitWidth: 20
-        implicitHeight: 20
-
-        indicator: Rectangle {
-            implicitWidth: 14
-            implicitHeight: 14
-            anchors.centerIn: parent
-            color: control.checked ? control.accent : "transparent"
-            border.color: control.checked ? control.accent : Theme.colors.borderStrong
-            border.width: 1
-            radius: 2
-
-            Text {
-                anchors.centerIn: parent
-                visible: control.checked
-                text: "\u2713"
-                color: Theme.colors.pageBg
-                font.family: Theme.fontMono
-                font.pointSize: Theme.metrics.fontSizeBase
-            }
-        }
-
-        contentItem: Item {}
-    }
 
     MouseArea {
         anchors.fill: parent

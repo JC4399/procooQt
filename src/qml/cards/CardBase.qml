@@ -1,6 +1,7 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
+
+import "../components"
 
 // Shared chat-card anatomy: header row (icon + label + optional mode badge +
 // subtitle + token text) with a bottom divider, and a collapsible body. Every
@@ -21,6 +22,9 @@ Rectangle {
     property color headerColor: Theme.colors.textSecondary
     property int accentWidth: 2
     property bool borderAllSides: true
+    // When false the header row is hidden and the card renders body only
+    // (used by the headerless waiting placeholder).
+    property bool headerVisible: true
     property string iconGlyph: ""
     // Vertical breathing room applied by the ChatPanel delegate outside the card
     // border; UserCard overrides both to 24 px.
@@ -65,6 +69,7 @@ Rectangle {
         Rectangle {
             id: header
             Layout.fillWidth: true
+            visible: card.headerVisible
             implicitHeight: headerRow.implicitHeight + 8
             color: "transparent"
 
@@ -184,12 +189,11 @@ Rectangle {
                 anchors.topMargin: 6
                 spacing: 0
 
-                BusyIndicator {
+                KnightRiderSpinner {
                     Layout.alignment: Qt.AlignHCenter
                     visible: card.isPending && !card.hasBody
-                    running: card.isPending && !card.hasBody
-                    implicitWidth: 24
-                    implicitHeight: 24
+                    running: visible
+                    baseColor: card.accentColor
                 }
 
                 TextEdit {

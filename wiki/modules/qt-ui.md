@@ -42,6 +42,7 @@ Cross-controller signal connections made in `__init__`:
 |---|---|
 | `session.toast_requested` | `notifier.toast_requested` |
 | `session.active_session_changed` | `chat._handle_session_activated` |
+| `session.session_switch_started` | `chat._handle_session_switch_started` |
 | `session.active_session_changed` | `skill._handle_session_activated` |
 | `chat.toast_requested` | `notifier.toast_requested` |
 | `skill.toast_requested` | `notifier.toast_requested` |
@@ -50,7 +51,9 @@ Cross-controller signal connections made in `__init__`:
 
 `active_session_changed` is the single activation bus: the
 [session controller](qt-session-controller.md) emits it and the chat and skill
-controllers react. `ErrorNotifier` fans the four `toast_requested` streams into
+controllers react. `session_switch_started` is emitted earlier (at the user
+action) so the chat loading overlay paints before the off-thread sidebar reload.
+`ErrorNotifier` fans the four `toast_requested` streams into
 the `toasts` context property consumed by `ToastHost.qml`. The
 [skill controller](qt-skill-controller.md)'s `skill_files_changed` is emitted on
 the watchdog thread and queued to the [editor controller](qt-editor-controller.md)

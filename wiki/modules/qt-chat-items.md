@@ -13,9 +13,9 @@ tool calls.
 ## Deliverables
 
 - `KIND_*` constants: `KIND_USER`, `KIND_THINKING`, `KIND_RESPONSE`,
-  `KIND_TOOL_CALL`, `KIND_TOOL_RESULT`, `KIND_CONTEXT_BANNER`.
+  `KIND_TOOL_CALL`, `KIND_TOOL_RESULT`, `KIND_CONTEXT_BANNER`, `KIND_WAITING`.
 - `make_item` — generic `ChatRole`-keyed dictionary builder.
-- Item builders: `build_user_item`, `build_thinking_item` /
+- Item builders: `build_user_item`, `build_waiting_item`, `build_thinking_item` /
   `build_thinking_pending_item`, `build_response_item` /
   `build_response_pending_item`, `build_tool_call_item` /
   `build_tool_call_pending_item`, `build_tool_result_item` /
@@ -33,7 +33,7 @@ defaults. The QML side renders any item through `src/qml/cards/CardBase.qml`:
 ```
 header row (icon + title [+ mode badge] [+ subtitle]) ── token text ── collapse arrow
   ─────────────────────────────── (divider)
-body (rich-text HTML) or BusyIndicator while isPending
+body (rich-text HTML) or KnightRiderSpinner while isPending
 ```
 
 `CardBase.qml` is the single header implementation; each concrete card
@@ -42,9 +42,20 @@ border style, and vertical padding. `CardBase` exposes `padTop`/`padBottom`
 (default 8 px; `UserCard` uses 24 px) which the `ChatPanel.qml` delegate applies
 as margins outside the card border to space cards apart; `ContextBanner.qml`
 mirrors the same 8 px default. Pending variants keep
-the same header and set `isPending`; `CardBase` shows a `BusyIndicator` only while
-pending with no body yet, so a streaming thinking/response card renders its
-growing body instead of the spinner. The body `TextEdit` uses
+the same header and set `isPending`; `CardBase` shows a `KnightRiderSpinner`
+(`src/qml/components/KnightRiderSpinner.qml`) only while pending with no body
+yet, so a streaming thinking/response card renders its growing body instead of
+the spinner. `CardBase` also exposes `headerVisible` (default `true`); the
+headerless `WaitingCard.qml` sets it `false` so the pre-response placeholder is
+just a grey scanner. The waiting item is emitted (keyed `w:pending`) at the end
+of the render plan while a generation is busy but the current assistant turn has
+no content yet, and the first real card replaces it through `diff_update`.
+`KnightRiderSpinner` is a view-only bidirectional "Knight Rider"
+scanner: a row of block cells whose brightest cell sweeps right, holds, sweeps
+left, then holds, leaving a fading alpha trail. It advances a precomputed frame
+index on a 40 ms `Timer`, derives each cell's glyph and colour from the frame,
+and takes `baseColor` from the hosting card's `accentColor` (magenta for tool
+cards, blue for thinking, amber for response). The body `TextEdit` uses
 `Theme.colors.mdText` for markdown kinds (`thinking`/`response`) and
 `Theme.colors.textPrimary` otherwise, and opens clicked links with
 `Qt.openUrlExternally`. `ChatPanel.qml` binds each delegate
@@ -63,12 +74,15 @@ variable-height cards its `contentHeight` is only an estimate, and
 `positionViewAtEnd()` against that estimate shifted `originY` without bound
 (runaway scrolling, a jumping scrollbar, and a middle-of-viewport landing).
 Auto-scroll sets `contentY = contentHeight - height` through a 30 ms debounce
-`Timer` guarded by `!moving && !flicking`, following the newest card while
-`autoScrollToggle.checked || followTail`; `followTail` tracks `atYEnd` on
-`onContentYChanged`. If the user scrolls up while the toggle is on, the toggle
-calls `deactivateWithBlink()`: it switches `checked` off, blinks twice, then
-hides itself in the normal unchecked state. `boundsBehavior:
-Flickable.StopAtBounds` prevents dragging past the last card.
+`Timer` guarded by `!moving && !flicking`, following the newest card whenever
+`autoScrollToggle.checked` is true. That flag is the single source of truth:
+`onContentYChanged` compares `contentY` against `Math.max(0, contentHeight -
+height)` and, on reaching the bottom, calls `activateWithFade()` (button fades
+in over 500 ms); scrolling away calls `deactivateWithFade()` (fades out over
+500 ms). The toggle starts `checked` so the first streamed card follows, and
+clicking it pauses/resumes follow manually (a paused toggle stays visible while
+hovered and fades out otherwise). `boundsBehavior: Flickable.StopAtBounds`
+prevents dragging past the last card.
 
 Mouse-wheel scrolling is handled by a `WheelHandler` on the chat `Flickable`,
 because Qt exposes no wheel-step property and the native platform step is much
@@ -77,16 +91,17 @@ discrete notches step by `Theme.metrics.wheelScrollStep` (120 px). Unlike a
 naive offset, the handler **clamps** the new `contentY` to
 `[0, contentHeight - height]` instead of calling `returnToBounds()`, so it never
 overshoots the true bounds and cannot show blank space beyond the first/last
-card. `onContentYChanged` updates `followTail` from `atYEnd`, so wheeling up
-stops auto-follow (deactivating an active `autoScrollToggle` via
-`deactivateWithBlink()`) and wheeling back to the end resumes it. A vertical
-`ScrollBar` (`ScrollBar.AsNeeded`) provides feedback and drag-scroll.
+card. Wheeling up moves `contentY` away from the bottom, which the
+`onContentYChanged` handler observes to deactivate auto-scroll; wheeling back to
+the end reactivates it. A vertical `ScrollBar` (`ScrollBar.AsNeeded`) provides
+feedback and drag-scroll.
 
 ## Card types
 
 | Card | `kind` | QML delegate | Border | Header | Body |
 |---|---|---|---|---|---|
 | User | `user` | `UserCard.qml` | 3px green | `❯` + "User" | escaped `<pre>` |
+| Waiting | `waiting` | `WaitingCard.qml` | top/bottom grey | none (headerless) | `KnightRiderSpinner` (pending) |
 | Thinking | `thinking` | `ThinkingCard.qml` | top/bottom blue | `◌` + "Thinking" | `render_markdown` (streamed while pending) |
 | Response | `response` | `ResponseCard.qml` | 3px amber | `◆` + "Response" | `render_markdown` (streamed while pending) |
 | Tool call | `tool_call` | `ToolCallCard.qml` | top/bottom magenta | `⚙` + "Tool Call" + mode badge | `highlight_yaml_html` |
@@ -127,6 +142,7 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
 | `build_user_item(text: str) -> dict[int, object]` | `text` | role-keyed dict | `_card_item(KIND_USER, title="User", body_html=_plain_body(text))` | None |
+| `build_waiting_item() -> dict[int, object]` | — | role-keyed dict | `make_item(KIND_WAITING, is_pending=True)` — empty title/token/body | None |
 | `build_thinking_item(text: str, *, token_count=0) -> dict[int, object]` | `text`; `token_count` | role-keyed dict | Body = `render_markdown(text)`, title "Thinking" | None |
 | `build_thinking_pending_item(text="", *, token_count=0) -> dict[int, object]` | `text` — partial streamed content; `token_count` | role-keyed dict | Body = `render_markdown(text)`, title "Thinking", `is_pending=True` | None |
 | `build_response_item(text: str, *, token_count=0) -> dict[int, object]` | `text`; `token_count` | role-keyed dict | Body = `render_markdown(text)`, title "Response" | None |

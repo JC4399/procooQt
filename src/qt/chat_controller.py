@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Coroutine
+from dataclasses import dataclass, field
 import hashlib
 import json
 import logging
@@ -30,6 +31,7 @@ from .chat_items import (
     build_tool_result_item,
     build_tool_result_pending_item,
     build_user_item,
+    build_waiting_item,
 )
 from .context_banner import build_context_banner_item, build_context_sections_from_snapshot
 from .error_handler import TOAST_ERROR
@@ -49,6 +51,58 @@ logger = logging.getLogger("procoo_qt")
 #: cards. Structural changes rebuild immediately; this only paces text re-renders
 #: of the accumulated markdown so long outputs do not thrash the rich-text layout.
 _STREAM_UPDATE_INTERVAL = 0.08
+
+#: Staged chat build after a session switch. The chat list is non-virtualized, so
+#: inserting every card at once blocks the GUI thread for the whole build; rows
+#: are inserted ``_RENDER_INSERT_BATCH`` at a time with a short tick so the
+#: loading overlay's scanner keeps animating. The tick bounds the extra time the
+#: staging adds to roughly ``_RENDER_TICK_TARGET`` seconds.
+_RENDER_INSERT_BATCH = 8
+_RENDER_TICK_MIN = 0.006
+_RENDER_TICK_MAX = 0.02
+_RENDER_TICK_TARGET = 0.6
+
+
+@dataclass
+class _StagedBuildState:
+    """Tracks an in-progress staged chat build after a session switch.
+
+    Attributes:
+        session_id: The session whose cards are being built.
+        model: The chat model receiving rows.
+        state: The session state that owns the render keys.
+        items: The full render plan (role-keyed rows).
+        keys: Identity keys aligned with ``items``.
+        next_index: The next row index to insert.
+        done: Whether the build finished or was skipped.
+    """
+
+    session_id: str
+    model: ChatListModel
+    state: SessionState
+    items: list[dict]
+    keys: list[str]
+    next_index: int = 0
+    done: bool = False
+
+
+@dataclass
+class _RenderIndices:
+    """Row indices of the streaming-capable cards produced by a render plan.
+
+    Returned by :meth:`ChatController._build_items` instead of mutating the
+    session state, so the plan can be computed on a worker thread and the
+    indices applied on the GUI thread.
+
+    Attributes:
+        thinking_index: Row index of the pending thinking card, or ``None``.
+        response_index: Row index of the pending response card, or ``None``.
+        tool_call_indices: Row indices of the streaming tool-call cards.
+    """
+
+    thinking_index: int | None = None
+    response_index: int | None = None
+    tool_call_indices: list[int] = field(default_factory=list)
 
 
 # ------------------------------------------------------------------
@@ -131,6 +185,28 @@ def _assistant_decision(msg: dict) -> dict[str, Any]:
         "response_done": bool(tool_calls),
         "finalized_ids": {tc.get("id", "") for tc in tool_calls},
     }
+
+
+def _is_waiting_for_assistant(state: SessionState, messages: list[dict]) -> bool:
+    """Return whether the UI should show the pre-response waiting scanner.
+
+    Args:
+        state: The session's UI state.
+        messages: The session's message list.
+
+    Returns:
+        ``True`` while a generation is busy but the current assistant turn has
+        not yet produced thinking, response, or tool-call content.
+    """
+    if not state.is_busy or not messages:
+        return False
+    last = messages[-1]
+    if last.get("role") != "assistant":
+        return True
+    decision = _assistant_decision(last)
+    return not (
+        decision["thinking_text"] or decision["content_text"] or decision["effective_tool_calls"]
+    )
 
 
 def _count_trailing_tool_results(messages: list[dict], after_idx: int) -> int:
@@ -251,6 +327,7 @@ class ChatController(QObject):
         _loading: bool
         _input_tokens: int
         _output_tokens: int
+        _staged_build: _StagedBuildState | None
 
         # Cross-controller method stubs
         def _refresh_sidebar(self) -> None: ...
@@ -277,6 +354,7 @@ class ChatController(QObject):
         self._loading = False
         self._input_tokens = 0
         self._output_tokens = 0
+        self._staged_build = None
 
     # ------------------------------------------------------------------
     #  Builder
@@ -409,6 +487,7 @@ class ChatController(QObject):
         if state.is_busy:
             self.toast_requested.emit("Please wait for the current response.", TOAST_ERROR)
             return
+        self._skip_staged_build()
         self._append_user_message(message)
         self._launch_generation(message)
 
@@ -445,12 +524,28 @@ class ChatController(QObject):
     # ------------------------------------------------------------------
 
     @Slot(str)
+    def _handle_session_switch_started(self, session_id: str) -> None:
+        """Show the loading scanner as soon as a session switch is requested.
+
+        Connected to ``SessionController.session_switch_started``, emitted at the
+        user action (tile click, new session, startup, delete) before the
+        offloaded save/sidebar-reload work. Turning loading on here lets the
+        overlay paint immediately instead of after the sidebar is reloaded.
+
+        Args:
+            session_id: The session being switched to.
+        """
+        self._cancel_staged_build()
+        self._set_loading(True)
+
+    @Slot(str)
     def _handle_session_activated(self, session_id: str) -> None:
         """Switch the active chat model and rebuild its display.
 
         Args:
             session_id: The newly active session id (empty when none).
         """
+        self._cancel_staged_build()
         self.active_session_id = session_id or None
         if not self.active_session_id:
             self._set_approval_visible(False)
@@ -475,8 +570,10 @@ class ChatController(QObject):
         await asyncio.sleep(0)
         if self.active_session_id != session_id:
             return
+        await self._rebuild_chat_display_staged(session_id)
+        if self.active_session_id != session_id:
+            return
         state = self.session.state(session_id)
-        self._rebuild_chat_display(session_id)
         self._approval_text = state.approval_text if state.pending_tool_info else ""
         self._set_approval_visible(bool(state.pending_tool_info))
         self._update_button_state()
@@ -499,6 +596,7 @@ class ChatController(QObject):
         state.is_busy = True
         state.generation_id += 1
         gen_id = state.generation_id
+        self._append_waiting_placeholder()
         self._refresh_sidebar()
         self._update_button_state()
         self._spawn(self._run_chat_loop(message, gen_id, session_id))
@@ -517,6 +615,9 @@ class ChatController(QObject):
             return
         task = asyncio.ensure_future(session.run(message))
         state.active_task = task
+        await asyncio.sleep(0)
+        if session_id == self.active_session_id:
+            self._rebuild_chat_display(session_id)
         try:
             await self._consume_events(session, session_id, state, task)
             if not task.done():
@@ -544,9 +645,9 @@ class ChatController(QObject):
         if session is not None:
             return session
         if state.generation_id == gen_id:
+            state.is_busy = False
             if session_id == self.active_session_id:
                 self._rebuild_chat_display(session_id)
-            state.is_busy = False
             self._update_button_state()
             self._refresh_sidebar()
         return None
@@ -660,6 +761,7 @@ class ChatController(QObject):
 
     async def _stop_generation(self) -> None:
         """Deny any pending tool, release approval, and cancel the task."""
+        self._skip_staged_build()
         session_id = self.active_session_id
         if not session_id:
             return
@@ -887,6 +989,46 @@ class ChatController(QObject):
             return
         self._rebuild_chat_display(session_id)
 
+    def _compute_render_plan(
+        self, session_id: str
+    ) -> tuple[list[str], list[dict], dict | None, _RenderIndices]:
+        """Compute the render plan for a session without touching models.
+
+        Pure computation (hashing, markdown rendering, token counting) over the
+        session's messages; it does not mutate the session state, so it is safe
+        to run on a worker thread via ``asyncio.to_thread``.
+
+        Args:
+            session_id: The session to render.
+
+        Returns:
+            ``(keys, items, snapshot, indices)``; ``snapshot`` is the stored
+            context snapshot, if any. ``indices`` carries the row locations of the
+            streaming cards for the caller to apply on the GUI thread.
+        """
+        state = self.session.state(session_id)
+        stored = self.app.session_store.load_session(session_id)
+        snapshot = (stored or {}).get("context_snapshot")
+        session = session_manager.get_session(session_id)
+        if session is not None:
+            messages = list(session.messages)
+        else:
+            messages = list((stored or {}).get("messages", []))
+        keys = self._compute_render_keys(state, messages, snapshot)
+        items, indices = self._build_items(state, messages, snapshot)
+        return keys, items, snapshot, indices
+
+    def _apply_render_indices(self, state: SessionState, indices: _RenderIndices) -> None:
+        """Apply a render plan's streaming-card row indices to the session state.
+
+        Args:
+            state: The session's UI state.
+            indices: The indices produced by :meth:`_build_items`.
+        """
+        state.thinking.item_index = indices.thinking_index
+        state.response.item_index = indices.response_index
+        state.tool_call_indices = list(indices.tool_call_indices)
+
     def _rebuild_chat_display(self, session_id: str) -> None:
         """Rebuild the chat model from the session's message list.
 
@@ -897,23 +1039,81 @@ class ChatController(QObject):
         Args:
             session_id: The session to render.
         """
+        self._skip_staged_build()
         state = self.session.state(session_id)
         model = self.model_for(session_id)
-        stored = self.app.session_store.load_session(session_id)
-        snapshot = (stored or {}).get("context_snapshot")
-        session = session_manager.get_session(session_id)
-        if session is not None:
-            messages = session.messages
-        else:
-            messages = list((stored or {}).get("messages", []))
-        keys = self._compute_render_keys(state, messages, snapshot)
-        items = self._build_items(state, messages, snapshot)
+        keys, items, snapshot, indices = self._compute_render_plan(session_id)
+        self._apply_render_indices(state, indices)
         model.diff_update(items, keys)
         state.rendered_item_keys = keys
         if snapshot:
             state.init_banner_displayed = True
         if session_id == self.active_session_id:
             self._update_token_bar(state)
+
+    async def _rebuild_chat_display_staged(self, session_id: str) -> None:
+        """Build a session's chat model in batches while its overlay is shown.
+
+        The chat list is non-virtualized, so inserting every card at once blocks
+        the GUI thread for the whole build. Rows are inserted
+        :data:`_RENDER_INSERT_BATCH` at a time with a short tick between batches so
+        the GUI thread (and the loading scanner) keeps running; the caller keeps
+        the list hidden until this returns. The plan itself (hashing, markdown
+        rendering, token counting) is computed on a worker thread first, so the
+        scanner keeps animating while it is prepared. A user action
+        (:meth:`_skip_staged_build`) or a new switch (:meth:`_cancel_staged_build`)
+        ends the build early.
+
+        Args:
+            session_id: The session to render.
+        """
+        state = self.session.state(session_id)
+        plan = await asyncio.to_thread(self._compute_render_plan, session_id)
+        if self.active_session_id != session_id:
+            return
+        keys, items, snapshot, indices = plan
+        self._apply_render_indices(state, indices)
+        model = self.model_for(session_id)
+        build = _StagedBuildState(session_id, model, state, items, keys)
+        self._staged_build = build
+        model.set_items([], [])
+        total = len(items)
+        batch_count = max(1, (total + _RENDER_INSERT_BATCH - 1) // _RENDER_INSERT_BATCH)
+        tick = min(_RENDER_TICK_MAX, max(_RENDER_TICK_MIN, _RENDER_TICK_TARGET / batch_count))
+        while not build.done and build.next_index < total:
+            if self._staged_build is not build or self.active_session_id != session_id:
+                return
+            end = min(build.next_index + _RENDER_INSERT_BATCH, total)
+            model.append_items(items[build.next_index : end], keys[build.next_index : end])
+            build.next_index = end
+            if build.next_index < total:
+                await asyncio.sleep(tick)
+        if not build.done:
+            state.rendered_item_keys = keys
+            if snapshot:
+                state.init_banner_displayed = True
+        if self._staged_build is build:
+            self._staged_build = None
+            if not build.done and session_id == self.active_session_id:
+                self._update_token_bar(state)
+
+    def _skip_staged_build(self) -> None:
+        """Flush any in-progress staged build immediately.
+
+        Called before a user action (send/regenerate/stop) or a synchronous
+        rebuild so the remaining cards never interleave with the new rows.
+        """
+        build = self._staged_build
+        if build is None or build.done:
+            return
+        start = build.next_index
+        build.model.append_items(build.items[start:], build.keys[start:])
+        build.next_index = len(build.items)
+        build.done = True
+
+    def _cancel_staged_build(self) -> None:
+        """Drop an in-progress staged build without flushing (a rebuild replaces it)."""
+        self._staged_build = None
 
     def _compute_render_keys(
         self, state: SessionState, messages: list[dict], snapshot: dict | None
@@ -944,11 +1144,13 @@ class ChatController(QObject):
             elif role == "tool":
                 name = msg.get("name", "")
                 keys.append("tr:" + name + ":" + _content_hash(msg.get("content", "")))
+        if _is_waiting_for_assistant(state, messages):
+            keys.append("w:pending")
         return keys
 
     def _build_items(
         self, state: SessionState, messages: list[dict], snapshot: dict | None
-    ) -> list[dict]:
+    ) -> tuple[list[dict], _RenderIndices]:
         """Build the full list of chat items for the message list.
 
         Args:
@@ -957,11 +1159,11 @@ class ChatController(QObject):
             snapshot: The stored context snapshot, if any.
 
         Returns:
-            List of role-keyed chat items aligned with :meth:`_compute_render_keys`.
+            ``(items, indices)`` — role-keyed chat items aligned with
+            :meth:`_compute_render_keys`, plus the streaming-card row indices for
+            the caller to apply on the GUI thread.
         """
-        state.thinking.item_index = None
-        state.response.item_index = None
-        state.tool_call_indices = []
+        indices = _RenderIndices()
         items: list[dict] = []
         if snapshot:
             items.append(
@@ -988,7 +1190,7 @@ class ChatController(QObject):
                     content = _extract_text_from_multimodal(content)
                 items.append(build_user_item(content))
             elif role == "assistant":
-                self._build_assistant_items(state, msg, messages, i, is_last_busy, items)
+                self._build_assistant_items(state, msg, messages, i, is_last_busy, items, indices)
             elif role == "tool":
                 content = msg.get("content", "")
                 items.append(
@@ -996,7 +1198,9 @@ class ChatController(QObject):
                         msg.get("name", ""), content, token_count=count_tokens(content)
                     )
                 )
-        return items
+        if _is_waiting_for_assistant(state, messages):
+            items.append(build_waiting_item())
+        return items, indices
 
     def _build_assistant_items(
         self,
@@ -1006,6 +1210,7 @@ class ChatController(QObject):
         idx: int,
         is_last_busy: bool,
         items: list[dict],
+        indices: _RenderIndices,
     ) -> None:
         """Append the items for one assistant message.
 
@@ -1016,10 +1221,11 @@ class ChatController(QObject):
             idx: Current message index.
             is_last_busy: Whether this is the last message and the session is busy.
             items: Item accumulator.
+            indices: Streaming-card index accumulator.
         """
         d = _assistant_decision(msg)
         if is_last_busy:
-            self._build_streaming_assistant_items(state, d, messages, idx, items)
+            self._build_streaming_assistant_items(state, d, messages, idx, items, indices)
             return
         if d["thinking_text"]:
             items.append(
@@ -1047,6 +1253,7 @@ class ChatController(QObject):
         messages: list[dict],
         idx: int,
         items: list[dict],
+        indices: _RenderIndices,
     ) -> None:
         """Append streaming items (with pending cards) for the busy assistant.
 
@@ -1056,6 +1263,7 @@ class ChatController(QObject):
             messages: Full message list.
             idx: Current message index.
             items: Item accumulator.
+            indices: Streaming-card index accumulator.
         """
         if d["thinking_text"]:
             if d["thinking_done"]:
@@ -1065,7 +1273,7 @@ class ChatController(QObject):
                     )
                 )
             else:
-                state.thinking.item_index = len(items)
+                indices.thinking_index = len(items)
                 items.append(
                     build_thinking_pending_item(
                         d["thinking_text"], token_count=state.thinking.token_count
@@ -1079,19 +1287,18 @@ class ChatController(QObject):
                     )
                 )
             else:
-                state.response.item_index = len(items)
+                indices.response_index = len(items)
                 items.append(
                     build_response_pending_item(
                         d["content_text"], token_count=state.response.token_count
                     )
                 )
-        state.tool_call_indices = []
         for tc in d["effective_tool_calls"]:
             tc_id = tc.get("id", "")
             name = tc.get("function", {}).get("name", "")
             mode = tc.get("_mode", "ask")
             args_str = tc.get("function", {}).get("arguments", "{}")
-            state.tool_call_indices.append(len(items))
+            indices.tool_call_indices.append(len(items))
             if tc_id in d["finalized_ids"]:
                 entry = {"name": name, "arguments": _parse_tool_arguments(tc), "mode": mode}
                 items.append(build_tool_call_item(entry, token_count=count_tokens(args_str)))
@@ -1121,6 +1328,20 @@ class ChatController(QObject):
             return
         model = self.model_for(self.active_session_id)
         model.append_item(build_user_item(text), "u:" + _content_hash(text))
+
+    def _append_waiting_placeholder(self) -> None:
+        """Optimistically append the pre-response scanner to the active model.
+
+        Appended in the same frame as the user card so the scanner is visible
+        immediately, before the blocking session hydration and the network
+        request. The render plan emits the matching ``w:pending`` key while
+        waiting, so a later rebuild leaves the row untouched; the first streamed
+        card replaces it.
+        """
+        if not self.active_session_id:
+            return
+        model = self.model_for(self.active_session_id)
+        model.append_item(build_waiting_item(), "w:pending")
 
     def _swap_pending_result_card(self, tool_call_id: str, tool_name: str, content: str) -> None:
         """Replace a pending tool-result card with the real result in place.

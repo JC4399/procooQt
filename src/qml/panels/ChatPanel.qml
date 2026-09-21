@@ -76,33 +76,29 @@ Rectangle {
                 contentWidth: width
                 contentHeight: chatColumn.implicitHeight
 
-                // Follow the newest card while the user has not scrolled away.
-                // Toggle ON forces follow; OFF follows only while pinned to the end.
-                property bool followTail: true
-                property bool _autoScrolling: false
-                property real _lastContentY: 0
+                // Auto-scroll is the autoScrollToggle's checked state: reaching
+                // the bottom activates it (fades the toggle in), scrolling away
+                // deactivates it (fades the toggle out).
+                function atBottom() {
+                    return contentY >= Math.max(0, contentHeight - height)
+                }
 
                 function scrollToBottom() {
-                    _autoScrolling = true
                     contentY = Math.max(0, contentHeight - height)
-                    _autoScrolling = false
                 }
 
                 function scheduleScroll() {
-                    if (autoScrollToggle.checked || followTail)
+                    if (autoScrollToggle.checked)
                         scrollDebounce.restart()
                 }
 
                 onContentYChanged: {
-                    if (_autoScrolling) {
-                        _lastContentY = contentY
-                        return
+                    if (atBottom()) {
+                        if (!autoScrollToggle.checked)
+                            autoScrollToggle.activateWithFade()
+                    } else if (autoScrollToggle.checked) {
+                        autoScrollToggle.deactivateWithFade()
                     }
-                    const scrolledUp = contentY < _lastContentY
-                    _lastContentY = contentY
-                    followTail = atYEnd
-                    if (scrolledUp && autoScrollToggle.checked)
-                        autoScrollToggle.deactivateWithBlink()
                 }
 
                 onContentHeightChanged: scheduleScroll()
@@ -114,7 +110,7 @@ Rectangle {
                     repeat: false
                     onTriggered: {
                         if (!chatList.moving && !chatList.flicking
-                                && (autoScrollToggle.checked || chatList.followTail))
+                                && autoScrollToggle.checked)
                             chatList.scrollToBottom()
                     }
                 }
@@ -141,8 +137,6 @@ Rectangle {
                         const step = pixel !== 0
                                      ? pixel
                                      : (event.angleDelta.y / 120) * Theme.metrics.wheelScrollStep
-                        if (step > 0 && autoScrollToggle.checked)
-                            autoScrollToggle.deactivateWithBlink()
                         // Qt exposes no wheel-step knob on Flickable; clamp the
                         // manual move so it can never overshoot the true bounds.
                         const maxY = Math.max(0, chatList.contentHeight - chatList.height)
@@ -186,6 +180,8 @@ Rectangle {
                                         return toolResultCardComponent
                                     case "context_banner":
                                         return contextBannerComponent
+                                    case "waiting":
+                                        return waitingCardComponent
                                     default:
                                         return null
                                     }
@@ -251,14 +247,6 @@ Rectangle {
                 }
             }
 
-            BusyIndicator {
-                anchors.centerIn: parent
-                visible: chat.loading
-                running: chat.loading
-                implicitWidth: 32
-                implicitHeight: 32
-            }
-
             AutoScrollToggle {
                 id: autoScrollToggle
                 anchors.right: parent.right
@@ -268,6 +256,44 @@ Rectangle {
                 onToggled: {
                     if (checked)
                         chatList.scrollToBottom()
+                }
+            }
+
+            // Shown while a session's transcript is being built. The opaque fill
+            // hides the partially-built list and the scanner keeps running until
+            // the build finishes; on hide the view is pinned to the newest card.
+            Rectangle {
+                id: loadingOverlay
+                anchors.fill: parent
+                color: Theme.colors.pageBg
+                z: 30
+
+                // Hold briefly after the build finishes so short sessions show a
+                // clean scan instead of a one-frame flash.
+                property bool holdVisible: false
+                visible: chat.loading || holdVisible
+
+                onVisibleChanged: {
+                    if (visible) {
+                        holdVisible = true
+                        minShowTimer.restart()
+                    } else {
+                        chatList.scrollToBottom()
+                    }
+                }
+
+                Timer {
+                    id: minShowTimer
+                    interval: 400
+                    repeat: false
+                    onTriggered: loadingOverlay.holdVisible = false
+                }
+
+                KnightRiderSpinner {
+                    anchors.centerIn: parent
+                    running: loadingOverlay.visible
+                    baseColor: Theme.colors.accentCyan
+                    cells: 10
                 }
             }
         }
@@ -426,5 +452,10 @@ Rectangle {
     Component {
         id: contextBannerComponent
         ContextBanner {}
+    }
+
+    Component {
+        id: waitingCardComponent
+        WaitingCard {}
     }
 }

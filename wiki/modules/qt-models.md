@@ -69,6 +69,7 @@ stream token.
 | `def diff_update(self, items: list[Item], keys: list[str]) -> int` | `items`, `keys` | divergence index or `-1` | `find_divergence` → remove suffix → insert suffix | Raises `ValueError`; emits row removed/inserted |
 | `def find_divergence(self, keys: list[str]) -> int` | `keys` | first differing index, else `-1` | linear scan | — |
 | `def append_item(self, item: Item, key: str = "") -> int` | `item`, `key` | new row index | `beginInsertRows` → append | Emits row inserted |
+| `def append_items(self, items: list[Item], keys: list[str] \| None = None) -> None` | `items`; optional `keys` | `None` | one `beginInsertRows` for the whole batch → extend | Emits one rows-inserted batch; no-op when empty |
 | `def update_item(self, row: int, values: Item) -> None` | `row`, `values` | `None` | merge → `dataChanged.emit(..., list(values.keys()))` | No-op if out of range; emits `dataChanged` |
 | `def clear(self) -> None` | — | `None` | `set_items([])` | Full reset |
 

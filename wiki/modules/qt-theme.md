@@ -18,6 +18,7 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
   toasts, session status, cards, chips, tool-mode badges, toast, drag feedback,
   resize handle, inputs).
 - Sizing/font constants (`BUTTON_RADIUS`, `CARD_RADIUS`, `STATUS_DOT_RADIUS`,
+  `CONTROL_INDICATOR_SIZE`, `CONTROL_INDICATOR_RADIUS`, `CONTROL_DOT_SIZE`,
   `FONT_MONO`, `FONT_SIZE_BASE`, `FONT_SIZE_MARKDOWN`, `LINE_HEIGHT_BODY`,
   `BUTTON_WIDTH_*`, `WHEEL_SCROLL_STEP`, …).
 - Markdown palette constants (`COLOR_MD_*`) consumed by
@@ -74,6 +75,12 @@ remain registered but unused.
 
 `WHEEL_SCROLL_STEP` (120 px) is the distance the chat list moves per discrete
 mouse-wheel notch; `ChatPanel.qml` reads it as `Theme.metrics.wheelScrollStep`.
+
+`CONTROL_INDICATOR_SIZE` (12), `CONTROL_INDICATOR_RADIUS` (2) and
+`CONTROL_DOT_SIZE` (6) define the single shared toggle look — a square
+indicator with an accent border and an inner dot. They are consumed by
+`FlatIndicator.qml`, the indicator reused by `FlatCheckBox.qml`,
+`FlatRadio.qml` and `AutoScrollToggle.qml`.
 
 Because the properties are `QVariantMap`s, QML reaches them with dot syntax, as
 used throughout `src/qml/**`:

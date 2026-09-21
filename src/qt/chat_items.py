@@ -33,6 +33,7 @@ KIND_RESPONSE = "response"
 KIND_TOOL_CALL = "tool_call"
 KIND_TOOL_RESULT = "tool_result"
 KIND_CONTEXT_BANNER = "context_banner"
+KIND_WAITING = "waiting"
 
 
 def make_item(
@@ -167,6 +168,26 @@ def build_user_item(text: str) -> dict[int, object]:
         A role-keyed chat item dictionary.
     """
     return _card_item(KIND_USER, title="User", body_html=_plain_body(text))
+
+
+# ------------------------------------------------------------------
+#  Waiting placeholder
+# ------------------------------------------------------------------
+
+
+def build_waiting_item() -> dict[int, object]:
+    """Build the pending placeholder shown while awaiting the first assistant token.
+
+    Emitted at the end of the render plan while a generation is busy but the
+    current assistant turn has produced no thinking, response, or tool-call
+    content yet (model prefill, a stalled network, or a pending failure). The
+    body is empty, so QML renders the headerless scanner; the first real card
+    replaces this row through ``diff_update``.
+
+    Returns:
+        A role-keyed chat item dictionary.
+    """
+    return make_item(KIND_WAITING, is_pending=True)
 
 
 # ------------------------------------------------------------------

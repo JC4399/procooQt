@@ -22,36 +22,6 @@ Rectangle {
     border.width: 0
     radius: 0
 
-    component FlatRadio: RadioButton {
-        id: control
-
-        property color accent: Theme.colors.accentCyan
-
-        implicitWidth: 34
-        implicitHeight: 20
-
-        indicator: Rectangle {
-            implicitWidth: 12
-            implicitHeight: 12
-            anchors.centerIn: parent
-            color: "transparent"
-            border.color: control.checked ? control.accent : Theme.colors.borderStrong
-            border.width: 1
-            radius: 2
-
-            Rectangle {
-                anchors.centerIn: parent
-                visible: control.checked
-                width: 6
-                height: 6
-                color: control.accent
-                radius: 1
-            }
-        }
-
-        contentItem: Item {}
-    }
-
     ButtonGroup { id: modeGroup }
 
     Column {
@@ -97,6 +67,7 @@ Rectangle {
             }
 
             FlatRadio {
+                Layout.preferredWidth: 34
                 accent: Theme.colors.chipAllowFg
                 checked: group.mode === "allow"
                 ButtonGroup.group: modeGroup
@@ -104,6 +75,7 @@ Rectangle {
             }
 
             FlatRadio {
+                Layout.preferredWidth: 34
                 accent: Theme.colors.chipAskFg
                 checked: group.mode === "ask"
                 ButtonGroup.group: modeGroup
@@ -111,6 +83,7 @@ Rectangle {
             }
 
             FlatRadio {
+                Layout.preferredWidth: 34
                 accent: Theme.colors.chipBlockFg
                 checked: group.mode === "block"
                 ButtonGroup.group: modeGroup

@@ -19,7 +19,10 @@ updates.
 - The streaming generation loop split into hydrate / consume-events / cleanup
   phases.
 - Incremental content-hash rendering (`rebuild_chat_display` →
-  `_compute_render_keys` → `_build_items` → `diff_update`).
+  `_compute_render_keys` → `_build_items` → `diff_update`), with the plan
+  computed off the GUI thread for session switches.
+- The `_StagedBuildState` and `_RenderIndices` dataclasses (staged-insert
+  progress; streaming-card row indices returned by `_build_items`).
 - Tool approval via `asyncio.Event`, stop/regenerate, and automatic session
   compaction.
 
@@ -42,7 +45,7 @@ updates.
 | `approvalVisible` | `bool` | `approval_visibility_changed` | Whether the approval bar is shown |
 | `approvalText` | `str` | `approval_visibility_changed` | Approval prompt text |
 | `busy` | `bool` | `busy_changed` | Active session is generating |
-| `loading` | `bool` | `loading_changed` | Chat display is rebuilding after a switch |
+| `loading` | `bool` | `loading_changed` | Loading overlay shown (turns on at switch start, off after the rebuild) |
 | `inputTokens` | `int` | `token_counts_changed` | Context (input) tokens |
 | `outputTokens` | `int` | `token_counts_changed` | Cumulative output tokens |
 
@@ -68,8 +71,10 @@ rebuilding.
 
 1. Set `state.is_busy = True`; increment `state.generation_id` (captured as
    `gen_id`).
-2. `_refresh_sidebar()`; `_update_button_state()`.
-3. `_spawn(_run_chat_loop(message, gen_id, session_id))`.
+2. `_append_waiting_placeholder()` — append the `KIND_WAITING` `w:pending`
+   scanner so it renders in the same frame as the user card, before hydration.
+3. `_refresh_sidebar()`; `_update_button_state()`.
+4. `_spawn(_run_chat_loop(message, gen_id, session_id))`.
 
 ### `_run_chat_loop` (phases)
 
@@ -79,12 +84,17 @@ rebuilding.
    the sidebar, and return.
 2. Start `task = asyncio.ensure_future(session.run(message))`; store it as
    `state.active_task`.
-3. **Consume** — `await _consume_events(session, session_id, state, task)`; then
+3. `await asyncio.sleep(0)` yields once so `Agent.run` appends the user message
+   and reaches its first network `await`; then rebuild the active display. The
+   scanner is already visible (appended in `_launch_generation`); this rebuild
+   reconciles the plan's `u:<hash>` + `w:pending` keys with the model and keeps
+   the scanner up through prefill / a stalled network, before any event arrives.
+4. **Consume** — `await _consume_events(session, session_id, state, task)`; then
    `await task` if still pending. `asyncio.CancelledError` cancels the task.
-4. **Cleanup** — `finally: _finalize_turn(...)` clears busy (when the generation
+5. **Cleanup** — `finally: _finalize_turn(...)` clears busy (when the generation
    is current), rebuilds the active display, resets the turn, saves the session,
    refreshes the sidebar, and updates buttons.
-5. After cleanup, if `session.check_limit_exceeded() is not None`, run
+6. After cleanup, if `session.check_limit_exceeded() is not None`, run
    `_compact_session`.
 
 ### Consume events (`_consume_events`)
@@ -116,26 +126,51 @@ updates the display.
 
 ### Rebuild pipeline
 
-`_rebuild_chat_display(session_id)` loads the state, model, stored snapshot, and
-live messages (falling back to stored messages), then:
+`_compute_render_plan(session_id)` loads the state, model, stored snapshot, and
+a snapshot of the live messages (falling back to stored messages), then:
 
 1. `_compute_render_keys(state, messages, snapshot)` — one key per emitted item.
 2. `_build_items(state, messages, snapshot)` — role-keyed item dicts aligned with
-   the keys.
-3. `model.diff_update(items, keys)` — the `QAbstractListModel` helper removes rows
-   from the first divergence and appends the new suffix.
-4. Store `rendered_item_keys`; mark `init_banner_displayed` when a snapshot
-   exists; update the token bar when active.
+   the keys, plus a `_RenderIndices` (pending thinking/response row indices and
+   the streaming tool-call row list).
+
+It is pure computation and returns `(keys, items, snapshot, indices)` without
+mutating the session state, so it can run on a worker thread.
+
+`_rebuild_chat_display(session_id)` applies that plan synchronously:
+`_skip_staged_build()` → `_apply_render_indices(state, indices)` →
+`model.diff_update(items, keys)` → store `rendered_item_keys`; mark
+`init_banner_displayed` when a snapshot exists; update the token bar when active.
+
+After a session switch, `_rebuild_chat_display_staged(session_id)` builds the
+same plan behind the loading overlay. The plan itself is computed on a worker
+thread (`await asyncio.to_thread(_compute_render_plan, ...)`) so the overlay's
+scanner keeps animating while markdown/token work runs. Because the chat list is
+non-virtualized, inserting every card at once would block the GUI thread for the
+whole build; rows are inserted `_RENDER_INSERT_BATCH` (8) at a time with a tick
+clamped between `_RENDER_TICK_MIN` (6 ms) and `_RENDER_TICK_MAX` (20 ms) toward
+`_RENDER_TICK_TARGET` (0.6 s), so the GUI thread keeps running and the overlay's
+scanner keeps animating. The list is hidden the whole time and revealed at the
+bottom once the build completes. Progress lives in a `_StagedBuildState`
+(session id, model, state, full plan, `next_index`, `done`).
+`_skip_staged_build()` flushes the remainder immediately before a user action or
+synchronous rebuild (leaving `rendered_item_keys` to the interrupting caller);
+`_cancel_staged_build()` drops it when a new session is activated.
 
 `_compute_render_keys` emits `b:i` for the initial context banner, `b:d:<hash>`
 for each delta banner in `context_banners_data`, `u:<hash>` for user messages,
 one or more keys for assistant messages from `_compute_assistant_keys` (pending
 cards use stable `t:pending` / `r:pending` keys so token-label updates never
 remove/re-insert their row; completed cards use content hashes), and
-`tr:<name>:<hash>` for tool results. `_build_items` mirrors the same order using
-the `chat_items` / `context_banner` builders and records
-`thinking.item_index`, `response.item_index`, and `tool_call_indices` so live
-updates can find the rows later.
+`tr:<name>:<hash>` for tool results. When `_is_waiting_for_assistant` is true
+(busy and the current assistant turn has no thinking/response/tool-call content)
+it appends a trailing `w:pending` key for the headerless waiting scanner.
+`_build_items` mirrors the same order using the `chat_items` / `context_banner`
+builders and returns the `thinking_index`, `response_index`, and
+`tool_call_indices` in a `_RenderIndices`, which the caller applies through
+`_apply_render_indices` so live updates can find the rows later. The waiting
+scanner is replaced by the first real card because the two plans diverge at that
+index and `diff_update` re-inserts from there.
 
 ### Live update throttling (`_update_live_assistant`)
 
@@ -212,10 +247,11 @@ the newly appended suffix of each text field.
 | `@Slot() def _handle_regenerate(self) -> None` | — | `None` | `_spawn(_regenerate)` | — |
 | `@Slot() def _handle_approve(self) -> None` | — | `None` | `_spawn(_approve)` | — |
 | `@Slot(str) def _handle_deny(self, reason: str) -> None` | denial reason | `None` | `_spawn(_deny(reason))` | — |
+| `@Slot(str) def _handle_session_switch_started(self, session_id: str) -> None` | session being switched to | `None` | `_cancel_staged_build()` → `_set_loading(True)` | Shows the overlay at the user action, before the off-thread save/reload |
 | `@Slot(str) def _handle_session_activated(self, session_id: str) -> None` | new active id (may be `""`) | `None` | set id → clear caches → emit → `_set_loading(True)` → `_spawn(_rebuild_after_switch)` | Emits `active_model_changed` |
-| `async def _rebuild_after_switch(self, session_id: str) -> None` | activated id | `None` | `await asyncio.sleep(0)` → stale check → rebuild → restore approval/buttons → loading off | Emits approval/loading signals |
-| `def _launch_generation(self, message: str) -> None` | user text | `None` | busy + bump `generation_id` → refresh sidebar/buttons → spawn loop | Mutates state |
-| `async def _run_chat_loop(self, message: str, gen_id: int, session_id: str) -> None` | message, generation id, session | `None` | hydrate → run task → consume → finalize → compact on limit | Cancellable; persists session |
+| `async def _rebuild_after_switch(self, session_id: str) -> None` | activated id | `None` | `await asyncio.sleep(0)` → stale check → progressive rebuild → stale check → restore approval/buttons → loading off | Emits approval/loading signals |
+| `def _launch_generation(self, message: str) -> None` | user text | `None` | busy + bump `generation_id` → append waiting scanner → refresh sidebar/buttons → spawn loop | Mutates state |
+| `async def _run_chat_loop(self, message: str, gen_id: int, session_id: str) -> None` | message, generation id, session | `None` | hydrate → run task → yield+reconcile → consume → finalize → compact on limit | Cancellable; persists session |
 | `async def _hydrate_phase(self, session_id: str, gen_id: int) -> Agent \| None` | session, generation | Live session or `None` | `_hydrate_session`; on failure clear busy/rebuild | Side effects on failure |
 | `async def _consume_events(self, session: Agent, session_id: str, state: SessionState, task: asyncio.Task) -> None` | live session, id, state, task | `None` | 0.1s queue poll → per-type branches → sidebar/render after each event | Updates state; may block on approval |
 | `def _render_active_event(self, event: dict, session: Agent, session_id: str, state: SessionState, msg_count: int, last_rendered: int) -> int` | event + render context | New last-rendered count | swap result vs rebuild vs `_update_live_assistant` | May mutate model |
@@ -231,12 +267,18 @@ the newly appended suffix of each text field.
 | `async def _compact_session(self, session_id: str, session: Agent) -> None` | session, live agent | `None` | limit check → toast → `summarize` → `_create_compacted_session` | Toasts; may fail gracefully |
 | `async def _create_compacted_session(self, session_id: str, summary: str) -> None` | old id, summary | `None` | new record seeded with summary → prepend → refresh → switch | Writes store; switches |
 | `@Slot(str) def rebuild_chat_display(self, session_id: str) -> None` | session id | `None` | no-op on empty → `_rebuild_chat_display` | Public entry for skill sync |
-| `def _rebuild_chat_display(self, session_id: str) -> None` | session id | `None` | keys + items → `diff_update` → store keys → token bar | Mutates model |
-| `def _compute_render_keys(self, state: SessionState, messages: list[dict], snapshot: dict \| None) -> list[str]` | state, messages, snapshot | Render keys | banners → user/assistant/tool keys | — |
-| `def _build_items(self, state: SessionState, messages: list[dict], snapshot: dict \| None) -> list[dict]` | state, messages, snapshot | Chat items | banners → per-message builders | Resets card/row indices |
-| `def _build_assistant_items(self, state: SessionState, msg: dict, messages: list[dict], idx: int, is_last_busy: bool, items: list[dict]) -> None` | state, message, context | `None` | streaming branch, else thinking/response/tool-call items | Appends to `items` |
-| `def _build_streaming_assistant_items(self, state: SessionState, d: dict, messages: list[dict], idx: int, items: list[dict]) -> None` | state, decision dict, context | `None` | pending (body pre-rendered from partial text) / completed thinking + response + tool calls + pending results | Records row indices |
+| `def _compute_render_plan(self, session_id: str) -> tuple[list[str], list[dict], dict \| None, _RenderIndices]` | session id | `(keys, items, snapshot, indices)` | load stored → snapshot live/stored messages → `_compute_render_keys` + `_build_items` | Pure (no state mutation); safe on a worker thread |
+| `def _apply_render_indices(self, state: SessionState, indices: _RenderIndices) -> None` | state, indices | `None` | copy `thinking_index`/`response_index`/`tool_call_indices` onto the state | GUI thread only |
+| `def _rebuild_chat_display(self, session_id: str) -> None` | session id | `None` | `_skip_staged_build` → `_compute_render_plan` → `_apply_render_indices` → `diff_update` → store keys → token bar | Mutates model/state |
+| `async def _rebuild_chat_display_staged(self, session_id: str) -> None` | session id | `None` | off-thread `_compute_render_plan` → `_apply_render_indices` → build `_StagedBuildState` → reset model → insert `_RENDER_INSERT_BATCH` rows per tick → store keys → token bar | Plan computed on a worker thread; aborts on `_cancel_staged_build`/active-id change |
+| `def _skip_staged_build(self) -> None` | — | `None` | no-op when none/done → `append_items` remainder → `done = True` | Emits one rows-inserted batch; leaves `rendered_item_keys` to the caller |
+| `def _cancel_staged_build(self) -> None` | — | `None` | `_staged_build = None` | Suspended build task exits on its next tick |
+| `def _compute_render_keys(self, state: SessionState, messages: list[dict], snapshot: dict \| None) -> list[str]` | state, messages, snapshot | Render keys | banners → user/assistant/tool keys → trailing `w:pending` when waiting | — |
+| `def _build_items(self, state: SessionState, messages: list[dict], snapshot: dict \| None) -> tuple[list[dict], _RenderIndices]` | state, messages, snapshot | `(items, indices)` | banners → per-message builders → waiting item when waiting | No state mutation |
+| `def _build_assistant_items(self, state: SessionState, msg: dict, messages: list[dict], idx: int, is_last_busy: bool, items: list[dict], indices: _RenderIndices) -> None` | state, message, context, indices | `None` | streaming branch, else thinking/response/tool-call items | Appends to `items` |
+| `def _build_streaming_assistant_items(self, state: SessionState, d: dict, messages: list[dict], idx: int, items: list[dict], indices: _RenderIndices) -> None` | state, decision dict, context, indices | `None` | pending (body pre-rendered from partial text) / completed thinking + response + tool calls + pending results | Records row indices in `indices` |
 | `def _append_user_message(self, text: str) -> None` | text | `None` | `model.append_item(user item, key)` | Inserts a row |
+| `def _append_waiting_placeholder(self) -> None` | — | `None` | `model.append_item(waiting item, "w:pending")` | Inserts the pre-response scanner row |
 | `def _swap_pending_result_card(self, tool_call_id: str, tool_name: str, content: str) -> None` | tool call id/name, content | `None` | find pending row → replace item; else rebuild | Replaces a row |
 | `def _update_live_assistant(self, state: SessionState) -> None` | state | `None` | structural/missing-card rebuild vs `_STREAM_UPDATE_INTERVAL`-throttled body update | Mutates model/state |
 | `def _apply_streaming_item_updates(self, state: SessionState, thinking_text: str, content_text: str, streaming_tcs: list \| None, thinking_changed: bool, content_changed: bool) -> None` | current texts + flags | `None` | accumulate tokens → `update_item(BODY_HTML, TOKEN_TEXT)` | Updates rows/state |
@@ -254,6 +296,7 @@ the newly appended suffix of each text field.
 | `def _extract_text_from_multimodal(content_parts: list) -> str` | multimodal parts | Joined text or `"[IMAGE]"` | Pulls `type == "text"` parts for display |
 | `def normalize_content(content: str \| list) -> str` | content | String | Normalises message content for hashing/display |
 | `def _assistant_decision(msg: dict) -> dict` | assistant message | Decision dict | Common thinking/response/tool-call state shared by keys and builders |
+| `def _is_waiting_for_assistant(state: SessionState, messages: list[dict]) -> bool` | state, messages | Bool | `True` when busy and the last message is non-assistant, or an assistant message with no thinking/response/tool-call content |
 | `def _count_trailing_tool_results(messages: list[dict], after_idx: int) -> int` | messages, index | Count | Consecutive `role == "tool"` messages after the index |
 | `def _compute_assistant_keys(msg, messages, idx, is_last_busy) -> list[str]` | message, messages, index, busy flag | Render keys | Pending cards use stable `t:pending` / `r:pending` keys (token counts refresh via `update_item`); completed cards by content hash |
 | `def _accumulate_tokens(text: str, previous: str, current: int) -> int` | full text, counted prefix, current count | Updated count | Counts only the appended suffix; recomputes on shrink |

@@ -15,11 +15,14 @@ ChatPanel.submit → chat._handle_send(text)          [ChatController @Slot(str)
    │  _append_user_message(text) → model.append_item (optimistic row)
    ▼
 _launch_generation(message)
-   │  state.is_busy=True, generation_id++, _spawn(_run_chat_loop)
+   │  state.is_busy=True, generation_id++
+   │  _append_waiting_placeholder → model.append_item (w:pending scanner)
+   │  _spawn(_run_chat_loop)
    ▼
 _run_chat_loop(message, gen_id, session_id)
    │  _hydrate_phase → session._hydrate_session (build/restore Agent)
    │  task = ensure_future(session.run(message))
+   │  await sleep(0) → rebuild (reconciles; scanner already visible)
    │  await _consume_events(session, session_id, state, task)
    ▼
 Agent.run(message)  [src/session/agent.py]
@@ -63,6 +66,19 @@ _resolve_tool_calls ───────────┘
 5. **done / error** — break out of the loop.
 6. `finally: _finalize_turn` — rebuild the chat display, save the session,
    reset per-turn tracking, and update the Send/Stop buttons.
+
+`_launch_generation` appends the pre-response scanner immediately: right after
+setting `state.is_busy`, it calls `_append_waiting_placeholder`, which appends a
+`KIND_WAITING` row keyed `w:pending` in the same frame as the user card — before
+`_hydrate_phase` (Agent construction / skill loading) and before the network
+request. So a headerless grey `KnightRiderSpinner` (`WaitingCard.qml`) is visible
+for the whole wait, whether that is hydration, model prefill, a slow network, or
+a pending failure; it does not wait for an HTTP response. `_run_chat_loop` later
+rebuilds once after `await asyncio.sleep(0)` (long enough for `Agent.run` to
+append the user message), which reconciles because
+`_compute_render_keys`/`_build_items` emit the matching `u:<hash>` + `w:pending`
+while waiting. The first `thinking`/`message`/`tool_call_streaming` card diverges
+at that index and replaces the scanner via `ChatListModel.diff_update`.
 
 The drain loop uses `await asyncio.wait_for(session.event_queue.get(), 0.1)`
 so it also exits once the `Agent.run` task is done and the queue is empty.
