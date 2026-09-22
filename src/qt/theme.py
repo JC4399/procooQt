@@ -182,6 +182,15 @@ CONTROL_INDICATOR_RADIUS = 2
 CONTROL_DOT_SIZE = 6
 
 # ------------------------------------------------------------------
+# Frameless title bar
+# ------------------------------------------------------------------
+#: Height of the custom window title bar, and the size of its logo and the
+#: width of its per-button hit area (minimise / maximise / close).
+TITLE_BAR_HEIGHT = 32
+TITLE_BAR_LOGO_SIZE = 20
+TITLE_BAR_BUTTON_WIDTH = 46
+
+# ------------------------------------------------------------------
 # Radius / sizing metrics (all square)
 # ------------------------------------------------------------------
 BUTTON_RADIUS = 0
@@ -340,6 +349,9 @@ METRICS: dict[str, int] = {
     "buttonWidthLarge": BUTTON_WIDTH_LARGE,
     "buttonWidthSegmented": BUTTON_WIDTH_SEGMENTED,
     "wheelScrollStep": WHEEL_SCROLL_STEP,
+    "titleBarHeight": TITLE_BAR_HEIGHT,
+    "titleBarLogoSize": TITLE_BAR_LOGO_SIZE,
+    "titleBarButtonWidth": TITLE_BAR_BUTTON_WIDTH,
 }
 
 

@@ -20,7 +20,7 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
 - Sizing/font constants (`BUTTON_RADIUS`, `CARD_RADIUS`, `STATUS_DOT_RADIUS`,
   `CONTROL_INDICATOR_SIZE`, `CONTROL_INDICATOR_RADIUS`, `CONTROL_DOT_SIZE`,
   `FONT_MONO`, `FONT_SIZE_BASE`, `FONT_SIZE_MARKDOWN`, `LINE_HEIGHT_BODY`,
-  `BUTTON_WIDTH_*`, `WHEEL_SCROLL_STEP`, …).
+  `BUTTON_WIDTH_*`, `WHEEL_SCROLL_STEP`, `TITLE_BAR_*`, …).
 - Markdown palette constants (`COLOR_MD_*`) consumed by
   [`qt.markdown`](qt-markdown.md); only `COLOR_MD_TEXT` is registered for QML.
 - `COLORS: dict[str, str]` — camelCase color-name registry.
@@ -47,6 +47,7 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
 | Tool modes | `COLOR_TOOL_MODE_{ALLOW,ASK,BLOCK,DEFAULT}_{BG,FG}` |
 | Markdown | `COLOR_MD_TEXT` (#eeeeee), `_HEADING`, `_BOLD`, `_ITALIC`, `_CODE`, `_LINK`, `_LIST_MARKER`, `_LIST_NUMBER`, `_QUOTE`, `_RULE` |
 | Inputs | `INPUT_BORDER_COLOR`, `INPUT_FOCUSED_BORDER_COLOR`, `INPUT_FILL_COLOR`, `INPUT_CURSOR_COLOR`, `INPUT_TEXT_COLOR` |
+| Frameless title bar | `TITLE_BAR_HEIGHT` (32), `TITLE_BAR_LOGO_SIZE` (20), `TITLE_BAR_BUTTON_WIDTH` (46) |
 
 Chat card surfaces (`COLOR_BUBBLE_USER`, `COLOR_BUBBLE_ASSISTANT`,
 `COLOR_THINKING_BG`, `COLOR_TOOL_CALL_BG`, `COLOR_TOOL_RESULT_BG`) all alias
@@ -81,6 +82,12 @@ mouse-wheel notch; `ChatPanel.qml` reads it as `Theme.metrics.wheelScrollStep`.
 indicator with an accent border and an inner dot. They are consumed by
 `FlatIndicator.qml`, the indicator reused by `FlatCheckBox.qml`,
 `FlatRadio.qml` and `AutoScrollToggle.qml`.
+
+`TITLE_BAR_HEIGHT` (32), `TITLE_BAR_LOGO_SIZE` (20) and
+`TITLE_BAR_BUTTON_WIDTH` (46) size the frameless title bar. `TitleBar.qml`
+reads them as `titleBarHeight` / `titleBarLogoSize` / `titleBarButtonWidth`,
+and `TitleBarButton.qml` uses `titleBarButtonWidth` and `titleBarHeight` for
+each window-control hit area.
 
 Because the properties are `QVariantMap`s, QML reaches them with dot syntax, as
 used throughout `src/qml/**`:

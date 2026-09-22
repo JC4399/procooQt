@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 
 import "panels"
 import "components"
@@ -16,10 +17,22 @@ ApplicationWindow {
     minimumHeight: 640
     title: qsTr("ProcooQt")
     color: Theme.colors.pageBg
+    flags: Qt.Window | Qt.FramelessWindowHint
+
+    TitleBar {
+        id: titleBar
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        title: root.title
+    }
 
     SplitView {
         id: splitView
-        anchors.fill: parent
+        anchors.top: titleBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
         orientation: Qt.Horizontal
 
         handle: Rectangle {
@@ -61,7 +74,10 @@ ApplicationWindow {
 
     ToastHost {
         id: toastHost
-        anchors.fill: parent
+        anchors.top: titleBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
         notifier: toasts
     }
 }
