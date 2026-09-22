@@ -15,9 +15,9 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 import qasync
 
+from .chat.store import ChatStore
 from .config.manager import ConfigManager
 from .qt.ui import ProcooQtUI
-from .session.store import SessionStore
 from .skill.manager import SkillManager
 from .skill.preset import PresetStore
 from .util.error.types import ProcooError
@@ -29,12 +29,12 @@ logger = logging.getLogger("procoo_qt")
 
 
 class ProcooApp:
-    """Top-level backend wiring for config, skill, session, and preset subsystems.
+    """Top-level backend wiring for config, skill, chat, and preset subsystems.
 
     Attributes:
         config: The ``ConfigManager`` holding LLM/path settings.
         skill_manager: The ``SkillManager`` for discovering and loading skills.
-        session_store: The ``SessionStore`` for persisting session data.
+        chat_store: The ``ChatStore`` for persisting chat data.
         preset_store: The ``PresetStore`` for skill/tool preset configurations.
     """
 
@@ -47,7 +47,7 @@ class ProcooApp:
         self.config = ConfigManager(config_dir)
         skills_dir = self._resolve(self.config.skills_dir)
         self.skill_manager = SkillManager(skills_dir)
-        self.session_store = SessionStore(self._resolve(self.config.storage_dir))
+        self.chat_store = ChatStore(self._resolve(self.config.storage_dir))
         self.preset_store = PresetStore(str(Path(skills_dir) / "_presets"))
 
     # ------------------------------------------------------------------

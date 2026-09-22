@@ -1,6 +1,6 @@
-# session.agent — Agent (ReAct loop)
+# chat.agent — Agent (ReAct loop)
 
-Source: `procooQt/src/session/agent.py`
+Source: `src/chat/agent.py`
 
 ## Purpose
 
@@ -23,7 +23,7 @@ layers.
 
 | Attribute | Type | Description |
 |---|---|---|
-| `session_id` | `str` | unique id |
+| `chat_id` | `str` | unique id |
 | `event_queue` | `asyncio.Queue` | UI events |
 | `messages` | `list[dict]` | conversation history |
 | `primary_skills` / `secondary_skills` | `list[str]` | skill paths |
@@ -77,10 +77,10 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 
 | | |
 |---|---|
-| Signature | `def __init__(self, session_id, model, primary_skill_contents, secondary_skill_contents, tool_functions, tool_config, skills_dir, system_message="You are a helpful assistant.", sampling_config=None, initial_messages=None, summary_prompt="", session_limits=None) -> None` |
-| Inputs | see docstring; `model` = `{model_name, api_key, api_base}`; `tool_config` = per-tool mode; `initial_messages` seeds history; `summary_prompt` = summarization instruction; `session_limits` = `{"max_bytes": int, "max_tokens": int}` (0 disables). |
+| Signature | `def __init__(self, chat_id, model, primary_skill_contents, secondary_skill_contents, tool_functions, tool_config, skills_dir, system_message="You are a helpful assistant.", sampling_config=None, initial_messages=None, summary_prompt="", chat_limits=None) -> None` |
+| Inputs | see docstring; `model` = `{model_name, api_key, api_base}`; `tool_config` = per-tool mode; `initial_messages` seeds history; `summary_prompt` = summarization instruction; `chat_limits` = `{"max_bytes": int, "max_tokens": int}` (0 disables). |
 | Output | `None` |
-| Flow | init queue/approvals → build `sys_prompt` from primary/secondary skills → `SessionTokenTracker` → `OpenAIChatModel(stream=True)` → register tools → log skills. |
+| Flow | init queue/approvals → build `sys_prompt` from primary/secondary skills → `ChatTokenTracker` → `OpenAIModel(stream=True)` → register tools → log skills. |
 
 ### `run`
 
@@ -117,7 +117,7 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 | Inputs | `tool_call_id`; `denial_reason` optional. |
 | Output | `None` (puts `("approve"/"deny", reason)` onto the pending queue). |
 
-### Session compaction
+### Chat compaction
 
 | Method | Signature | Purpose |
 |---|---|---|

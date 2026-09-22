@@ -9,17 +9,23 @@ from __future__ import annotations
 from enum import IntEnum
 
 
-class SessionRole(IntEnum):
-    """Roles for :class:`~src.qt.models.session_list_model.SessionListModel`."""
+class ChatTabRole(IntEnum):
+    """Roles for :class:`~src.qt.models.chat_tab_model.ChatTabModel`."""
 
-    SESSION_ID = 1
+    CHAT_ID = 1
     TITLE = 2
     STATUS = 3
-    FOLDER = 4
-    IS_FOLDER = 5
-    IS_ACTIVE = 6
-    IS_BLINKING = 7
-    MESSAGE_COUNT = 8
+    IS_ACTIVE = 4
+    IS_BLINKING = 5
+    MESSAGE_COUNT = 6
+
+
+class SessionMenuRole(IntEnum):
+    """Roles for :class:`~src.qt.models.session_menu_model.SessionMenuModel`."""
+
+    NAME = 1
+    IS_ADD = 2
+    IS_ACTIVE = 3
 
 
 class ChatRole(IntEnum):

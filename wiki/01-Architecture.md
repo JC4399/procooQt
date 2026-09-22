@@ -6,7 +6,7 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  src/app.py — ProcooApp (wiring) + main()                                    │
 │    config = ConfigManager   skill_manager = SkillManager                     │
-│    session_store = SessionStore   preset_store = PresetStore                 │
+│    chat_store = ChatStore   preset_store = PresetStore                       │
 │                                                                              │
 │    QApplication → QQuickStyle "Basic" → register font →                      │
 │    qasync.QEventLoop(app) → asyncio.set_event_loop(loop) →                   │
@@ -17,8 +17,8 @@
 │        qasync.QEventLoop  ⇄  Qt Quick render loop  (one process/thread)      │
 │                                                                              │
 │  ProcooQtUI (QObject orchestrator — composition, no inheritance)             │
-│    SessionController  → SessionListModel, SessionState registry              │
-│    ChatController     → ChatListModel per session, streaming, approval       │
+│    SessionController  → workspace panels + ChatState registry + session menu │
+│    ChatController     → ChatListModel per chat, streaming, approval          │
 │    SkillController    → SkillTreeModel, ToolModeModel, presets, watcher      │
 │    EditorController   → FileTreeModel, CodeHighlighter                       │
 │    Theme (context property)      ErrorNotifier (toasts context property)     │
@@ -27,16 +27,12 @@
                │                    session, chat, skill, editor
 ┌──────────────▼───────────────────────────────────────────────────────────────┐
 │  QML view layer (view-only; src/qml/)                                        │
-│    Main.qml — ApplicationWindow + 3-pane SplitView                           │
-│    src/qml/panels/     SessionPanel · ChatPanel · SkillPanel                 │
-│    src/qml/windows/    EditorWindow (separate code editor window)            │
-│    src/qml/cards/      User · Thinking · Response · ToolCall · ToolResult ·  │
-│                        ContextBanner · CardBase                              │
-│    src/qml/components/ SessionTile · FolderHeader · SkillNode · ToolGroup ·  │
-│                        PresetBar · ActiveConfigBar · ApprovalBar · TokenBar ·│
-│                        FileNode · ToastHost · AutoScrollToggle ·             │
-│                        KnightRiderSpinner · FlatCheckBox · FlatRadio ·       │
-│                        FlatIndicator                                         │
+│    Main.qml — ApplicationWindow: TitleBar + SplitWorkspace                    │
+│    components/ TitleBar · SessionSelector · ChatTabBar · SkillDock ·          │
+│                ConfigTokenBar · ApprovalBar · PresetBar · ToastHost · …      │
+│    panels/     SplitWorkspace · ChatPanel · EditorPanel                       │
+│    cards/      User · Thinking · Response · ToolCall · ToolResult ·          │
+│                ContextBanner · CardBase                                       │
 └──────────────┬───────────────────────────────────────────────────────────────┘
                │ binds model roles / calls @Slot methods
 ┌──────────────▼───────────────────────────────────────────────────────────────┐
@@ -47,9 +43,9 @@
 └──────────────┬───────────────────────────────────────────────────────────────┘
                │ uses
 ┌──────────────▼───────────────────────────────────────────────────────────────┐
-│  src/session/   SessionManager ──creates──► Agent (ReAct loop)               │
-│                 Agent ──► OpenAIChatModel (chat.py)                          │
-│                 SessionStore (JSON persistence)                              │
+│  src/chat/      ChatManager ──creates──► Agent (ReAct loop)                  │
+│                 Agent ──► OpenAIModel (llm.py)                               │
+│                 ChatStore (chats/*.json + sessions.json)                     │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │  src/skill/     SkillManager (discovery + AST schemas + watchdog)            │
 │                 PresetStore (JSON presets) · models (Pydantic)               │
@@ -67,22 +63,33 @@
 |---|---|---|
 | Entry point / async | Boot config, fuse asyncio with Qt, load QML | `src/app.py` |
 | Config | Load `config.yaml`, validate LLM | `src/config/manager.py` |
-| Session runtime | ReAct agent loop, LLM client, persistence | `src/session/` |
+| Chat runtime | ReAct agent loop, LLM client, persistence | `src/chat/` |
 | Skills | Discovery, loading, AST schema inference, presets, watcher | `src/skill/` |
 | UI controllers | Composition orchestrator + 4 controllers + models | `src/qt/` |
-| QML view | View-only panels, cards, components | `src/qml/` |
+| QML view | View-only panels, components, cards | `src/qml/` |
 | Utilities | Errors, logging, token counting, venv | `src/util/` |
 
 ## Key concepts
 
-### `session.messages` (single source of truth)
+### `chat.messages` (single source of truth)
 An OpenAI-compatible list `[{role, content, tool_calls, ...}]` held on each
 `Agent`. `_`-prefixed metadata keys (`reasoning_content` on assistant,
 `_mode` on tool_calls, `_streaming_tool_calls`) are stored alongside OpenAI
 fields and are non-standard metadata ignored by the API. The UI renders from
 this list; `ChatListModel` is a **derived** render plan, never a second source
 of truth. `Agent._build_prompt` prepends the system prompt and forwards the
-history. See [`session-agent`](modules/session-agent.md).
+history. See [`chat-agent`](modules/chat-agent.md).
+
+### Session vs chat
+- A **session** is a unit of work. It owns a `sessions.json` record with a split
+  layout (`splits: [{chat_ids, active_chat_id}]`, max 4) and groups its chats.
+- A **chat** is a single conversation, stored as `storage/chats/<chat_id>.json`
+  and carrying its own `session`, `skills_config`, `messages`, and
+  `context_snapshot`.
+- The title-bar **session selector** switches sessions; `SessionController`
+  reconciles the stored layout against actual chat files and rebuilds the panels.
+- Each visible panel gets a `ChatPanelModel` (active chat, tab model, runtime
+  values); `ChatController` renders to every visible chat.
 
 ### Event queue
 Each `Agent` owns an `asyncio.Queue` (`event_queue`). During a turn it emits
@@ -97,7 +104,7 @@ events consumed by `ChatController._consume_events`:
 | `tool_result` | `{id, name, content, is_error}` | tool execution |
 | `token_usage` | `{input, output, output_cumulative, input_previous}` | reasoning step |
 | `media_user_message` | `{count}` | media injection |
-| `done` | `{session_id}` | end of turn |
+| `done` | `{chat_id}` | end of turn |
 | `error` | `{brief, detail, category}` | failures |
 
 ### Skill paths
@@ -117,26 +124,27 @@ Each tool maps to a permission mode:
 
 See [`flows/tool-approval-flow`](flows/tool-approval-flow.md).
 
-### Concurrent sessions
-`SessionManager` holds multiple live `Agent`s keyed by session ID. `SessionController`
-keeps a `SessionState` per session (generation task, approval event, streaming
-card state, render keys) and `ChatController` keeps a `ChatListModel` per
-session, so multiple sessions can generate simultaneously while the user
-switches between them.
+### Concurrent chats
+`ChatManager` holds multiple live `Agent`s keyed by chat ID. `SessionController`
+keeps a `ChatState` per chat (generation task, approval event, streaming card
+state, render keys, config counts) and `ChatController` keeps a `ChatListModel`
+per chat, so multiple chats can generate simultaneously while the user switches
+between panels.
 
 ## Data flow (one user message)
 
 ```
-user types / Enter → ChatPanel.submit → chat._handle_send(text)
+user types / Enter → ChatPanel.submit
+  → chat._handle_send_for(chat_id, text)
   → _append_user_message → _launch_generation → _run_chat_loop
-     → _hydrate_phase (build/restore Agent via session._hydrate_session)
-     → session.run(message)          [Agent emits events]
+     → _hydrate_phase (build/restore Agent via session._hydrate_chat)
+     → chat.run(message)          [Agent emits events]
         → _run_react_loop
-           → _reasoning  → OpenAIChatModel stream
+           → _reasoning  → OpenAIModel stream
            → _resolve_tool_calls → run_tool (subprocess) / approval
      → _consume_events → _render_active_event
         → _rebuild_chat_display / _update_live_assistant (ChatListModel)
-     → _finalize_turn → session._save_current_session_for (persist)
+     → _finalize_turn → session._save_current_chat_for (persist)
 ```
 
 Full detail in [`flows/agent-turn-flow`](flows/agent-turn-flow.md).

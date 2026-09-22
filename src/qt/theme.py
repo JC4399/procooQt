@@ -100,15 +100,15 @@ COLOR_ERROR_SNACKBAR = "#490202"
 COLOR_WARNING_SNACKBAR = "#3b2900"
 
 # ------------------------------------------------------------------
-# Session status indicators
+# Chat status indicators
 # ------------------------------------------------------------------
-COLOR_SESSION_SELECTED_BG = COLOR_HOVER_BG
-COLOR_SESSION_EMPTY = COLOR_TEXT_DISABLED
-COLOR_SESSION_FINISHED = COLOR_ACCENT_CYAN
-COLOR_SESSION_WAITING = COLOR_ACCENT_AMBER
-COLOR_SESSION_ERROR = COLOR_ACCENT_RED
-COLOR_SESSION_RUNNING = COLOR_ACCENT_GREEN
-COLOR_SESSION_FLASH = "#e6edf3"
+COLOR_CHAT_SELECTED_BG = COLOR_HOVER_BG
+COLOR_CHAT_EMPTY = COLOR_TEXT_DISABLED
+COLOR_CHAT_FINISHED = COLOR_ACCENT_CYAN
+COLOR_CHAT_WAITING = COLOR_ACCENT_AMBER
+COLOR_CHAT_ERROR = COLOR_ACCENT_RED
+COLOR_CHAT_RUNNING = COLOR_ACCENT_GREEN
+COLOR_CHAT_FLASH = "#e6edf3"
 
 # ------------------------------------------------------------------
 # Content cards (thinking, tool call, tool result)
@@ -135,6 +135,12 @@ COLOR_CHIP_ASK_FG = COLOR_ACCENT_AMBER
 COLOR_CHIP_BLOCK_BG = "#3b1a1a"
 COLOR_CHIP_BLOCK_FG = COLOR_ACCENT_RED
 
+# Desaturated variants for the compact config/token number readouts.
+COLOR_CHIP_PRIMARY_FG_MUTED = "#9ebeda"
+COLOR_CHIP_ALLOW_FG_MUTED = "#619768"
+COLOR_CHIP_ASK_FG_MUTED = "#a28852"
+COLOR_CHIP_BLOCK_FG_MUTED = "#ac6261"
+
 # ------------------------------------------------------------------
 # Tool mode badge colors (shown inside tool call cards)
 # ------------------------------------------------------------------
@@ -159,6 +165,12 @@ COLOR_TOAST_SHADOW = COLOR_BORDER_STRONG
 COLOR_DRAG_FEEDBACK_BG = COLOR_HOVER_BG
 COLOR_DRAG_FEEDBACK_BORDER = COLOR_ACCENT_CYAN
 COLOR_DRAG_ICON = COLOR_TEXT_SECONDARY
+
+# ------------------------------------------------------------------
+# Split-window drop indicator
+# ------------------------------------------------------------------
+COLOR_SPLIT_DROP_FILL = "#40e6edf3"
+COLOR_SPLIT_DROP_BORDER = COLOR_TEXT_PRIMARY
 
 # ------------------------------------------------------------------
 # Resize handle
@@ -271,13 +283,13 @@ COLORS: dict[str, str] = {
     "chatBorder": COLOR_CHAT_BORDER,
     "errorSnackbar": COLOR_ERROR_SNACKBAR,
     "warningSnackbar": COLOR_WARNING_SNACKBAR,
-    "sessionSelectedBg": COLOR_SESSION_SELECTED_BG,
-    "sessionEmpty": COLOR_SESSION_EMPTY,
-    "sessionFinished": COLOR_SESSION_FINISHED,
-    "sessionWaiting": COLOR_SESSION_WAITING,
-    "sessionError": COLOR_SESSION_ERROR,
-    "sessionRunning": COLOR_SESSION_RUNNING,
-    "sessionFlash": COLOR_SESSION_FLASH,
+    "chatSelectedBg": COLOR_CHAT_SELECTED_BG,
+    "chatEmpty": COLOR_CHAT_EMPTY,
+    "chatFinished": COLOR_CHAT_FINISHED,
+    "chatWaiting": COLOR_CHAT_WAITING,
+    "chatError": COLOR_CHAT_ERROR,
+    "chatRunning": COLOR_CHAT_RUNNING,
+    "chatFlash": COLOR_CHAT_FLASH,
     "thinkingBg": COLOR_THINKING_BG,
     "thinkingBorder": COLOR_THINKING_BORDER,
     "toolCallBg": COLOR_TOOL_CALL_BG,
@@ -295,6 +307,10 @@ COLORS: dict[str, str] = {
     "chipAskFg": COLOR_CHIP_ASK_FG,
     "chipBlockBg": COLOR_CHIP_BLOCK_BG,
     "chipBlockFg": COLOR_CHIP_BLOCK_FG,
+    "chipPrimaryFgMuted": COLOR_CHIP_PRIMARY_FG_MUTED,
+    "chipAllowFgMuted": COLOR_CHIP_ALLOW_FG_MUTED,
+    "chipAskFgMuted": COLOR_CHIP_ASK_FG_MUTED,
+    "chipBlockFgMuted": COLOR_CHIP_BLOCK_FG_MUTED,
     "toolModeAllowBg": COLOR_TOOL_MODE_ALLOW_BG,
     "toolModeAllowFg": COLOR_TOOL_MODE_ALLOW_FG,
     "toolModeAskBg": COLOR_TOOL_MODE_ASK_BG,
@@ -307,6 +323,8 @@ COLORS: dict[str, str] = {
     "toastShadow": COLOR_TOAST_SHADOW,
     "dragFeedbackBg": COLOR_DRAG_FEEDBACK_BG,
     "dragFeedbackBorder": COLOR_DRAG_FEEDBACK_BORDER,
+    "splitDropFill": COLOR_SPLIT_DROP_FILL,
+    "splitDropBorder": COLOR_SPLIT_DROP_BORDER,
     "dragIcon": COLOR_DRAG_ICON,
     "resizeHandle": COLOR_RESIZE_HANDLE,
     "inputBorder": INPUT_BORDER_COLOR,

@@ -554,7 +554,7 @@ class _TerminalRenderer(RendererHTML):
         fence = f'<font color="{COLOR_MD_RULE}">```{escapeHtml(lang)}</font>'
         return (
             f'<pre style="white-space:pre-wrap;margin:0 0 {_BLANK_LINE_PX}px 0;'
-            f'font-family:{FONT_MONO};'
+            f"font-family:{FONT_MONO};"
             f'line-height:{LINE_HEIGHT_BODY}">'
             f"{fence}\n{body}\n"
             f'<font color="{COLOR_MD_RULE}">```</font></pre>\n'
@@ -577,7 +577,7 @@ class _TerminalRenderer(RendererHTML):
         body = escapeHtml(tokens[idx].content).rstrip("\n")
         return (
             f'<pre style="white-space:pre-wrap;margin:0 0 {_BLANK_LINE_PX}px 0;'
-            f'font-family:{FONT_MONO};'
+            f"font-family:{FONT_MONO};"
             f'line-height:{LINE_HEIGHT_BODY}">{body}</pre>\n'
         )
 

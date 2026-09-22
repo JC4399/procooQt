@@ -1,6 +1,6 @@
-"""Per-session UI state for the Procoo Qt UI.
+"""Per-chat UI state for the Procoo Qt UI.
 
-Each live session owns a :class:`SessionState` so several sessions can generate
+Each live chat owns a :class:`ChatState` so several chats can generate
 concurrently while the user switches between them. The state holds model row indices
 and small value objects, never QML objects.
 """
@@ -31,13 +31,14 @@ class StreamingCardState:
 
 
 @dataclass
-class SessionState:
-    """Mutable UI state for a single session.
+class ChatState:
+    """Mutable UI state for a single chat.
 
     Attributes:
-        session_id: The session this state belongs to.
+        chat_id: The chat this state belongs to.
         generation_id: Incremented per generation to detect stale tasks.
         is_busy: Whether a generation is currently running.
+        is_loading: Whether a switch rebuild overlay is showing for this chat.
         active_task: The running ``Agent.run`` task, if any.
         approval_event: Set when the user resolves a pending tool approval.
         approval_text: Prompt shown in the approval bar.
@@ -50,6 +51,10 @@ class SessionState:
         init_banner_displayed: Whether the initial context banner was shown.
         true_input_tokens: Latest true input token count from ``token_usage``.
         true_output_cum: Cumulative true output token count.
+        primary_count: Number of primary skills selected for this chat.
+        allow_count: Number of tools set to ``allow``.
+        ask_count: Number of tools set to ``ask``.
+        block_count: Number of tools set to ``block``.
         rendered_item_keys: Content hashes of the last rendered chat items.
         tool_call_indices: Row indices of rendered tool-call cards.
         last_rendered_thinking_text: Last thinking text pushed to the model.
@@ -63,9 +68,10 @@ class SessionState:
         last_rebuild_time: Monotonic time of the last structural rebuild.
     """
 
-    session_id: str
+    chat_id: str
     generation_id: int = 0
     is_busy: bool = False
+    is_loading: bool = False
     active_task: asyncio.Task[Any] | None = None
     approval_event: asyncio.Event | None = None
     approval_text: str = ""
@@ -78,6 +84,10 @@ class SessionState:
     init_banner_displayed: bool = False
     true_input_tokens: int = 0
     true_output_cum: int = 0
+    primary_count: int = 0
+    allow_count: int = 0
+    ask_count: int = 0
+    block_count: int = 0
     rendered_item_keys: list[str] = field(default_factory=list)
     tool_call_indices: list[int] = field(default_factory=list)
     last_rendered_thinking_text: str = ""

@@ -1,4 +1,4 @@
-"""Global session manager that creates and tracks ``Agent`` instances."""
+"""Global chat manager that creates and tracks ``Agent`` instances."""
 
 from __future__ import annotations
 
@@ -9,19 +9,19 @@ from .agent import Agent
 logger = logging.getLogger("procoo_qt")
 
 
-class SessionManager:
-    """Factory and registry for ``Agent`` objects keyed by session ID.
+class ChatManager:
+    """Factory and registry for ``Agent`` objects keyed by chat ID.
 
     Attributes:
-        sessions: Dictionary mapping session IDs to live ``Agent`` instances.
+        chats: Dictionary mapping chat IDs to live ``Agent`` instances.
     """
 
     def __init__(self) -> None:
-        self.sessions: dict[str, Agent] = {}
+        self.chats: dict[str, Agent] = {}
 
-    def create_session(
+    def create_chat(
         self,
-        session_id: str,
+        chat_id: str,
         model: dict | None = None,
         primary_skill_contents: list[dict] | None = None,
         secondary_skill_contents: list[dict] | None = None,
@@ -32,12 +32,12 @@ class SessionManager:
         sampling_config: dict | None = None,
         initial_messages: list[dict] | None = None,
         summary_prompt: str = "",
-        session_limits: dict | None = None,
+        chat_limits: dict | None = None,
     ) -> Agent:
         """Create (or replace) an ``Agent`` and register it.
 
         Args:
-            session_id: Unique session identifier.
+            chat_id: Unique chat identifier.
             model: LLM configuration dict (model_name, api_key, api_base).
             primary_skill_contents: List of skill-content dicts for primary skills.
             secondary_skill_contents: List of skill-content dicts for secondary skills.
@@ -48,18 +48,18 @@ class SessionManager:
             sampling_config: Optional LLM sampling parameters.
             initial_messages: Optional list of role/content dicts to seed
                 the conversation history and agent memory with.
-            summary_prompt: Instruction used when summarizing an over-limit session.
-            session_limits: Optional ``{"max_bytes": int, "max_tokens": int}``
+            summary_prompt: Instruction used when summarizing an over-limit chat.
+            chat_limits: Optional ``{"max_bytes": int, "max_tokens": int}``
                 compaction limits.
 
         Returns:
             The newly created ``Agent``.
         """
-        if session_id in self.sessions:
-            self.remove_session(session_id)
+        if chat_id in self.chats:
+            self.remove_chat(chat_id)
 
-        session = Agent(
-            session_id=session_id,
+        chat = Agent(
+            chat_id=chat_id,
             model=model or {},
             primary_skill_contents=primary_skill_contents or [],
             secondary_skill_contents=secondary_skill_contents or [],
@@ -70,37 +70,37 @@ class SessionManager:
             sampling_config=sampling_config,
             initial_messages=initial_messages,
             summary_prompt=summary_prompt,
-            session_limits=session_limits,
+            chat_limits=chat_limits,
         )
-        self.sessions[session_id] = session
-        return session
+        self.chats[chat_id] = chat
+        return chat
 
     # ------------------------------------------------------------------
     #  Public: Lookup
     # ------------------------------------------------------------------
 
-    def get_session(self, session_id: str) -> Agent | None:
-        """Retrieve a live session by ID, or ``None`` if not found."""
-        return self.sessions.get(session_id)
+    def get_chat(self, chat_id: str) -> Agent | None:
+        """Retrieve a live chat by ID, or ``None`` if not found."""
+        return self.chats.get(chat_id)
 
-    def update_session_config(
+    def update_chat_config(
         self,
-        session_id: str,
+        chat_id: str,
         primary_skill_contents: list[dict],
         secondary_skill_contents: list[dict],
         tool_functions: list[dict],
         tool_config: dict[str, str],
     ) -> dict:
-        """Push new skill/tool config to a live session.
+        """Push new skill/tool config to a live chat.
 
         Returns the result dict from ``Agent.update_skill_config`` (with
         ``warnings``, ``added_primary``, etc.), or an empty result if no
-        live session exists for *session_id*.
+        live chat exists for *chat_id*.
         """
-        session = self.get_session(session_id)
-        if session is None:
+        chat = self.get_chat(chat_id)
+        if chat is None:
             return {"warnings": []}
-        return session.update_skill_config(
+        return chat.update_skill_config(
             primary_skill_contents,
             secondary_skill_contents,
             tool_functions,
@@ -111,17 +111,17 @@ class SessionManager:
     #  Public: Lifecycle
     # ------------------------------------------------------------------
 
-    def remove_session(self, session_id: str) -> None:
-        """Remove and discard a session without error if missing."""
-        self.sessions.pop(session_id, None)
+    def remove_chat(self, chat_id: str) -> None:
+        """Remove and discard a chat without error if missing."""
+        self.chats.pop(chat_id, None)
 
-    async def cleanup_idle_sessions(self, max_idle_minutes: int = 30) -> None:
-        """Placeholder for future idle-session cleanup logic.
+    async def cleanup_idle_chats(self, max_idle_minutes: int = 30) -> None:
+        """Placeholder for future idle-chat cleanup logic.
 
         Args:
-            max_idle_minutes: Maximum idle time before a session is eligible for cleanup.
+            max_idle_minutes: Maximum idle time before a chat is eligible for cleanup.
         """
         pass
 
 
-session_manager = SessionManager()
+chat_manager = ChatManager()

@@ -1,6 +1,6 @@
-"""``SessionController`` — session sidebar, lifecycle, and persistence.
+"""``SessionController`` — session sidebar, chat lifecycle, and persistence.
 
-Owns the session list model and the per-session :class:`SessionState` registry.
+Owns the session/chat list model and the per-chat :class:`ChatState` registry.
 """
 
 from __future__ import annotations
@@ -13,27 +13,30 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
-from ..session.manager import session_manager
-from ..util.error.types import SessionError
+from ..chat.manager import chat_manager
+from ..chat.store import DEFAULT_SESSION_NAME
+from ..util.error.types import ChatError
+from .chat_panel_model import ChatPanelModel
+from .chat_state import ChatState
 from .error_handler import TOAST_ERROR, TOAST_WARNING
-from .models.session_list_model import SessionListModel
-from .session_state import SessionState
+from .models.session_menu_model import SessionMenuModel
 from .theme import (
-    COLOR_SESSION_EMPTY,
-    COLOR_SESSION_ERROR,
-    COLOR_SESSION_FINISHED,
-    COLOR_SESSION_RUNNING,
-    COLOR_SESSION_WAITING,
+    COLOR_CHAT_EMPTY,
+    COLOR_CHAT_ERROR,
+    COLOR_CHAT_FINISHED,
+    COLOR_CHAT_RUNNING,
+    COLOR_CHAT_WAITING,
 )
 
 if TYPE_CHECKING:
     from ..app import ProcooApp
+    from .chat_controller import ChatController
 
 logger = logging.getLogger("procoo_qt")
 
 
-class SessionStatus:
-    """String constants for session display statuses."""
+class ChatStatus:
+    """String constants for chat display statuses."""
 
     EMPTY = "empty"
     RUNNING = "running"
@@ -43,33 +46,43 @@ class SessionStatus:
 
 
 _STATUS_COLORS: dict[str, str] = {
-    SessionStatus.EMPTY: COLOR_SESSION_EMPTY,
-    SessionStatus.FINISHED: COLOR_SESSION_FINISHED,
-    SessionStatus.WAITING: COLOR_SESSION_WAITING,
-    SessionStatus.RUNNING: COLOR_SESSION_RUNNING,
-    SessionStatus.ERROR: COLOR_SESSION_ERROR,
+    ChatStatus.EMPTY: COLOR_CHAT_EMPTY,
+    ChatStatus.FINISHED: COLOR_CHAT_FINISHED,
+    ChatStatus.WAITING: COLOR_CHAT_WAITING,
+    ChatStatus.RUNNING: COLOR_CHAT_RUNNING,
+    ChatStatus.ERROR: COLOR_CHAT_ERROR,
 }
 
 
 class SessionController(QObject):
-    """Session list, creation/switching/deletion, and persistence controller."""
+    """Session group, chat creation/switching/deletion, and persistence controller."""
 
     sessions_changed = Signal()
-    active_session_changed = Signal(str)
-    session_switch_started = Signal(str)
+    tabs_changed = Signal()
+    panels_changed = Signal()
+    active_chat_changed = Signal(str)
+    active_session_name_changed = Signal()
+    chat_switch_started = Signal(str)
     toast_requested = Signal(str, str)
-    new_folder_requested = Signal()
+    new_session_requested = Signal()
 
     if TYPE_CHECKING:
         app: ProcooApp
-        _session_model: SessionListModel
-        _states: dict[str, SessionState]
+        chat: ChatController
+        _session_menu_model: SessionMenuModel
+        _states: dict[str, ChatState]
+        _chats_by_session: dict[str, list[str]]
+        _enriched: dict[str, dict[str, Any]]
+        _panels: list[dict[str, Any]]
+        _panel_models: list[ChatPanelModel]
         _tasks: set[asyncio.Task[Any]]
-        active_session_id: str | None
-        session_ids: list[str]
+        active_chat_id: str | None
+        active_session_name: str | None
+        chat_ids: list[str]
 
-        def _get_or_create_state(self, session_id: str) -> SessionState: ...
-        def _save_current_session_for(self, session_id: str) -> None: ...
+        def _get_or_create_state(self, chat_id: str) -> ChatState: ...
+        def _save_current_chat_for(self, chat_id: str) -> None: ...
+        def _open_chat(self, chat_id: str) -> None: ...
 
     # ------------------------------------------------------------------
     #  Setup
@@ -90,54 +103,91 @@ class SessionController(QObject):
     # ------------------------------------------------------------------
 
     def build(self) -> None:
-        """Build the session model and per-session state registry."""
-        self._session_model = SessionListModel(self)
+        """Build the workspace panels, session menu, and per-chat state registry."""
+        self._session_menu_model = SessionMenuModel(self)
         self._states = {}
+        self._chats_by_session = {}
+        self._enriched = {}
+        self._panels = [{"chat_ids": [], "active_chat_id": ""}]
+        self._panel_models = []
         self._tasks = set()
-        self.active_session_id = None
-        self.session_ids = []
+        self.active_chat_id = None
+        self.active_session_name = None
+        self.chat_ids = []
         self._refresh_model()
 
     # ------------------------------------------------------------------
     #  Properties
     # ------------------------------------------------------------------
 
-    @Property(QObject, notify=sessions_changed)
-    def session_model(self) -> SessionListModel:
-        """Return the flattened session/folder list model.
+    @Property(int, notify=panels_changed)
+    def panelCount(self) -> int:  # noqa: N802
+        """Return the number of visible workspace panels.
 
         Returns:
-            The model exposed to QML as ``session.session_model``.
+            The panel count exposed to QML as ``session.panelCount``.
         """
-        return self._session_model
+        return len(self._panels)
+
+    @Slot(int, result=QObject)
+    def panelAt(self, index: int) -> QObject:  # noqa: N802
+        """Return the panel view model at an index, creating it on demand.
+
+        Args:
+            index: The panel index.
+
+        Returns:
+            The panel's :class:`ChatPanelModel`.
+        """
+        while len(self._panel_models) <= index:
+            self._panel_models.append(ChatPanelModel(len(self._panel_models), self))
+        return self._panel_models[index]
+
+    @Property(QObject, notify=sessions_changed)
+    def sessionMenuModel(self) -> SessionMenuModel:  # noqa: N802
+        """Return the title-bar session menu model.
+
+        Returns:
+            The model exposed to QML as ``session.sessionMenuModel``.
+        """
+        return self._session_menu_model
+
+    @Property(str, notify=active_session_name_changed)
+    def activeSessionName(self) -> str:  # noqa: N802
+        """Return the active session name.
+
+        Returns:
+            The active session name, or an empty string.
+        """
+        return self.active_session_name or ""
 
     # ------------------------------------------------------------------
     #  State
     # ------------------------------------------------------------------
 
-    def state(self, session_id: str) -> SessionState:
-        """Return the state for a session, creating it on demand.
+    def state(self, chat_id: str) -> ChatState:
+        """Return the state for a chat, creating it on demand.
 
         Args:
-            session_id: The session id.
+            chat_id: The chat id.
 
         Returns:
-            The session's UI state.
+            The chat's UI state.
         """
-        if session_id not in self._states:
-            self._states[session_id] = SessionState(session_id)
-        return self._states[session_id]
+        if chat_id not in self._states:
+            self._states[chat_id] = ChatState(chat_id)
+        return self._states[chat_id]
 
-    def _get_or_create_state(self, session_id: str) -> SessionState:
-        """Return the state for a session, creating it on demand.
+    def _get_or_create_state(self, chat_id: str) -> ChatState:
+        """Return the state for a chat, creating it on demand.
 
         Args:
-            session_id: The session id.
+            chat_id: The chat id.
 
         Returns:
-            The session's UI state.
+            The chat's UI state.
         """
-        return self.state(session_id)
+        return self.state(chat_id)
 
     # ------------------------------------------------------------------
     #  Slot: Start
@@ -145,9 +195,153 @@ class SessionController(QObject):
 
     @Slot()
     def start(self) -> None:
-        """Emit startup validation issues and auto-select a session."""
+        """Ensure a session exists and open its workspace panels."""
         self._emit_validation_issues()
-        self._auto_select_session()
+        self.active_session_name = self.app.chat_store.ensure_default_session()
+        self.active_session_name_changed.emit()
+        self._refresh_model()
+        self._reconcile_panels(self.active_session_name)
+        self._sync_panels()
+        self._open_session_panels()
+
+    # ------------------------------------------------------------------
+    #  Slot: New chat
+    # ------------------------------------------------------------------
+
+    @Slot(int)
+    def _handle_new_chat(self, panel_index: int) -> None:
+        """Create a new chat and open it as a tab in a panel.
+
+        Args:
+            panel_index: The panel to add the chat to.
+        """
+        if not (0 <= panel_index < len(self._panels)):
+            panel_index = 0
+        chat_id = self._generate_unique_chat_id()
+        self._create_stored_chat(chat_id)
+        self._panels[panel_index]["chat_ids"].append(chat_id)
+        self._panels[panel_index]["active_chat_id"] = chat_id
+        self._refresh_model()
+        self._save_layout()
+        self._open_chat(chat_id)
+
+    # ------------------------------------------------------------------
+    #  Slot: Panel tab activate
+    # ------------------------------------------------------------------
+
+    @Slot(int, str)
+    def _handle_panel_activate(self, panel_index: int, chat_id: str) -> None:
+        """Activate a chat tab within a panel.
+
+        Args:
+            panel_index: The panel whose tab was clicked.
+            chat_id: The chat to activate.
+        """
+        if not (0 <= panel_index < len(self._panels)) or not chat_id:
+            return
+        if self._panels[panel_index]["active_chat_id"] == chat_id:
+            return
+        self._panels[panel_index]["active_chat_id"] = chat_id
+        self._save_layout()
+        self._sync_panels()
+        self._open_chat(chat_id)
+
+    # ------------------------------------------------------------------
+    #  Slot: Move / split chat
+    # ------------------------------------------------------------------
+
+    @Slot(str, int)
+    def _handle_move_chat(self, chat_id: str, target_index: int) -> None:
+        """Move a chat into another panel's tab bar.
+
+        Args:
+            chat_id: The dragged chat id.
+            target_index: The panel to move the chat into.
+        """
+        if not chat_id or not (0 <= target_index < len(self._panels)):
+            return
+        target = self._panels[target_index]
+        if chat_id in target["chat_ids"]:
+            return
+        self._remove_chat_from_panels(chat_id)
+        if target in self._panels:
+            target["chat_ids"].append(chat_id)
+            target["active_chat_id"] = chat_id
+        else:
+            self._panels.append({"chat_ids": [chat_id], "active_chat_id": chat_id})
+        self._finalize_panel_change()
+        self._open_chat(chat_id)
+
+    @Slot(str, int, str)
+    def _handle_split(self, chat_id: str, target_index: int, side: str) -> None:
+        """Split a panel, moving a chat into a new adjacent panel.
+
+        The target panel is always kept (even when the dragged chat was its only
+        tab), so a drop on a panel half always yields one more visible panel.
+        Other panels that become empty are dropped.
+
+        Args:
+            chat_id: The dragged chat id.
+            target_index: The panel being split.
+            side: ``"left"`` or ``"right"`` for the new panel position.
+        """
+        if not chat_id or not (0 <= target_index < len(self._panels)):
+            return
+        if len(self._panels) >= 4:
+            return
+        target = self._panels[target_index]
+        for panel in self._panels:
+            if chat_id in panel["chat_ids"]:
+                panel["chat_ids"].remove(chat_id)
+                if panel["active_chat_id"] == chat_id:
+                    panel["active_chat_id"] = panel["chat_ids"][0] if panel["chat_ids"] else ""
+        self._panels = [p for p in self._panels if p["chat_ids"] or p is target]
+        target_pos = self._panels.index(target)
+        position = target_pos if side == "left" else target_pos + 1
+        position = max(0, min(position, len(self._panels)))
+        self._panels.insert(position, {"chat_ids": [chat_id], "active_chat_id": chat_id})
+        self._finalize_panel_change()
+        self._open_chat(chat_id)
+
+    def _remove_chat_from_panels(self, chat_id: str) -> None:
+        """Remove a chat from every panel, dropping panels left empty.
+
+        The caller is responsible for ensuring at least one panel remains.
+
+        Args:
+            chat_id: The chat id to remove.
+        """
+        for panel in self._panels:
+            if chat_id in panel["chat_ids"]:
+                panel["chat_ids"].remove(chat_id)
+                if panel["active_chat_id"] == chat_id:
+                    panel["active_chat_id"] = panel["chat_ids"][0] if panel["chat_ids"] else ""
+        self._panels = [p for p in self._panels if p["chat_ids"]]
+
+    def _ensure_panel_exists(self) -> None:
+        """Guarantee at least one (possibly empty) panel remains."""
+        if not self._panels:
+            self._panels = [{"chat_ids": [], "active_chat_id": ""}]
+
+    def _finalize_panel_change(self) -> None:
+        """Sync panel models and persist the layout after a panel mutation."""
+        self._sync_panels()
+        self._save_layout()
+
+    # ------------------------------------------------------------------
+    #  Slot: Delete chat
+    # ------------------------------------------------------------------
+
+    @Slot(str)
+    def _handle_delete_chat(self, chat_id: str) -> None:
+        """Delete a chat, removing it from its panel.
+
+        Args:
+            chat_id: The chat id to delete.
+        """
+        if not chat_id:
+            return
+        self._delete_chat_by_id(chat_id)
 
     # ------------------------------------------------------------------
     #  Slot: New session
@@ -155,154 +349,82 @@ class SessionController(QObject):
 
     @Slot()
     def _handle_new_session(self) -> None:
-        """Create a new session with default config and switch to it.
-
-        Skill/tool sidebar selections are wired in P6; until then a new
-        session starts from an empty primary/secondary/tool config.
-        """
-        session_id = self._generate_unique_session_id()
-        self._create_stored_session(session_id)
-        self.session_ids = [session_id, *self.session_ids]
-        self.session_switch_started.emit(session_id)
-        self._spawn(self._switch_to_session(session_id))
+        """Request that QML open the new-session dialog."""
+        self.new_session_requested.emit()
 
     # ------------------------------------------------------------------
-    #  Slot: Session click
+    #  Slot: Create session
     # ------------------------------------------------------------------
 
     @Slot(str)
-    def _handle_session_click(self, session_id: str) -> None:
-        """Switch to the clicked session.
+    def _handle_create_session(self, name: str) -> None:
+        """Create a session and switch to it.
 
         Args:
-            session_id: The session id to switch to.
+            name: The session name entered in the dialog.
         """
-        if not session_id:
+        cleaned = (name or "").strip()
+        if not cleaned:
+            self.toast_requested.emit("Please enter a session name.", TOAST_ERROR)
             return
-        if session_id == self.active_session_id:
+        try:
+            self.app.chat_store.create_session(cleaned)
+        except ValueError as error:
+            self.toast_requested.emit(str(error), TOAST_ERROR)
             return
-        self.session_switch_started.emit(session_id)
-        self._spawn(self._switch_to_session(session_id))
+        self._handle_switch_session(cleaned)
+
+    # ------------------------------------------------------------------
+    #  Slot: Switch session
+    # ------------------------------------------------------------------
+
+    @Slot(str)
+    def _handle_switch_session(self, name: str) -> None:
+        """Activate a session and rebuild its workspace panels.
+
+        Args:
+            name: The session name to activate.
+        """
+        if not name or name == self.active_session_name:
+            return
+        self.active_session_name = name
+        self.active_session_name_changed.emit()
+        self.active_chat_id = None
+        self._refresh_model()
+        self._reconcile_panels(name)
+        self._sync_panels()
+        self._open_session_panels()
 
     # ------------------------------------------------------------------
     #  Slot: Delete session
     # ------------------------------------------------------------------
 
     @Slot(str)
-    def _handle_delete_session(self, session_id: str) -> None:
-        """Delete a session and select a replacement if it was active.
+    def _handle_delete_session(self, name: str) -> None:
+        """Delete a session and all its chats.
 
         Args:
-            session_id: The session id to delete.
-        """
-        if not session_id:
-            return
-        self._delete_session_by_id(session_id)
-
-    # ------------------------------------------------------------------
-    #  Slot: New folder
-    # ------------------------------------------------------------------
-
-    @Slot()
-    def _handle_new_folder(self) -> None:
-        """Request that QML open the new-folder dialog."""
-        self.new_folder_requested.emit()
-
-    # ------------------------------------------------------------------
-    #  Slot: Create folder
-    # ------------------------------------------------------------------
-
-    @Slot(str)
-    def _handle_create_folder(self, name: str) -> None:
-        """Create a folder and refresh the sidebar.
-
-        Args:
-            name: The folder name entered in the dialog.
-        """
-        cleaned = (name or "").strip()
-        if not cleaned:
-            self.toast_requested.emit("Please enter a folder name.", TOAST_ERROR)
-            return
-        try:
-            self.app.session_store.create_folder(cleaned)
-        except ValueError as error:
-            self.toast_requested.emit(str(error), TOAST_ERROR)
-            return
-        self._session_model.set_folder_expansion(cleaned, True)
-        self._refresh_model()
-
-    # ------------------------------------------------------------------
-    #  Slot: Delete folder
-    # ------------------------------------------------------------------
-
-    @Slot(str)
-    def _handle_delete_folder(self, name: str) -> None:
-        """Delete a folder, unlinking its sessions.
-
-        Args:
-            name: The folder name to delete.
+            name: The session name to delete.
         """
         if not name:
             return
         try:
-            self.app.session_store.delete_folder(name)
+            deleted_ids = self.app.chat_store.delete_session(name)
         except ValueError as error:
             self.toast_requested.emit(str(error), TOAST_ERROR)
             return
-        self._refresh_model()
-
-    # ------------------------------------------------------------------
-    #  Slot: Drop on folder
-    # ------------------------------------------------------------------
-
-    @Slot(str, str)
-    def _handle_drop_on_folder(self, session_id: str, folder: str) -> None:
-        """Move a dragged session into a folder, or unfiled when empty.
-
-        The target folder is ``None`` for the unfiled drop zone. A missing session
-        surfaces as a toast.
-
-        Args:
-            session_id: The dragged session id.
-            folder: Target folder name, or an empty string for the unfiled zone.
-        """
-        if not session_id:
-            return
-        try:
-            self.app.session_store.set_session_folder(session_id, folder or None)
-        except ValueError as error:
-            self.toast_requested.emit(str(error), TOAST_ERROR)
+        for chat_id in deleted_ids:
+            self._forget_chat(chat_id)
+        if name == self.active_session_name:
+            self.active_session_name = self.app.chat_store.ensure_default_session()
+            self.active_session_name_changed.emit()
+            self.active_chat_id = None
+            self._refresh_model()
+            self._reconcile_panels(self.active_session_name)
+            self._sync_panels()
+            self._open_session_panels()
             return
         self._refresh_model()
-
-    # ------------------------------------------------------------------
-    #  Slot: Folder expansion
-    # ------------------------------------------------------------------
-
-    @Slot(str, bool)
-    def _handle_folder_expansion(self, name: str, expanded: bool) -> None:
-        """Toggle a folder's expansion and refresh the sidebar rows.
-
-        Args:
-            name: The folder name.
-            expanded: Whether the folder should be expanded.
-        """
-        if not name:
-            return
-        self._session_model.set_folder_expansion(name, expanded)
-        self._refresh_model()
-
-    @Slot(str, result=bool)
-    def is_folder_expanded(self, name: str) -> bool:
-        """Return whether a folder's session rows are shown.
-
-        Args:
-            name: The folder name.
-
-        Returns:
-            ``True`` if the folder is expanded.
-        """
-        return self._session_model.is_expanded(name)
 
     # ------------------------------------------------------------------
     #  Slot: Status color
@@ -310,76 +432,254 @@ class SessionController(QObject):
 
     @Slot(str, result=str)
     def statusColor(self, status: str) -> str:  # noqa: N802
-        """Return the theme color for a session status.
+        """Return the theme color for a chat status.
 
         Args:
-            status: One of the :class:`SessionStatus` strings.
+            status: One of the :class:`ChatStatus` strings.
 
         Returns:
             A hex color string suitable for a QML dot.
         """
-        return _STATUS_COLORS.get(status, COLOR_SESSION_EMPTY)
+        return _STATUS_COLORS.get(status, COLOR_CHAT_EMPTY)
 
     # ------------------------------------------------------------------
     #  Session model
     # ------------------------------------------------------------------
 
     def _refresh_model(self) -> None:
-        """Reload session summaries and folders into the list model."""
-        enriched, folders = self._collect_summaries()
-        self._apply_summaries(enriched, folders)
+        """Reload chat summaries and sessions into the list model."""
+        enriched, sessions = self._collect_summaries()
+        self._apply_summaries(enriched, sessions)
 
     def _collect_summaries(self) -> tuple[list[dict[str, Any]], list[str]]:
-        """Read and enrich every session summary in a single disk pass.
+        """Read and enrich every chat summary in a single disk pass.
 
-        Parses each session file once (via ``load_all_sessions``) and derives the
+        Parses each chat file once (via ``load_all_chats``) and derives the
         display title and status from that same data. Touches no Qt objects, so it
         is safe to run on a worker thread through ``asyncio.to_thread``.
 
         Returns:
-            ``(enriched, folders)`` — the enriched summary list and folder names.
+            ``(enriched, sessions)`` — the enriched summary list and session names.
         """
         states = dict(self._states)
-        stored = self.app.session_store.load_all_sessions()
-        enriched = [self._enrich_session(data, states) for data in stored]
-        folders = self.app.session_store.list_folders()
-        return enriched, folders
+        stored = self.app.chat_store.load_all_chats()
+        enriched = [self._enrich_chat(data, states) for data in stored]
+        sessions = self.app.chat_store.list_sessions()
+        return enriched, sessions
 
-    def _apply_summaries(self, enriched: list[dict[str, Any]], folders: list[str]) -> None:
-        """Apply collected session summaries to the sidebar model.
+    def _apply_summaries(self, enriched: list[dict[str, Any]], sessions: list[str]) -> None:
+        """Apply collected chat summaries to the sidebar model.
 
         Must run on the GUI thread (updates the ``QAbstractListModel``).
 
         Args:
-            enriched: Enriched session summary dicts.
-            folders: Folder names in display order.
+            enriched: Enriched chat summary dicts.
+            sessions: Session names in display order.
         """
-        self.session_ids = [s["id"] for s in enriched]
-        self._session_model.set_sessions(enriched, folders, self.active_session_id, self._states)
+        self.chat_ids = [s["id"] for s in enriched]
+        self._enriched = {chat["id"]: chat for chat in enriched}
+        for chat in enriched:
+            state = self.state(chat["id"])
+            state.primary_count = chat.get("primary_count", 0)
+            state.allow_count = chat.get("allow_count", 0)
+            state.ask_count = chat.get("ask_count", 0)
+            state.block_count = chat.get("block_count", 0)
+        grouped: dict[str, list[str]] = {name: [] for name in sessions}
+        for chat in enriched:
+            session_name = chat.get("session")
+            if session_name in grouped:
+                grouped[session_name].append(chat["id"])
+        self._chats_by_session = grouped
+        self._session_menu_model.set_sessions(sessions, self.active_session_name)
         self.sessions_changed.emit()
+        self._sync_panels()
 
-    def _enrich_session(
-        self, stored: dict[str, Any], states: dict[str, SessionState]
-    ) -> dict[str, Any]:
-        """Attach a derived title and status to a stored session dict.
+    # ------------------------------------------------------------------
+    #  Workspace panels
+    # ------------------------------------------------------------------
+
+    def _reconcile_panels(self, name: str) -> None:
+        """Rebuild a session's panels from its stored layout and chats.
+
+        Chats in the session but absent from the stored layout are added to the
+        first panel; empty panels are dropped (but one is always kept).
 
         Args:
-            stored: A full session dict from ``SessionStore.load_all_sessions``.
-            states: Snapshot of the per-session UI states.
+            name: The session name to reconcile.
+        """
+        stored = self.app.chat_store.get_layout(name)
+        session_chats = self._chats_by_session.get(name, [])
+        assigned: set[str] = set()
+        panels: list[dict[str, Any]] = []
+        for split in (stored.get("splits") or [])[:4]:
+            ids = [
+                cid
+                for cid in split.get("chat_ids", [])
+                if cid in session_chats and cid not in assigned
+            ]
+            assigned.update(ids)
+            active = split.get("active_chat_id", "")
+            if active not in ids:
+                active = ids[0] if ids else ""
+            panels.append({"chat_ids": ids, "active_chat_id": active})
+        if not panels:
+            panels = [{"chat_ids": [], "active_chat_id": ""}]
+        leftovers = [cid for cid in session_chats if cid not in assigned]
+        if leftovers:
+            panels[0]["chat_ids"].extend(leftovers)
+            if not panels[0]["active_chat_id"]:
+                panels[0]["active_chat_id"] = leftovers[0]
+        non_empty = [p for p in panels if p["chat_ids"]]
+        self._panels = (non_empty or [{"chat_ids": [], "active_chat_id": ""}])[:4]
+        self._save_layout()
+
+    def _sync_panels(self) -> None:
+        """Push the layout and per-chat runtime into the panel view models."""
+        self._ensure_panel_exists()
+        count = len(self._panels)
+        while len(self._panel_models) < count:
+            self._panel_models.append(ChatPanelModel(len(self._panel_models), self))
+        del self._panel_models[count:]
+        visible: set[str] = set()
+        for index, panel in enumerate(self._panels):
+            active = panel["active_chat_id"]
+            model = self.chat.model_for(active) if active else None
+            tabs = [self._enriched[cid] for cid in panel["chat_ids"] if cid in self._enriched]
+            if active:
+                visible.add(active)
+            panel_model = self._panel_models[index]
+            panel_model.set_panel(active, model, tabs, active, self._states)
+            panel_model.set_runtime(*self._panel_runtime(active))
+        self.chat.set_visible_chats(visible)
+        self.panels_changed.emit()
+        self.tabs_changed.emit()
+
+    def _panel_runtime(
+        self, chat_id: str
+    ) -> tuple[bool, bool, str, int, int, bool, int, int, int, int]:
+        """Return the runtime display tuple for a chat.
+
+        Args:
+            chat_id: The chat id.
+
+        Returns:
+            ``(busy, approval_visible, approval_text, input_tokens, output_tokens,
+            loading, primary_count, allow_count, ask_count, block_count)``.
+        """
+        if not chat_id:
+            return (False, False, "", 0, 0, False, 0, 0, 0, 0)
+        state = self._states.get(chat_id)
+        busy = bool(state and state.is_busy)
+        approval_visible = bool(state and state.pending_tool_info)
+        approval_text = state.approval_text if state else ""
+        loading = bool(state and state.is_loading)
+        if state and state.true_input_tokens > 0:
+            input_tokens = state.true_input_tokens
+            output_tokens = state.true_output_cum
+        else:
+            chat = chat_manager.get_chat(chat_id)
+            input_tokens = chat._estimated_total if chat else 0
+            output_tokens = 0
+        primary_count = state.primary_count if state else 0
+        allow_count = state.allow_count if state else 0
+        ask_count = state.ask_count if state else 0
+        block_count = state.block_count if state else 0
+        return (
+            busy,
+            approval_visible,
+            approval_text,
+            input_tokens,
+            output_tokens,
+            loading,
+            primary_count,
+            allow_count,
+            ask_count,
+            block_count,
+        )
+
+    def _save_layout(self) -> None:
+        """Persist the active session's panel layout to the store."""
+        if not self.active_session_name:
+            return
+        layout = {
+            "splits": [
+                {"chat_ids": p["chat_ids"], "active_chat_id": p["active_chat_id"]}
+                for p in self._panels
+            ]
+        }
+        self.app.chat_store.set_layout(self.active_session_name, layout)
+
+    @Slot(str)
+    def refresh_chat_panels(self, chat_id: str) -> None:
+        """Refresh a panel's runtime values after a chat state change.
+
+        Args:
+            chat_id: The chat whose state changed.
+        """
+        for panel_model, panel in zip(self._panel_models, self._panels, strict=False):
+            if panel["active_chat_id"] == chat_id:
+                panel_model.set_runtime(*self._panel_runtime(chat_id))
+                break
+
+    def _open_chat(self, chat_id: str) -> None:
+        """Activate and hydrate a chat, then rebuild its display.
+
+        Args:
+            chat_id: The chat to open.
+        """
+        if not chat_id:
+            return
+        self.active_chat_id = chat_id
+        self.chat_switch_started.emit(chat_id)
+        self._spawn(self._open_chat_async(chat_id))
+
+    async def _open_chat_async(self, chat_id: str) -> None:
+        """Hydrate a chat in the background, then notify activation.
+
+        Args:
+            chat_id: The chat to open.
+        """
+        stored = await asyncio.to_thread(self.app.chat_store.load_chat, chat_id)
+        if chat_manager.get_chat(chat_id) is None and stored and stored.get("messages"):
+            await self._hydrate_chat(chat_id, stored)
+        self.active_chat_changed.emit(chat_id)
+
+    def _open_session_panels(self) -> None:
+        """Open the active chat of every panel of the active session."""
+        for panel in self._panels:
+            chat_id = panel["active_chat_id"]
+            if chat_id:
+                self._open_chat(chat_id)
+
+    def _enrich_chat(self, stored: dict[str, Any], states: dict[str, ChatState]) -> dict[str, Any]:
+        """Attach a derived title and status to a stored chat dict.
+
+        Args:
+            stored: A full chat dict from ``ChatStore.load_all_chats``.
+            states: Snapshot of the per-chat UI states.
 
         Returns:
             The summary extended with ``title`` and ``status`` keys.
         """
-        session_id = str(stored.get("id", ""))
+        chat_id = str(stored.get("id", ""))
+        skills = stored.get("skills_config", {}) or {}
+        tools = skills.get("tools", {}) or {}
+        counts = {
+            "primary_count": len(skills.get("primary", []) or []),
+            "allow_count": sum(1 for mode in tools.values() if mode == "allow"),
+            "ask_count": sum(1 for mode in tools.values() if mode == "ask"),
+            "block_count": sum(1 for mode in tools.values() if mode == "block"),
+        }
         return {
-            "id": session_id,
-            "folder": stored.get("folder"),
+            "id": chat_id,
+            "session": stored.get("session"),
             "skills": stored.get("skills", []),
             "created_at": stored.get("created_at", ""),
             "updated_at": stored.get("updated_at", ""),
             "message_count": stored.get("message_count", 0),
-            "title": self._derive_session_title(stored),
-            "status": self._derive_session_status(session_id, stored, states),
+            "title": self._derive_chat_title(stored),
+            "status": self._derive_chat_status(chat_id, stored, states),
+            **counts,
         }
 
     # ------------------------------------------------------------------
@@ -387,14 +687,14 @@ class SessionController(QObject):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _derive_session_title(sess: dict) -> str:
+    def _derive_chat_title(sess: dict) -> str:
         """Derive a short display title from the first user message.
 
         Uses the first user message content (truncated to 30 chars) or falls
-        back to the first 15 chars of the session id.
+        back to the first 15 chars of the chat id.
 
         Args:
-            sess: The stored session dict.
+            sess: The stored chat dict.
 
         Returns:
             A displayable title string.
@@ -405,27 +705,27 @@ class SessionController(QObject):
                 return title[:30] + ("..." if len(title) > 30 else "")
         return sess.get("id", "")[:15]
 
-    def _derive_session_status(
-        self, sid: str, stored: dict | None, states: dict[str, SessionState]
+    def _derive_chat_status(
+        self, cid: str, stored: dict | None, states: dict[str, ChatState]
     ) -> str:
-        """Determine a session's status from its UI state and stored messages.
+        """Determine a chat's status from its UI state and stored messages.
 
         Args:
-            sid: Session id.
-            stored: The stored session data dict, or ``None``.
-            states: Snapshot of the per-session UI states.
+            cid: Chat id.
+            stored: The stored chat data dict, or ``None``.
+            states: Snapshot of the per-chat UI states.
 
         Returns:
-            One of the :class:`SessionStatus` values.
+            One of the :class:`ChatStatus` values.
         """
-        state = states.get(sid)
+        state = states.get(cid)
         if state and state.is_busy:
-            return SessionStatus.WAITING if state.pending_tool_info else SessionStatus.RUNNING
+            return ChatStatus.WAITING if state.pending_tool_info else ChatStatus.RUNNING
         if not stored:
-            return SessionStatus.EMPTY
+            return ChatStatus.EMPTY
         if not stored.get("messages"):
-            return SessionStatus.EMPTY
-        return SessionStatus.FINISHED
+            return ChatStatus.EMPTY
+        return ChatStatus.FINISHED
 
     # ------------------------------------------------------------------
     #  Context snapshot
@@ -433,10 +733,10 @@ class SessionController(QObject):
 
     @staticmethod
     def _build_context_snapshot(session: Any) -> dict[str, Any]:
-        """Build a context snapshot dict from a live session object.
+        """Build a context snapshot dict from a live chat object.
 
         Args:
-            session: The live session object from ``session_manager``.
+            session: The live chat object from ``chat_manager``.
 
         Returns:
             A dict with system_prompt, pending_additions, primary_skills,
@@ -455,81 +755,81 @@ class SessionController(QObject):
     #  Persistence
     # ------------------------------------------------------------------
 
-    def _create_stored_session(self, session_id: str) -> None:
-        """Write a new empty session record to the store.
+    def _create_stored_chat(self, chat_id: str) -> None:
+        """Write a new empty chat record to the store.
 
         Args:
-            session_id: The session id to create.
+            chat_id: The chat id to create.
         """
         now = time.strftime("%Y-%m-%d %H:%M:%S")
-        self.app.session_store.save_session(
-            session_id,
+        self.app.chat_store.save_chat(
+            chat_id,
             {
-                "id": session_id,
+                "id": chat_id,
                 "skills_config": {"primary": [], "secondary": [], "tools": {}},
                 "messages": [],
-                "folder": None,
+                "session": self.active_session_name or DEFAULT_SESSION_NAME,
                 "created_at": now,
                 "updated_at": now,
                 "message_count": 0,
             },
         )
 
-    def _session_save_snapshot(
-        self, session_id: str
+    def _chat_save_snapshot(
+        self, chat_id: str
     ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
-        """Capture a live session's messages and context on the GUI thread.
+        """Capture a live chat's messages and context on the GUI thread.
 
         Args:
-            session_id: The session id to snapshot.
+            chat_id: The chat id to snapshot.
 
         Returns:
-            ``(messages, context_snapshot)``, or ``None`` when no live session
+            ``(messages, context_snapshot)``, or ``None`` when no live chat
             exists for the id.
         """
-        session = session_manager.get_session(session_id)
-        if session is None:
+        chat = chat_manager.get_chat(chat_id)
+        if chat is None:
             return None
-        return list(session.messages), self._build_context_snapshot(session)
+        return list(chat.messages), self._build_context_snapshot(chat)
 
-    def _save_current_session_for(
+    def _save_current_chat_for(
         self,
-        session_id: str,
+        chat_id: str,
         snapshot: tuple[list[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
-        """Persist live in-memory messages and context for a session.
+        """Persist live in-memory messages and context for a chat.
 
         Args:
-            session_id: The session id to persist.
+            chat_id: The chat id to persist.
             snapshot: Optional ``(messages, context_snapshot)`` captured on the
                 GUI thread. Passed when this runs on a worker thread so a message
                 list being appended to concurrently is not serialized mid-mutation.
         """
-        if not session_id:
+        if not chat_id:
             return
         if snapshot is None:
-            snapshot = self._session_save_snapshot(session_id)
+            snapshot = self._chat_save_snapshot(chat_id)
             if snapshot is None:
                 return
         messages, context_snapshot = snapshot
-        stored = self.app.session_store.load_session(session_id)
+        stored = self.app.chat_store.load_chat(chat_id)
         if stored:
             stored["messages"] = messages
             stored["message_count"] = len(messages)
             stored["context_snapshot"] = context_snapshot
-            self.app.session_store.save_session(session_id, stored)
+            self.app.chat_store.save_chat(chat_id, stored)
 
-    def _generate_unique_session_id(self) -> str:
-        """Return a timestamp-based session id that is not already in use.
+    def _generate_unique_chat_id(self) -> str:
+        """Return a timestamp-based chat id that is not already in use.
 
         Returns:
-            A unique session id string.
+            A unique chat id string.
         """
         base = time.strftime("%Y%m%d_%H%M%S")
         candidate = base
         suffix = 1
-        existing = set(self.app.session_store.list_session_ids())
-        existing.update(self.session_ids)
+        existing = set(self.app.chat_store.list_chat_ids())
+        existing.update(self.chat_ids)
         while candidate in existing:
             suffix += 1
             candidate = f"{base}_{suffix}"
@@ -539,24 +839,24 @@ class SessionController(QObject):
     #  Hydration
     # ------------------------------------------------------------------
 
-    async def _hydrate_session(self, session_id: str, stored: dict | None = None) -> Any:
-        """Restore a session from persistent storage into the session manager.
+    async def _hydrate_chat(self, chat_id: str, stored: dict | None = None) -> Any:
+        """Restore a chat from persistent storage into the chat manager.
 
         Args:
-            session_id: The session id to hydrate.
-            stored: Optional pre-loaded stored session data. Loaded from the
+            chat_id: The chat id to hydrate.
+            stored: Optional pre-loaded stored chat data. Loaded from the
                 store when ``None``.
 
         Returns:
-            The hydrated session object, or ``None`` on failure.
+            The hydrated chat object, or ``None`` on failure.
         """
-        existing = session_manager.get_session(session_id)
+        existing = chat_manager.get_chat(chat_id)
         if existing is not None:
             return existing
         if stored is None:
-            stored = await asyncio.to_thread(self.app.session_store.load_session, session_id)
+            stored = await asyncio.to_thread(self.app.chat_store.load_chat, chat_id)
         if not stored:
-            self.toast_requested.emit(f"Session '{session_id}' not found.", TOAST_ERROR)
+            self.toast_requested.emit(f"Chat '{chat_id}' not found.", TOAST_ERROR)
             return None
 
         skills_cfg = stored.get("skills_config", {})
@@ -564,44 +864,44 @@ class SessionController(QObject):
         secondary = skills_cfg.get("secondary", [])
         try:
             session = await asyncio.to_thread(
-                self._create_manager_session, session_id, stored, primary, secondary
+                self._create_manager_chat, chat_id, stored, primary, secondary
             )
         except Exception as error:
-            session_error = SessionError(
-                brief=f"Failed to create session '{session_id}'",
+            chat_error = ChatError(
+                brief=f"Failed to create chat '{chat_id}'",
                 detail=str(error),
             )
-            logger.error("%s", session_error.detail)
-            self.toast_requested.emit(session_error.brief, TOAST_ERROR)
+            logger.error("%s", chat_error.detail)
+            self.toast_requested.emit(chat_error.brief, TOAST_ERROR)
             return None
 
         await session.refresh_estimated()
         if not stored.get("context_snapshot"):
             stored["context_snapshot"] = self._build_context_snapshot(session)
-            await asyncio.to_thread(self.app.session_store.save_session, session_id, stored)
+            await asyncio.to_thread(self.app.chat_store.save_chat, chat_id, stored)
         return session
 
-    def _create_manager_session(
+    def _create_manager_chat(
         self,
-        session_id: str,
+        chat_id: str,
         stored: dict,
         primary: list[str],
         secondary: list[str],
     ) -> Any:
-        """Create the live manager session from stored skill/tool config.
+        """Create the live manager chat from stored skill/tool config.
 
         Args:
-            session_id: The session id.
-            stored: The stored session data dict.
+            chat_id: The chat id.
+            stored: The stored chat data dict.
             primary: Selected primary skill paths.
             secondary: Selected secondary skill paths.
 
         Returns:
-            The newly created session from ``session_manager``.
+            The newly created chat from ``chat_manager``.
         """
         tools_cfg = stored.get("skills_config", {}).get("tools", {})
-        return session_manager.create_session(
-            session_id=session_id,
+        return chat_manager.create_chat(
+            chat_id=chat_id,
             model={
                 "model_name": self.app.config.llm_model_name,
                 "api_key": self.app.config.llm_api_key,
@@ -615,9 +915,9 @@ class SessionController(QObject):
             system_message=self.app.config.agent_system_prompt,
             initial_messages=stored.get("messages", []),
             summary_prompt=self.app.config.agent_summary_prompt,
-            session_limits={
-                "max_bytes": self.app.config.session_max_bytes,
-                "max_tokens": self.app.config.session_max_tokens,
+            chat_limits={
+                "max_bytes": self.app.config.chat_max_bytes,
+                "max_tokens": self.app.config.chat_max_tokens,
             },
         )
 
@@ -625,110 +925,81 @@ class SessionController(QObject):
     #  Switching
     # ------------------------------------------------------------------
 
-    async def _switch_to_session(self, session_id: str) -> None:
-        """Save the previous session, then activate and hydrate the target.
+    def open_chat_after(self, source_chat_id: str, new_chat_id: str) -> None:
+        """Add a new chat as a tab after its source chat and open it.
 
-        Blocking disk I/O (saving the previous session, reloading the sidebar, and
-        loading the target record) runs on worker threads via ``asyncio.to_thread``
-        so the GUI thread keeps painting the loading scanner. Each await re-checks
-        ``active_session_id`` so a newer switch supersedes this one.
+        Used by chat compaction. The new chat joins the panel holding the source
+        chat (or the first panel when the source is not found).
 
         Args:
-            session_id: The session id to switch to.
+            source_chat_id: The chat the new one was derived from.
+            new_chat_id: The id of the chat to add and activate.
         """
-        old_sid = self.active_session_id
-        self.active_session_id = session_id
-        self._get_or_create_state(session_id)
-
-        if old_sid and old_sid != session_id:
-            snapshot = self._session_save_snapshot(old_sid)
-            if snapshot is not None:
-                await asyncio.to_thread(self._save_current_session_for, old_sid, snapshot)
-        if self.active_session_id != session_id:
-            return
-
-        enriched, folders = await asyncio.to_thread(self._collect_summaries)
-        if self.active_session_id != session_id:
-            return
-        self._apply_summaries(enriched, folders)
-
-        self.active_session_changed.emit(session_id)
-
-        stored = await asyncio.to_thread(self.app.session_store.load_session, session_id)
-        if self.active_session_id != session_id:
-            return
-        if session_manager.get_session(session_id) is None and stored and stored.get("messages"):
-            await self._hydrate_session(session_id, stored)
-
-    # ------------------------------------------------------------------
-    #  Auto-select
-    # ------------------------------------------------------------------
-
-    def _auto_select_session(self) -> None:
-        """Select the latest session on startup, creating one if none exist."""
-        if self.session_ids:
-            latest_id = self.session_ids[0]
-            logger.info("Auto-selecting session '%s' on startup", latest_id)
-            self.session_switch_started.emit(latest_id)
-            self._spawn(self._switch_to_session(latest_id))
-            return
-        session_id = time.strftime("%Y%m%d_%H%M%S")
-        self._create_stored_session(session_id)
-        logger.info("Created new session '%s' on startup", session_id)
-        self.session_ids = [session_id, *self.session_ids]
-        self.active_session_id = session_id
-        self._get_or_create_state(session_id)
-        self.session_switch_started.emit(session_id)
+        target = None
+        for panel in self._panels:
+            if source_chat_id in panel["chat_ids"]:
+                target = panel
+                break
+        if target is None:
+            target = self._panels[0]
+        target["chat_ids"].append(new_chat_id)
+        target["active_chat_id"] = new_chat_id
         self._refresh_model()
-        self.active_session_changed.emit(session_id)
+        self._save_layout()
+        self._open_chat(new_chat_id)
 
     # ------------------------------------------------------------------
     #  Deletion
     # ------------------------------------------------------------------
 
-    def _delete_session_by_id(self, session_id: str) -> None:
-        """Delete a session, cancelling tasks and selecting a replacement.
+    def _delete_chat_by_id(self, chat_id: str) -> None:
+        """Delete a chat, removing it from its panel.
 
         Args:
-            session_id: The session id to delete.
+            chat_id: The chat id to delete.
         """
-        logger.info("Deleted session '%s'", session_id)
-        state = self._states.pop(session_id, None)
-        if state:
-            self._cancel_pending_operations(state, session_id)
-        session_manager.remove_session(session_id)
-        self.app.session_store.delete_session(session_id)
-
-        was_active = self.active_session_id == session_id
-        self.session_ids = [s for s in self.session_ids if s != session_id]
-        if was_active:
-            self.active_session_id = self.session_ids[0] if self.session_ids else None
-            if self.active_session_id:
-                self.session_switch_started.emit(self.active_session_id)
+        logger.info("Deleted chat '%s'", chat_id)
+        was_active = self.active_chat_id == chat_id
+        self._forget_chat(chat_id)
+        self.app.chat_store.delete_chat(chat_id)
+        self._remove_chat_from_panels(chat_id)
+        self._ensure_panel_exists()
         self._refresh_model()
-        if not was_active:
-            return
-        if self.active_session_id:
-            self._spawn(self._switch_to_session(self.active_session_id))
-        else:
-            self.active_session_changed.emit("")
+        if was_active:
+            for panel in self._panels:
+                if panel["active_chat_id"]:
+                    self._open_chat(panel["active_chat_id"])
+                    return
+            self.active_chat_id = None
+            self.active_chat_changed.emit("")
+
+    def _forget_chat(self, chat_id: str) -> None:
+        """Drop in-memory state for a chat without touching the store.
+
+        Args:
+            chat_id: The chat id to forget.
+        """
+        state = self._states.pop(chat_id, None)
+        if state:
+            self._cancel_pending_operations(state, chat_id)
+        chat_manager.remove_chat(chat_id)
 
     # ------------------------------------------------------------------
     #  Pending operations
     # ------------------------------------------------------------------
 
-    def _cancel_pending_operations(self, state: SessionState, session_id: str) -> None:
+    def _cancel_pending_operations(self, state: ChatState, chat_id: str) -> None:
         """Cancel pending approvals and the active generation task.
 
         Args:
-            state: The session's UI state.
-            session_id: The session id.
+            state: The chat's UI state.
+            chat_id: The chat id.
         """
         pending_info = state.pending_tool_info
         if pending_info:
-            session = session_manager.get_session(session_id)
-            if session:
-                self._spawn(session.deny_tool(pending_info.get("id", "")))
+            chat = chat_manager.get_chat(chat_id)
+            if chat:
+                self._spawn(chat.deny_tool(pending_info.get("id", "")))
         if state.approval_event and not state.approval_event.is_set():
             state.approval_event.set()
         if state.active_task and not state.active_task.done():

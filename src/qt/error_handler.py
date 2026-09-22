@@ -14,7 +14,7 @@ from PySide6.QtCore import QObject, Signal
 from ..util.error.types import ProcooError
 
 if TYPE_CHECKING:
-    from ..session.agent import Agent
+    from ..chat.agent import Agent
 
 logger = logging.getLogger("procoo_qt")
 
@@ -49,12 +49,12 @@ class ErrorNotifier(QObject):
         """
         self.toast_requested.emit(message, TOAST_WARNING)
 
-    def handle_error(self, error: BaseException, session: Agent | None = None) -> None:
+    def handle_error(self, error: BaseException, chat: Agent | None = None) -> None:
         """Log an error and surface a toast.
 
         Args:
             error: The exception to handle.
-            session: Optional session to push the error onto its event queue.
+            chat: Optional chat to push the error onto its event queue.
         """
         if isinstance(error, ProcooError):
             logger.error("%s", error.detail)
@@ -62,7 +62,7 @@ class ErrorNotifier(QObject):
         else:
             logger.exception("Unhandled UI error")
             self.show_error(str(error))
-        if session is not None:
-            session.event_queue.put_nowait(
+        if chat is not None:
+            chat.event_queue.put_nowait(
                 {"type": "error", "brief": str(error), "detail": "", "category": "general"},
             )

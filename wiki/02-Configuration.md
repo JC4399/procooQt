@@ -3,7 +3,7 @@
 ## Purpose
 
 `ConfigManager` (`src/config/manager.py`) loads application configuration
-from a YAML file and exposes validated accessors for paths, session limits, and
+from a YAML file and exposes validated accessors for paths, chat limits, and
 the LLM model. Missing keys raise `ConfigError` so the app fails fast at
 startup.
 
@@ -15,19 +15,19 @@ Full function reference: [`modules/config-manager`](modules/config-manager.md).
 paths:
   # Relative to the procooQt project root (resolved against _PROJECT_ROOT in app.py).
   skills_dir: "../skills"
-  storage_dir: "./storage"   # session storage
+  storage_dir: "./storage"   # sessions.json + chats/
 
 auth:
   api_keys: []               # not yet read by ConfigManager
 
 limits:
-  max_session_mb: 70          # 0 disables the byte-size limit
-  max_session_tokens: 0       # 0 disables the token limit
+  max_chat_mb: 70            # 0 disables the byte-size limit
+  max_chat_tokens: 0         # 0 disables the token limit
 
 agent:
   system_prompt: "You are a helpful assistant."
   summary_prompt: |
-    The current session is running too long. ... Always include the full path
+    The current chat is running too long. ... Always include the full path
     of working folders, working files, and other important files ...
 
 llm:
@@ -52,22 +52,24 @@ any relative path absolute against `_PROJECT_ROOT` = the `procooQt/` directory
 | `storage_dir: "./storage"` | `<procooQt>/storage` |
 
 Absolute paths are used as-is. The resolved `skills_dir` also seeds the
-`_presets/` subdirectory used by `PresetStore`.
+`_presets/` subdirectory used by `PresetStore`. `ChatStore` uses
+`storage/sessions.json` for session records/layout and `storage/chats/` for
+chat files.
 
-### Session limits (`limits`)
+### Chat limits (`limits`)
 
-When a session's message history exceeds `max_session_mb` (converted to bytes
-via `session_max_bytes`) or its token count exceeds `max_session_tokens`, the
-app summarizes the session and starts a new one. Setting either value to `0`
-disables that limit. When a key is absent, the manager falls back to
-`70` MB and `150000` tokens respectively; the committed config sets
-`max_session_tokens: 0` to disable the token limit.
+When a chat's message history exceeds `max_chat_mb` (converted to bytes via
+`chat_max_bytes`) or its token count exceeds `max_chat_tokens`, the agent
+summarizes the chat and starts a new one. Setting either value to `0` disables
+that limit. When a key is absent, the manager falls back to `70` MB and
+`150000` tokens respectively; the committed config sets `max_chat_tokens: 0`
+to disable the token limit.
 
 ### Agent prompts (`agent`)
 
 - `system_prompt` — base system prompt for every agent.
 - `summary_prompt` — instruction sent to the LLM when summarizing an
-  over-limit session.
+  over-limit chat.
 
 ### LLM (`llm`)
 
@@ -95,11 +97,12 @@ backend = ProcooApp(str(_PROJECT_ROOT / "config"))
 ```
 
 `ProcooApp.__init__` builds `ConfigManager`, resolves `skills_dir`, and then
-constructs `SkillManager`, `SessionStore`, and `PresetStore` from the config.
+constructs `SkillManager`, `ChatStore`, and `PresetStore` from the config.
 `main()` logs the active `api_base` and `model`, and if construction raises
 `ProcooError` it logs the critical detail and exits.
 
 Once the QML engine has loaded, `ProcooQtUI.start()` runs the controller
 startup that depends on config: `SessionController.start()` emits validation
-toasts and auto-selects a session, `SkillController.start()` begins watching
-the skills directory, and `EditorController.start()` builds the file tree.
+toasts, ensures a `Default` session exists, and rebuilds/opens the workspace
+panels; `SkillController.start()` begins watching the skills directory;
+`EditorController.start()` builds the file tree.

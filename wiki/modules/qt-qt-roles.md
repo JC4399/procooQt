@@ -11,7 +11,8 @@ enum into the `{role id: bytes}` mapping Qt expects.
 
 ## Deliverables
 
-- `SessionRole`, `ChatRole`, `SkillRole`, `ToolRole`, `FileRole` — role enums.
+- `ChatTabRole`, `SessionMenuRole`, `ChatRole`, `SkillRole`, `ToolRole`,
+  `FileRole` — role enums.
 - `role_names(enum_cls) -> dict[int, bytes]` — role-name builder.
 
 ## How roles are used
@@ -19,24 +20,30 @@ enum into the `{role id: bytes}` mapping Qt expects.
 - Rows are stored as `dict[int, Any]` keyed by `int(Role.MEMBER)`; see
   [qt-models](qt-models.md).
 - `roleNames()` lower-cases each enum member name and UTF-8 encodes it, so
-  `SessionRole.SESSION_ID` becomes the QML role `session_id`.
+  `ChatTabRole.CHAT_ID` becomes the QML role `chat_id`.
 - QML delegates read the lower-cased role name directly, e.g.
-  `model.body_html`, `model.is_folder`.
+  `model.body_html`, `model.is_session`.
 
 ## Role reference
 
-### `SessionRole` — `SessionListModel`
+### `ChatTabRole` — `ChatTabModel`
 
 | Member | Value | Meaning |
 |---|---|---|
-| `SESSION_ID` | 1 | Session id (empty for folder rows) |
-| `TITLE` | 2 | Folder name or session title |
-| `STATUS` | 3 | Session status string |
-| `FOLDER` | 4 | Owning folder name |
-| `IS_FOLDER` | 5 | `True` for a folder header row |
-| `IS_ACTIVE` | 6 | `True` for the active session |
-| `IS_BLINKING` | 7 | `True` while a session is busy |
-| `MESSAGE_COUNT` | 8 | Session count (folders) or message count (sessions) |
+| `CHAT_ID` | 1 | Chat id |
+| `TITLE` | 2 | Derived chat title |
+| `STATUS` | 3 | Chat status string |
+| `IS_ACTIVE` | 4 | `True` for the panel's active chat |
+| `IS_BLINKING` | 5 | `True` while the chat is busy |
+| `MESSAGE_COUNT` | 6 | Message count |
+
+### `SessionMenuRole` — `SessionMenuModel`
+
+| Member | Value | Meaning |
+|---|---|---|
+| `NAME` | 1 | Session name (`+` for the add row) |
+| `IS_ADD` | 2 | `True` for the trailing add row |
+| `IS_ACTIVE` | 3 | `True` for the active session |
 
 ### `ChatRole` — `ChatListModel`
 

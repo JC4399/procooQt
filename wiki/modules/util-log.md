@@ -8,14 +8,14 @@ One module provides ANSI-colored terminal logging:
 
 - `formatter.py` — a `logging.Formatter` that colors log records by level,
   plus a root-logger setup helper and colored log-line builders for skill /
-  tool / preset changes and session-skills logging.
+  tool / preset changes and chat-skills logging.
 
 ## Deliverables
 
 - `ColoredFormatter` and `setup_colored_logging(level)`.
 - `format_skill_change`, `format_tool_change`, `format_preset_save/load/delete`
   (colored strings for log lines).
-- `log_session_skills`.
+- `log_chat_skills`.
 
 ## formatter.py — Function Reference
 
@@ -62,10 +62,10 @@ One module provides ANSI-colored terminal logging:
 | `format_preset_load` | `(preset_name, primary, secondary, tools) -> str` | preset load line |
 | `format_preset_delete` | `(preset_name) -> str` | preset delete line |
 
-### `log_session_skills`
+### `log_chat_skills`
 
 | | |
 |---|---|
-| Signature | `def log_session_skills(primary_skills: list[str], secondary_skills: list[str], tool_defs: list[dict]) -> None` |
+| Signature | `def log_chat_skills(primary_skills: list[str], secondary_skills: list[str], tool_defs: list[dict]) -> None` |
 | Inputs | `primary_skills`, `secondary_skills` — skill path lists; `tool_defs` — tool defs with `name` + `skill_path`. |
 | Output | `None` (prints summary to stderr). |

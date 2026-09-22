@@ -1,4 +1,4 @@
-"""Per-session token and size accounting for Agent."""
+"""Per-chat token and size accounting for Agent."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from typing import Any
 from .counter import count_content_tokens, count_tokens
 
 
-class SessionTokenTracker:
-    """Tracks system-prompt tokens and computes session token/byte totals.
+class ChatTokenTracker:
+    """Tracks system-prompt tokens and computes chat token/byte totals.
 
     Attributes:
         sys_prompt_tokens: Cached word-count estimate of the system prompt.
@@ -33,7 +33,7 @@ class SessionTokenTracker:
         self.sys_prompt_tokens = count_tokens(sys_prompt)
 
     def compute_total(self, messages: list[dict[str, Any]]) -> int:
-        """Estimate total session tokens from messages + cached system prompt.
+        """Estimate total chat tokens from messages + cached system prompt.
 
         Args:
             messages: List of OpenAI-compatible message dicts (``role``,

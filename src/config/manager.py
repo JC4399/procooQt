@@ -65,23 +65,23 @@ class ConfigManager:
         return self._get("paths", "storage_dir")
 
     # ------------------------------------------------------------------
-    #  Session limits
+    #  Chat limits
     # ------------------------------------------------------------------
 
     @property
-    def session_max_mb(self) -> int:
-        """Session history size limit in megabytes (0 disables the byte limit)."""
-        return int(self._get_optional("limits", "max_session_mb", default=70))
+    def chat_max_mb(self) -> int:
+        """Chat history size limit in megabytes (0 disables the byte limit)."""
+        return int(self._get_optional("limits", "max_chat_mb", default=70))
 
     @property
-    def session_max_bytes(self) -> int:
-        """Session history size limit in bytes, derived from ``session_max_mb``."""
-        return self.session_max_mb * 1024 * 1024
+    def chat_max_bytes(self) -> int:
+        """Chat history size limit in bytes, derived from ``chat_max_mb``."""
+        return self.chat_max_mb * 1024 * 1024
 
     @property
-    def session_max_tokens(self) -> int:
-        """Session token limit (0 disables the token limit)."""
-        return int(self._get_optional("limits", "max_session_tokens", default=150000))
+    def chat_max_tokens(self) -> int:
+        """Chat token limit (0 disables the token limit)."""
+        return int(self._get_optional("limits", "max_chat_tokens", default=150000))
 
     # ------------------------------------------------------------------
     #  Agent prompts
@@ -95,10 +95,10 @@ class ConfigManager:
 
     @property
     def agent_summary_prompt(self) -> str:
-        """Instruction sent to the LLM when summarizing an over-limit session."""
+        """Instruction sent to the LLM when summarizing an over-limit chat."""
         default = (
-            "The current session is running too long. "
-            "You are summarizing the conversation and create a summary for staring a new session. "
+            "The current chat is running too long. "
+            "You are summarizing the conversation and create a summary for staring a new chat. "
             "Produce a concise but complete summary capturing: "
             "purpose and deliverables for current task, steps and progress, key facts, "
             "and decisions, actions taken with their results, and any open questions or "

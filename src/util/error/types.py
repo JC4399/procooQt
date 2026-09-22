@@ -15,7 +15,7 @@ class ProcooError(Exception):
     Attributes:
         brief: Short message shown in the Qt error toast.
         detail: Full message (with context / traceback) logged to terminal.
-        category: Domain tag — ``"config"``, ``"agent"``, ``"tool"``, or ``"session"``.
+        category: Domain tag — ``"config"``, ``"agent"``, ``"tool"``, or ``"chat"``.
     """
 
     category: str = "general"
@@ -52,7 +52,7 @@ class ToolError(ProcooError):
     category = "tool"
 
 
-class SessionError(ProcooError):
-    """Raised when a session operation fails."""
+class ChatError(ProcooError):
+    """Raised when a chat operation fails."""
 
-    category = "session"
+    category = "chat"

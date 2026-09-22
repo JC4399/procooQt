@@ -4,13 +4,13 @@ Source: `procooQt/src/app.py`
 
 ## Purpose
 
-Top-level application bootstrap. Wires together the config, skill, session,
+Top-level application bootstrap. Wires together the config, skill, chat,
 and preset subsystems, configures colored logging, and launches the Qt Quick /
 QML UI on a fused `qasync` + Qt event loop.
 
 ## Deliverables
 
-- `ProcooApp` instance holding `config`, `skill_manager`, `session_store`, and
+- `ProcooApp` instance holding `config`, `skill_manager`, `chat_store`, and
   `preset_store`.
 - `_register_fonts()` — registers the bundled `Sarasa Fixed TC` font.
 - `_set_app_user_model_id()` — sets a stable Windows AppUserModelID so the
@@ -39,7 +39,7 @@ QML UI on a fused `qasync` + Qt event loop.
 
 | | |
 |---|---|
-| Attributes | `config`, `skill_manager`, `session_store`, `preset_store`. |
+| Attributes | `config`, `skill_manager`, `chat_store`, `preset_store`. |
 
 ### `ProcooApp.__init__`
 
@@ -48,7 +48,7 @@ QML UI on a fused `qasync` + Qt event loop.
 | Signature | `def __init__(self, config_dir: str = "./config") -> None` |
 | Inputs | `config_dir` — config directory. |
 | Output | `None` |
-| Flow | `ConfigManager(config_dir)` → resolve `config.skills_dir` → `SkillManager(skills)` → `SessionStore(resolve(config.storage_dir))` → `PresetStore(skills/_presets)`. |
+| Flow | `ConfigManager(config_dir)` → resolve `config.skills_dir` → `SkillManager(skills)` → `ChatStore(resolve(config.storage_dir))` → `PresetStore(skills/_presets)`. |
 
 ### `ProcooApp._resolve`
 

@@ -1,7 +1,7 @@
 """``ChatController`` — chat rendering, streaming, approval, and token bar.
 
-Owns one :class:`ChatListModel` per live session and drives the ReAct event loop. It
-handles both build/render and events/streaming. ``session.messages`` stays canonical:
+Owns one :class:`ChatListModel` per live chat and drives the ReAct event loop. It
+handles both build/render and events/streaming. ``chat.messages`` stays canonical:
 the render plan is derived from it, diffed by content hash, and clipped into the model.
 """
 
@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
-from ..session.manager import session_manager
+from ..chat.manager import chat_manager
 from ..util.tokens.counter import count_tokens
 from .chat_items import (
     _parse_tool_arguments,
@@ -41,9 +41,9 @@ from .qt_roles import ChatRole
 
 if TYPE_CHECKING:
     from ..app import ProcooApp
-    from ..session.agent import Agent
+    from ..chat.agent import Agent
+    from .chat_state import ChatState
     from .session_controller import SessionController
-    from .session_state import SessionState
 
 logger = logging.getLogger("procoo_qt")
 
@@ -52,7 +52,7 @@ logger = logging.getLogger("procoo_qt")
 #: of the accumulated markdown so long outputs do not thrash the rich-text layout.
 _STREAM_UPDATE_INTERVAL = 0.08
 
-#: Staged chat build after a session switch. The chat list is non-virtualized, so
+#: Staged chat build after a chat switch. The chat list is non-virtualized, so
 #: inserting every card at once blocks the GUI thread for the whole build; rows
 #: are inserted ``_RENDER_INSERT_BATCH`` at a time with a short tick so the
 #: loading overlay's scanner keeps animating. The tick bounds the extra time the
@@ -65,21 +65,21 @@ _RENDER_TICK_TARGET = 0.6
 
 @dataclass
 class _StagedBuildState:
-    """Tracks an in-progress staged chat build after a session switch.
+    """Tracks an in-progress staged chat build after a chat switch.
 
     Attributes:
-        session_id: The session whose cards are being built.
+        chat_id: The chat whose cards are being built.
         model: The chat model receiving rows.
-        state: The session state that owns the render keys.
+        state: The chat state that owns the render keys.
         items: The full render plan (role-keyed rows).
         keys: Identity keys aligned with ``items``.
         next_index: The next row index to insert.
         done: Whether the build finished or was skipped.
     """
 
-    session_id: str
+    chat_id: str
     model: ChatListModel
-    state: SessionState
+    state: ChatState
     items: list[dict]
     keys: list[str]
     next_index: int = 0
@@ -91,7 +91,7 @@ class _RenderIndices:
     """Row indices of the streaming-capable cards produced by a render plan.
 
     Returned by :meth:`ChatController._build_items` instead of mutating the
-    session state, so the plan can be computed on a worker thread and the
+    chat state, so the plan can be computed on a worker thread and the
     indices applied on the GUI thread.
 
     Attributes:
@@ -187,12 +187,12 @@ def _assistant_decision(msg: dict) -> dict[str, Any]:
     }
 
 
-def _is_waiting_for_assistant(state: SessionState, messages: list[dict]) -> bool:
+def _is_waiting_for_assistant(state: ChatState, messages: list[dict]) -> bool:
     """Return whether the UI should show the pre-response waiting scanner.
 
     Args:
-        state: The session's UI state.
-        messages: The session's message list.
+        state: The chat's UI state.
+        messages: The chat's message list.
 
     Returns:
         ``True`` while a generation is busy but the current assistant turn has
@@ -237,7 +237,7 @@ def _compute_assistant_keys(
         msg: The assistant message dict.
         messages: Full message list (for looking ahead at tool results).
         idx: Current message index.
-        is_last_busy: Whether this is the last message and the session is busy.
+        is_last_busy: Whether this is the last message and the chat is busy.
 
     Returns:
         List of render-plan key strings for this assistant message.
@@ -311,6 +311,7 @@ class ChatController(QObject):
     toast_requested = Signal(str, str)
     busy_changed = Signal(bool)
     loading_changed = Signal(bool)
+    chat_state_changed = Signal(str)
 
     if TYPE_CHECKING:
         # Attributes provided by ui.py orchestrator
@@ -320,7 +321,8 @@ class ChatController(QObject):
         # Attributes owned by this controller
         _models: dict[str, ChatListModel]
         _tasks: set[asyncio.Task[Any]]
-        active_session_id: str | None
+        _visible_chat_ids: set[str]
+        active_chat_id: str | None
         _approval_visible: bool
         _approval_text: str
         _busy: bool
@@ -331,6 +333,7 @@ class ChatController(QObject):
 
         # Cross-controller method stubs
         def _refresh_sidebar(self) -> None: ...
+        def set_visible_chats(self, chat_ids: set[str]) -> None: ...
 
     # ------------------------------------------------------------------
     #  Setup
@@ -347,7 +350,8 @@ class ChatController(QObject):
         self.app = app
         self._models = {}
         self._tasks = set()
-        self.active_session_id = None
+        self._visible_chat_ids = set()
+        self.active_chat_id = None
         self._approval_visible = False
         self._approval_text = ""
         self._busy = False
@@ -361,9 +365,36 @@ class ChatController(QObject):
     # ------------------------------------------------------------------
 
     def build(self) -> None:
-        """Build the per-session chat models."""
+        """Build the per-chat chat models."""
         self._models = {}
-        self.active_session_id = None
+        self._visible_chat_ids = set()
+        self.active_chat_id = None
+
+    # ------------------------------------------------------------------
+    #  Public: visible panels
+    # ------------------------------------------------------------------
+
+    def set_visible_chats(self, chat_ids: set[str]) -> None:
+        """Record which chats are currently shown in a panel.
+
+        Event rendering is gated on this set so streaming is only painted for
+        chats that are on screen.
+
+        Args:
+            chat_ids: The active chat id of every visible panel.
+        """
+        self._visible_chat_ids = set(chat_ids)
+
+    def _is_visible(self, chat_id: str) -> bool:
+        """Return whether a chat is currently shown in a panel.
+
+        Args:
+            chat_id: The chat id to test.
+
+        Returns:
+            ``True`` if the chat is visible.
+        """
+        return chat_id in self._visible_chat_ids
 
     # ------------------------------------------------------------------
     #  Properties
@@ -371,14 +402,14 @@ class ChatController(QObject):
 
     @Property(QObject, notify=active_model_changed)
     def activeModel(self) -> ChatListModel | None:  # noqa: N802
-        """Return the chat model for the active session.
+        """Return the chat model for the active chat.
 
         Returns:
-            The active session's chat model, or ``None``.
+            The active chat's chat model, or ``None``.
         """
-        if self.active_session_id is None:
+        if self.active_chat_id is None:
             return None
-        return self._models.get(self.active_session_id)
+        return self._models.get(self.active_chat_id)
 
     @Property(bool, notify=approval_visibility_changed)
     def approvalVisible(self) -> bool:  # noqa: N802
@@ -400,7 +431,7 @@ class ChatController(QObject):
 
     @Property(bool, notify=busy_changed)
     def busy(self) -> bool:
-        """Return whether the active session is generating.
+        """Return whether the active chat is generating.
 
         Returns:
             ``True`` while a generation is running.
@@ -409,7 +440,7 @@ class ChatController(QObject):
 
     @Property(bool, notify=loading_changed)
     def loading(self) -> bool:
-        """Return whether a session switch rebuild is in progress.
+        """Return whether a chat switch rebuild is in progress.
 
         Returns:
             ``True`` while the chat display is rebuilding after a switch.
@@ -418,7 +449,7 @@ class ChatController(QObject):
 
     @Property(int, notify=token_counts_changed)
     def inputTokens(self) -> int:  # noqa: N802
-        """Return the active session's context (input) token count.
+        """Return the active chat's context (input) token count.
 
         Returns:
             True input tokens when known, otherwise the estimate.
@@ -427,10 +458,10 @@ class ChatController(QObject):
 
     @Property(int, notify=token_counts_changed)
     def outputTokens(self) -> int:  # noqa: N802
-        """Return the active session's cumulative output token count.
+        """Return the active chat's cumulative output token count.
 
         Returns:
-            Cumulative output tokens for the session.
+            Cumulative output tokens for the chat.
         """
         return self._output_tokens
 
@@ -438,21 +469,21 @@ class ChatController(QObject):
     #  State
     # ------------------------------------------------------------------
 
-    def model_for(self, session_id: str) -> ChatListModel:
-        """Return the chat model for a session, creating it on demand.
+    def model_for(self, chat_id: str) -> ChatListModel:
+        """Return the chat model for a chat, creating it on demand.
 
         Args:
-            session_id: The session id.
+            chat_id: The chat id.
 
         Returns:
-            The session's chat model.
+            The chat's chat model.
         """
-        if session_id not in self._models:
-            self._models[session_id] = ChatListModel(self)
-        return self._models[session_id]
+        if chat_id not in self._models:
+            self._models[chat_id] = ChatListModel(self)
+        return self._models[chat_id]
 
     def _refresh_sidebar(self) -> None:
-        """Refresh the session sidebar so status dots and counts update."""
+        """Refresh the chat sidebar so status dots and counts update."""
         self.session._refresh_model()
 
     def _spawn(self, coro: Coroutine[Any, Any, Any]) -> None:
@@ -471,25 +502,35 @@ class ChatController(QObject):
 
     @Slot(str)
     def _handle_send(self, text: str) -> None:
-        """Validate a message and launch generation for the active session.
+        """Validate a message and send it to the focused chat.
 
         Args:
+            text: The user message text typed into the input.
+        """
+        self._handle_send_for(self.active_chat_id or "", text)
+
+    @Slot(str, str)
+    def _handle_send_for(self, chat_id: str, text: str) -> None:
+        """Validate a message and launch generation for a chat.
+
+        Args:
+            chat_id: The chat to send the message to.
             text: The user message text typed into the input.
         """
         message = text or ""
         if not message.strip():
             self.toast_requested.emit("Please enter a message.", TOAST_ERROR)
             return
-        if not self.active_session_id:
-            self.toast_requested.emit("Please create or select a session first.", TOAST_ERROR)
+        if not chat_id:
+            self.toast_requested.emit("Please create or select a chat first.", TOAST_ERROR)
             return
-        state = self.session.state(self.active_session_id)
+        state = self.session.state(chat_id)
         if state.is_busy:
             self.toast_requested.emit("Please wait for the current response.", TOAST_ERROR)
             return
         self._skip_staged_build()
-        self._append_user_message(message)
-        self._launch_generation(message)
+        self._append_user_message(chat_id, message)
+        self._launch_generation(chat_id, message)
 
     # ------------------------------------------------------------------
     #  Slot: Stop / Regenerate / Approve / Deny
@@ -497,224 +538,253 @@ class ChatController(QObject):
 
     @Slot()
     def _handle_stop(self) -> None:
-        """Stop the active generation (deny pending tool, cancel task)."""
-        self._spawn(self._stop_generation())
+        """Stop the focused chat's generation."""
+        self._spawn(self._stop_generation(self.active_chat_id or ""))
+
+    @Slot(str)
+    def _handle_stop_for(self, chat_id: str) -> None:
+        """Stop a specific chat's generation.
+
+        Args:
+            chat_id: The chat to stop.
+        """
+        self._spawn(self._stop_generation(chat_id))
 
     @Slot()
     def _handle_regenerate(self) -> None:
-        """Regenerate the last user message in the active session."""
-        self._spawn(self._regenerate())
+        """Regenerate the last user message in the focused chat."""
+        self._spawn(self._regenerate(self.active_chat_id or ""))
+
+    @Slot(str)
+    def _handle_regenerate_for(self, chat_id: str) -> None:
+        """Regenerate the last user message in a specific chat.
+
+        Args:
+            chat_id: The chat to regenerate.
+        """
+        self._spawn(self._regenerate(chat_id))
 
     @Slot()
     def _handle_approve(self) -> None:
-        """Approve the pending tool call of the active session."""
-        self._spawn(self._approve())
+        """Approve the focused chat's pending tool call."""
+        self._spawn(self._approve(self.active_chat_id or ""))
+
+    @Slot(str)
+    def _handle_approve_for(self, chat_id: str) -> None:
+        """Approve a specific chat's pending tool call.
+
+        Args:
+            chat_id: The chat whose tool call to approve.
+        """
+        self._spawn(self._approve(chat_id))
 
     @Slot(str)
     def _handle_deny(self, reason: str) -> None:
-        """Deny the pending tool call of the active session.
+        """Deny the focused chat's pending tool call.
 
         Args:
             reason: Optional denial reason typed by the user.
         """
-        self._spawn(self._deny(reason))
+        self._spawn(self._deny(self.active_chat_id or "", reason))
+
+    @Slot(str, str)
+    def _handle_deny_for(self, chat_id: str, reason: str) -> None:
+        """Deny a specific chat's pending tool call.
+
+        Args:
+            chat_id: The chat whose tool call to deny.
+            reason: Optional denial reason typed by the user.
+        """
+        self._spawn(self._deny(chat_id, reason))
 
     # ------------------------------------------------------------------
-    #  Slot: Session activated
+    #  Slot: Chat activated
     # ------------------------------------------------------------------
 
     @Slot(str)
-    def _handle_session_switch_started(self, session_id: str) -> None:
-        """Show the loading scanner as soon as a session switch is requested.
-
-        Connected to ``SessionController.session_switch_started``, emitted at the
-        user action (tile click, new session, startup, delete) before the
-        offloaded save/sidebar-reload work. Turning loading on here lets the
-        overlay paint immediately instead of after the sidebar is reloaded.
+    def _handle_chat_switch_started(self, chat_id: str) -> None:
+        """Show the loading scanner as soon as a chat switch is requested.
 
         Args:
-            session_id: The session being switched to.
+            chat_id: The chat being switched to.
         """
+        if not chat_id:
+            return
         self._cancel_staged_build()
-        self._set_loading(True)
+        self._set_loading(chat_id, True)
 
     @Slot(str)
-    def _handle_session_activated(self, session_id: str) -> None:
-        """Switch the active chat model and rebuild its display.
+    def _handle_chat_activated(self, chat_id: str) -> None:
+        """Focus a chat and rebuild its display.
 
         Args:
-            session_id: The newly active session id (empty when none).
+            chat_id: The newly activated chat id (empty when none).
         """
         self._cancel_staged_build()
-        self.active_session_id = session_id or None
-        if not self.active_session_id:
+        self.active_chat_id = chat_id or None
+        if not chat_id:
             self._set_approval_visible(False)
-            self._update_button_state()
-            self._update_token_bar(None)
             self.active_model_changed.emit()
             return
-        self.model_for(self.active_session_id)
-        state = self.session.state(self.active_session_id)
+        self.model_for(chat_id)
+        state = self.session.state(chat_id)
         state.rendered_item_keys = []
         state.tool_call_indices.clear()
         self.active_model_changed.emit()
-        self._set_loading(True)
-        self._spawn(self._rebuild_after_switch(self.active_session_id))
+        self._set_loading(chat_id, True)
+        self._spawn(self._rebuild_after_switch(chat_id))
 
-    async def _rebuild_after_switch(self, session_id: str) -> None:
-        """Rebuild the active display after a session switch settles.
+    async def _rebuild_after_switch(self, chat_id: str) -> None:
+        """Rebuild a chat's display after it becomes visible.
 
         Args:
-            session_id: The session that was activated.
+            chat_id: The chat that was activated.
         """
         await asyncio.sleep(0)
-        if self.active_session_id != session_id:
+        if not self._is_visible(chat_id):
             return
-        await self._rebuild_chat_display_staged(session_id)
-        if self.active_session_id != session_id:
+        await self._rebuild_chat_display_staged(chat_id)
+        if not self._is_visible(chat_id):
             return
-        state = self.session.state(session_id)
-        self._approval_text = state.approval_text if state.pending_tool_info else ""
-        self._set_approval_visible(bool(state.pending_tool_info))
-        self._update_button_state()
-        self._set_loading(False)
+        self._set_loading(chat_id, False)
+        self.chat_state_changed.emit(chat_id)
 
     # ------------------------------------------------------------------
     #  Generation lifecycle
     # ------------------------------------------------------------------
 
-    def _launch_generation(self, message: str) -> None:
-        """Mark the session busy and schedule the streaming chat loop.
+    def _launch_generation(self, chat_id: str, message: str) -> None:
+        """Mark a chat busy and schedule the streaming chat loop.
 
         Args:
+            chat_id: The chat to generate for.
             message: User message text to send.
         """
-        session_id = self.active_session_id
-        if not session_id:
+        if not chat_id:
             return
-        state = self.session.state(session_id)
+        state = self.session.state(chat_id)
         state.is_busy = True
         state.generation_id += 1
         gen_id = state.generation_id
-        self._append_waiting_placeholder()
+        self._append_waiting_placeholder(chat_id)
         self._refresh_sidebar()
-        self._update_button_state()
-        self._spawn(self._run_chat_loop(message, gen_id, session_id))
+        self.chat_state_changed.emit(chat_id)
+        self._spawn(self._run_chat_loop(message, gen_id, chat_id))
 
-    async def _run_chat_loop(self, message: str, gen_id: int, session_id: str) -> None:
+    async def _run_chat_loop(self, message: str, gen_id: int, chat_id: str) -> None:
         """Stream one turn: hydrate, consume events, then clean up.
 
         Args:
             message: User message text to send.
             gen_id: Generation counter for stale-task detection.
-            session_id: The session to run against.
+            chat_id: The chat to run against.
         """
-        state = self.session.state(session_id)
-        session = await self._hydrate_phase(session_id, gen_id)
-        if session is None:
+        state = self.session.state(chat_id)
+        chat = await self._hydrate_phase(chat_id, gen_id)
+        if chat is None:
             return
-        task = asyncio.ensure_future(session.run(message))
+        task = asyncio.ensure_future(chat.run(message))
         state.active_task = task
         await asyncio.sleep(0)
-        if session_id == self.active_session_id:
-            self._rebuild_chat_display(session_id)
+        if self._is_visible(chat_id):
+            self._rebuild_chat_display(chat_id)
         try:
-            await self._consume_events(session, session_id, state, task)
+            await self._consume_events(chat, chat_id, state, task)
             if not task.done():
                 await task
         except asyncio.CancelledError:
             if not task.done():
                 task.cancel()
         finally:
-            self._finalize_turn(session_id, state, gen_id)
-        if session.check_limit_exceeded() is not None:
-            await self._compact_session(session_id, session)
+            self._finalize_turn(chat_id, state, gen_id)
+        if chat.check_limit_exceeded() is not None:
+            await self._compact_chat(chat_id, chat)
 
-    async def _hydrate_phase(self, session_id: str, gen_id: int) -> Agent | None:
-        """Hydrate the live session, cleaning up on failure.
+    async def _hydrate_phase(self, chat_id: str, gen_id: int) -> Agent | None:
+        """Hydrate the live chat, cleaning up on failure.
 
         Args:
-            session_id: The session to hydrate.
+            chat_id: The chat to hydrate.
             gen_id: Generation counter for stale-task detection.
 
         Returns:
-            The live session, or ``None`` when hydration failed.
+            The live chat, or ``None`` when hydration failed.
         """
-        state = self.session.state(session_id)
-        session = await self.session._hydrate_session(session_id)
-        if session is not None:
-            return session
+        state = self.session.state(chat_id)
+        chat = await self.session._hydrate_chat(chat_id)
+        if chat is not None:
+            return chat
         if state.generation_id == gen_id:
             state.is_busy = False
-            if session_id == self.active_session_id:
-                self._rebuild_chat_display(session_id)
-            self._update_button_state()
+            if self._is_visible(chat_id):
+                self._rebuild_chat_display(chat_id)
+            self.chat_state_changed.emit(chat_id)
             self._refresh_sidebar()
         return None
 
     async def _consume_events(
-        self, session: Agent, session_id: str, state: SessionState, task: asyncio.Task[Any]
+        self, chat: Agent, chat_id: str, state: ChatState, task: asyncio.Task[Any]
     ) -> None:
-        """Drain the session event queue until the turn task finishes.
+        """Drain the chat event queue until the turn task finishes.
 
         Args:
-            session: The live agent session.
-            session_id: The session id being rendered.
-            state: The session's UI state.
+            chat: The live agent chat.
+            chat_id: The chat id being rendered.
+            state: The chat's UI state.
             task: The running ``Agent.run`` task.
         """
         last_count = 0
         last_rendered = 0
-        while not task.done() or not session.event_queue.empty():
+        while not task.done() or not chat.event_queue.empty():
             try:
-                event = await asyncio.wait_for(session.event_queue.get(), timeout=0.1)
+                event = await asyncio.wait_for(chat.event_queue.get(), timeout=0.1)
             except TimeoutError:
                 if not task.done():
                     continue
                 break
             etype = event.get("type", "")
             if etype == "tool_call" and event.get("mode", "ask") == "ask":
-                await self._handle_approval(session_id, event, state)
+                await self._handle_approval(chat_id, event, state)
             elif etype == "tool_result":
                 state.tool_results.append(event)
             elif etype == "token_usage":
                 state.true_input_tokens = event.get("input", 0)
                 state.true_output_cum = event.get("output_cumulative", 0)
-                if session_id == self.active_session_id:
-                    self._update_token_bar(state)
+                if self._is_visible(chat_id):
+                    self._update_token_bar(chat_id, state)
             elif etype == "done":
                 break
             elif etype == "error":
                 brief = event.get("brief", event.get("message", "Unknown error"))
-                if session_id == self.active_session_id:
+                if self._is_visible(chat_id):
                     self.toast_requested.emit(brief, TOAST_ERROR)
                 break
 
-            msg_count = len(session.messages)
+            msg_count = len(chat.messages)
             if msg_count != last_count:
                 last_count = msg_count
                 self._refresh_sidebar()
-            if session_id == self.active_session_id:
+            if self._is_visible(chat_id):
                 last_rendered = self._render_active_event(
-                    event, session, session_id, state, msg_count, last_rendered
+                    event, chat, chat_id, state, msg_count, last_rendered
                 )
 
     def _render_active_event(
         self,
         event: dict,
-        session: Agent,
-        session_id: str,
-        state: SessionState,
+        chat: Agent,
+        chat_id: str,
+        state: ChatState,
         msg_count: int,
         last_rendered: int,
     ) -> int:
-        """Render the active session after one event.
+        """Render the active chat after one event.
 
         Args:
             event: The event just consumed.
-            session: The live agent session.
-            session_id: The active session id.
-            state: The session's UI state.
+            chat: The live agent chat.
+            chat_id: The active chat id.
+            state: The chat's UI state.
             msg_count: Current message count.
             last_rendered: Message count at the last render.
 
@@ -724,144 +794,155 @@ class ChatController(QObject):
         if msg_count != last_rendered:
             if event.get("type", "") == "tool_result":
                 self._swap_pending_result_card(
-                    event.get("id", ""), event.get("name", ""), event.get("content", "")
+                    chat_id, event.get("id", ""), event.get("name", ""), event.get("content", "")
                 )
             else:
-                self._rebuild_chat_display(session_id)
+                self._rebuild_chat_display(chat_id)
             return msg_count
-        if session.messages and session.messages[-1].get("role") != "assistant":
-            self._rebuild_chat_display(session_id)
+        if chat.messages and chat.messages[-1].get("role") != "assistant":
+            self._rebuild_chat_display(chat_id)
         else:
-            self._update_live_assistant(state)
+            self._update_live_assistant(chat_id, state)
         return last_rendered
 
-    def _finalize_turn(self, session_id: str, state: SessionState, gen_id: int) -> None:
-        """Clear busy state, persist the session, and reset per-turn tracking.
+    def _finalize_turn(self, chat_id: str, state: ChatState, gen_id: int) -> None:
+        """Clear busy state, persist the chat, and reset per-turn tracking.
 
         Args:
-            session_id: The session that finished.
-            state: The session's UI state.
+            chat_id: The chat that finished.
+            state: The chat's UI state.
             gen_id: Generation counter for stale-task detection.
         """
         if state.generation_id == gen_id:
             state.is_busy = False
-        if session_id == self.active_session_id:
-            self._rebuild_chat_display(session_id)
+        if self._is_visible(chat_id):
+            self._rebuild_chat_display(chat_id)
         if state.generation_id == gen_id:
             state.active_task = None
             state.reset_turn()
-            self.session._save_current_session_for(session_id)
+            self.session._save_current_chat_for(chat_id)
             self._refresh_sidebar()
-            if session_id == self.active_session_id:
-                self._update_button_state()
+            if self._is_visible(chat_id):
+                self.chat_state_changed.emit(chat_id)
 
     # ------------------------------------------------------------------
     #  Stop / regenerate / approve / deny
     # ------------------------------------------------------------------
 
-    async def _stop_generation(self) -> None:
-        """Deny any pending tool, release approval, and cancel the task."""
+    async def _stop_generation(self, chat_id: str) -> None:
+        """Deny any pending tool, release approval, and cancel the task.
+
+        Args:
+            chat_id: The chat to stop.
+        """
         self._skip_staged_build()
-        session_id = self.active_session_id
-        if not session_id:
+        if not chat_id:
             return
-        state = self.session.state(session_id)
+        state = self.session.state(chat_id)
         if state.pending_tool_info:
-            session = session_manager.get_session(session_id)
-            if session:
-                await session.deny_tool(state.pending_tool_info.get("id", ""))
+            chat = chat_manager.get_chat(chat_id)
+            if chat:
+                await chat.deny_tool(state.pending_tool_info.get("id", ""))
         if state.approval_event and not state.approval_event.is_set():
             state.approval_event.set()
         if state.active_task and not state.active_task.done():
             state.active_task.cancel()
-        self._update_button_state()
         self._set_approval_visible(False)
-        logger.info("Generation stopped by user in session '%s'", session_id)
+        self.chat_state_changed.emit(chat_id)
+        logger.info("Generation stopped by user in chat '%s'", chat_id)
 
-    async def _approve(self) -> None:
-        """Approve the pending tool call and release the blocked loop."""
-        session_id = self.active_session_id
-        if not session_id:
+    async def _approve(self, chat_id: str) -> None:
+        """Approve the pending tool call and release the blocked loop.
+
+        Args:
+            chat_id: The chat whose tool call to approve.
+        """
+        if not chat_id:
             return
-        state = self.session.state(session_id)
+        state = self.session.state(chat_id)
         if not state.pending_tool_info:
             return
-        session = session_manager.get_session(session_id)
-        if session:
-            await session.approve_tool(state.pending_tool_info.get("id", ""))
+        chat = chat_manager.get_chat(chat_id)
+        if chat:
+            await chat.approve_tool(state.pending_tool_info.get("id", ""))
         if state.approval_event:
             state.approval_event.set()
+        self.chat_state_changed.emit(chat_id)
 
-    async def _deny(self, reason: str) -> None:
+    async def _deny(self, chat_id: str, reason: str) -> None:
         """Deny the pending tool call and release the blocked loop.
 
         Args:
+            chat_id: The chat whose tool call to deny.
             reason: Optional denial reason text.
         """
-        session_id = self.active_session_id
-        if not session_id:
+        if not chat_id:
             return
-        state = self.session.state(session_id)
+        state = self.session.state(chat_id)
         if not state.pending_tool_info:
             return
-        session = session_manager.get_session(session_id)
-        if session:
-            await session.deny_tool(
+        chat = chat_manager.get_chat(chat_id)
+        if chat:
+            await chat.deny_tool(
                 state.pending_tool_info.get("id", ""), denial_reason=(reason or "").strip()
             )
         if state.approval_event:
             state.approval_event.set()
+        self.chat_state_changed.emit(chat_id)
 
-    async def _regenerate(self) -> None:
-        """Trim the last turn and re-send the last user message."""
-        session_id = self.active_session_id
-        if not session_id:
-            self.toast_requested.emit("Please create or select a session first.", TOAST_ERROR)
+    async def _regenerate(self, chat_id: str) -> None:
+        """Trim the last turn and re-send the last user message.
+
+        Args:
+            chat_id: The chat to regenerate.
+        """
+        if not chat_id:
+            self.toast_requested.emit("Please create or select a chat first.", TOAST_ERROR)
             return
-        state = self.session.state(session_id)
+        state = self.session.state(chat_id)
         if state.is_busy:
             self.toast_requested.emit("Please wait for the current response.", TOAST_ERROR)
             return
-        last_user_msg = self._find_last_user_message(session_id)
+        last_user_msg = self._find_last_user_message(chat_id)
         if not last_user_msg:
             self.toast_requested.emit("No message to regenerate.", TOAST_ERROR)
             return
-        self._trim_stored_session(session_id)
+        self._trim_stored_chat(chat_id)
         state.context_banners_data = [
             banner for banner in state.context_banners_data if not banner.get("is_delta")
         ]
-        session_manager.remove_session(session_id)
-        logger.info("Regenerating last message in session '%s'", session_id)
-        self._rebuild_chat_display(session_id)
-        self._launch_generation(last_user_msg)
+        chat_manager.remove_chat(chat_id)
+        logger.info("Regenerating last message in chat '%s'", chat_id)
+        self._rebuild_chat_display(chat_id)
+        self._launch_generation(chat_id, last_user_msg)
 
-    def _find_last_user_message(self, session_id: str) -> str:
-        """Return the most recent user message text for a session.
+    def _find_last_user_message(self, chat_id: str) -> str:
+        """Return the most recent user message text for a chat.
 
         Args:
-            session_id: The session id.
+            chat_id: The chat id.
 
         Returns:
             The last user message content, or an empty string.
         """
-        session = session_manager.get_session(session_id)
-        messages = list(session.messages) if session else []
+        chat = chat_manager.get_chat(chat_id)
+        messages = list(chat.messages) if chat else []
         for msg in reversed(messages):
             if msg.get("role") == "user":
                 return normalize_content(msg.get("content", ""))
-        stored = self.app.session_store.load_session(session_id)
+        stored = self.app.chat_store.load_chat(chat_id)
         for msg in reversed((stored or {}).get("messages", [])):
             if msg.get("role") == "user":
                 return normalize_content(msg.get("content", ""))
         return ""
 
-    def _trim_stored_session(self, session_id: str) -> None:
-        """Remove the trailing user turn from the stored session.
+    def _trim_stored_chat(self, chat_id: str) -> None:
+        """Remove the trailing user turn from the stored chat.
 
         Args:
-            session_id: The session id to trim.
+            chat_id: The chat id to trim.
         """
-        stored = self.app.session_store.load_session(session_id)
+        stored = self.app.chat_store.load_chat(chat_id)
         if not stored:
             return
         messages = list(stored.get("messages", []))
@@ -871,34 +952,36 @@ class ChatController(QObject):
             messages.pop()
         stored["messages"] = messages
         stored["message_count"] = len(messages)
-        self.app.session_store.save_session(session_id, stored)
+        self.app.chat_store.save_chat(chat_id, stored)
 
     # ------------------------------------------------------------------
     #  Approval
     # ------------------------------------------------------------------
 
-    async def _handle_approval(self, session_id: str, event: dict, state: SessionState) -> None:
+    async def _handle_approval(self, chat_id: str, event: dict, state: ChatState) -> None:
         """Show the approval bar and block until the user resolves it.
 
         Args:
-            session_id: The session awaiting approval.
+            chat_id: The chat awaiting approval.
             event: The ``tool_call`` event dict.
-            state: The session's UI state.
+            state: The chat's UI state.
         """
         state.approval_event = asyncio.Event()
         state.pending_tool_info = event
         state.approval_text = f"Approve {event.get('name', '')}?"
         self._refresh_sidebar()
-        if session_id == self.active_session_id:
-            self._rebuild_chat_display(session_id)
+        if self._is_visible(chat_id):
+            self._rebuild_chat_display(chat_id)
             self._approval_text = state.approval_text
             self._set_approval_visible(True)
+        self.chat_state_changed.emit(chat_id)
         await state.approval_event.wait()
         state.pending_tool_info = None
         state.approval_text = ""
         self._refresh_sidebar()
-        if session_id == self.active_session_id:
+        if self._is_visible(chat_id):
             self._set_approval_visible(False)
+        self.chat_state_changed.emit(chat_id)
 
     def _set_approval_visible(self, visible: bool) -> None:
         """Show or hide the approval bar.
@@ -915,144 +998,142 @@ class ChatController(QObject):
     #  Compaction
     # ------------------------------------------------------------------
 
-    async def _compact_session(self, session_id: str, session: Agent) -> None:
-        """Summarise an over-limit session and start a fresh one.
+    async def _compact_chat(self, chat_id: str, chat: Agent) -> None:
+        """Summarise an over-limit chat and start a fresh one.
 
         Args:
-            session_id: The session that exceeded its limit.
-            session: The live agent session to summarise.
+            chat_id: The chat that exceeded its limit.
+            chat: The live agent chat to summarise.
         """
-        limit = session.check_limit_exceeded()
+        limit = chat.check_limit_exceeded()
         if limit is None:
             return
         logger.info(
             "Agent[%s] exceeded limit (%s) — compacting",
-            session_id,
+            chat_id,
             limit.get("reason", ""),
         )
-        if session_id == self.active_session_id:
+        if self._is_visible(chat_id):
             self.toast_requested.emit(
-                "Session limit reached — summarizing and starting a new session…", TOAST_ERROR
+                "Chat limit reached — summarizing and starting a new chat…", TOAST_ERROR
             )
-        summary = await session.summarize()
+        summary = await chat.summarize()
         if not summary:
-            if session_id == self.active_session_id:
-                self.toast_requested.emit("Session summarization failed.", TOAST_ERROR)
+            if self._is_visible(chat_id):
+                self.toast_requested.emit("Chat summarization failed.", TOAST_ERROR)
             return
-        await self._create_compacted_session(session_id, summary)
+        await self._create_compacted_chat(chat_id, summary)
 
-    async def _create_compacted_session(self, session_id: str, summary: str) -> None:
-        """Create a new session seeded with a summary of the old one.
+    async def _create_compacted_chat(self, chat_id: str, summary: str) -> None:
+        """Create a new chat seeded with a summary of the old one.
 
         Args:
-            session_id: The summarised session id.
-            summary: The summary text to seed the new session with.
+            chat_id: The summarised chat id.
+            summary: The summary text to seed the new chat with.
         """
-        old = self.app.session_store.load_session(session_id)
+        old = self.app.chat_store.load_chat(chat_id)
         skills_config = (old or {}).get("skills_config", {})
-        new_id = self.session._generate_unique_session_id()
+        new_id = self.session._generate_unique_chat_id()
         now = time.strftime("%Y-%m-%d %H:%M:%S")
-        self.app.session_store.save_session(
+        self.app.chat_store.save_chat(
             new_id,
             {
                 "id": new_id,
                 "skills_config": skills_config,
                 "messages": [{"role": "user", "content": summary}],
-                "folder": (old or {}).get("folder"),
+                "session": (old or {}).get("session"),
                 "created_at": now,
                 "updated_at": now,
                 "message_count": 1,
                 "context_snapshot": (old or {}).get("context_snapshot", {}),
-                "summary_of": session_id,
+                "summary_of": chat_id,
             },
         )
-        self.session.session_ids = [new_id, *self.session.session_ids]
-        self.session._refresh_model()
-        await self.session._switch_to_session(new_id)
-        logger.info("Started compacted session '%s' (summary of '%s')", new_id, session_id)
+        self.session.open_chat_after(chat_id, new_id)
+        logger.info("Started compacted chat '%s' (summary of '%s')", new_id, chat_id)
 
     # ------------------------------------------------------------------
     #  Rendering: rebuild display
     # ------------------------------------------------------------------
 
     @Slot(str)
-    def rebuild_chat_display(self, session_id: str) -> None:
-        """Rebuild a session's chat display on behalf of another controller.
+    def rebuild_chat_display(self, chat_id: str) -> None:
+        """Rebuild a chat's chat display on behalf of another controller.
 
         Public entry point used by the skill controller after a config sync so a
         newly appended delta context banner becomes visible.
 
         Args:
-            session_id: The session whose display should be rebuilt.
+            chat_id: The chat whose display should be rebuilt.
         """
-        if not session_id:
+        if not chat_id:
             return
-        self._rebuild_chat_display(session_id)
+        self._rebuild_chat_display(chat_id)
 
     def _compute_render_plan(
-        self, session_id: str
+        self, chat_id: str
     ) -> tuple[list[str], list[dict], dict | None, _RenderIndices]:
-        """Compute the render plan for a session without touching models.
+        """Compute the render plan for a chat without touching models.
 
         Pure computation (hashing, markdown rendering, token counting) over the
-        session's messages; it does not mutate the session state, so it is safe
+        chat's messages; it does not mutate the chat state, so it is safe
         to run on a worker thread via ``asyncio.to_thread``.
 
         Args:
-            session_id: The session to render.
+            chat_id: The chat to render.
 
         Returns:
             ``(keys, items, snapshot, indices)``; ``snapshot`` is the stored
             context snapshot, if any. ``indices`` carries the row locations of the
             streaming cards for the caller to apply on the GUI thread.
         """
-        state = self.session.state(session_id)
-        stored = self.app.session_store.load_session(session_id)
+        state = self.session.state(chat_id)
+        stored = self.app.chat_store.load_chat(chat_id)
         snapshot = (stored or {}).get("context_snapshot")
-        session = session_manager.get_session(session_id)
-        if session is not None:
-            messages = list(session.messages)
+        chat = chat_manager.get_chat(chat_id)
+        if chat is not None:
+            messages = list(chat.messages)
         else:
             messages = list((stored or {}).get("messages", []))
         keys = self._compute_render_keys(state, messages, snapshot)
         items, indices = self._build_items(state, messages, snapshot)
         return keys, items, snapshot, indices
 
-    def _apply_render_indices(self, state: SessionState, indices: _RenderIndices) -> None:
-        """Apply a render plan's streaming-card row indices to the session state.
+    def _apply_render_indices(self, state: ChatState, indices: _RenderIndices) -> None:
+        """Apply a render plan's streaming-card row indices to the chat state.
 
         Args:
-            state: The session's UI state.
+            state: The chat's UI state.
             indices: The indices produced by :meth:`_build_items`.
         """
         state.thinking.item_index = indices.thinking_index
         state.response.item_index = indices.response_index
         state.tool_call_indices = list(indices.tool_call_indices)
 
-    def _rebuild_chat_display(self, session_id: str) -> None:
-        """Rebuild the chat model from the session's message list.
+    def _rebuild_chat_display(self, chat_id: str) -> None:
+        """Rebuild the chat model from the chat's message list.
 
         The render plan is hashed into keys; the model is diffed so only rows
         after the first divergence are replaced. Context banners (initial snapshot
         and delta updates) are emitted as the leading render-plan rows.
 
         Args:
-            session_id: The session to render.
+            chat_id: The chat to render.
         """
         self._skip_staged_build()
-        state = self.session.state(session_id)
-        model = self.model_for(session_id)
-        keys, items, snapshot, indices = self._compute_render_plan(session_id)
+        state = self.session.state(chat_id)
+        model = self.model_for(chat_id)
+        keys, items, snapshot, indices = self._compute_render_plan(chat_id)
         self._apply_render_indices(state, indices)
         model.diff_update(items, keys)
         state.rendered_item_keys = keys
         if snapshot:
             state.init_banner_displayed = True
-        if session_id == self.active_session_id:
-            self._update_token_bar(state)
+        if self._is_visible(chat_id):
+            self._update_token_bar(chat_id, state)
 
-    async def _rebuild_chat_display_staged(self, session_id: str) -> None:
-        """Build a session's chat model in batches while its overlay is shown.
+    async def _rebuild_chat_display_staged(self, chat_id: str) -> None:
+        """Build a chat's chat model in batches while its overlay is shown.
 
         The chat list is non-virtualized, so inserting every card at once blocks
         the GUI thread for the whole build. Rows are inserted
@@ -1065,23 +1146,23 @@ class ChatController(QObject):
         ends the build early.
 
         Args:
-            session_id: The session to render.
+            chat_id: The chat to render.
         """
-        state = self.session.state(session_id)
-        plan = await asyncio.to_thread(self._compute_render_plan, session_id)
-        if self.active_session_id != session_id:
+        state = self.session.state(chat_id)
+        plan = await asyncio.to_thread(self._compute_render_plan, chat_id)
+        if not self._is_visible(chat_id):
             return
         keys, items, snapshot, indices = plan
         self._apply_render_indices(state, indices)
-        model = self.model_for(session_id)
-        build = _StagedBuildState(session_id, model, state, items, keys)
+        model = self.model_for(chat_id)
+        build = _StagedBuildState(chat_id, model, state, items, keys)
         self._staged_build = build
         model.set_items([], [])
         total = len(items)
         batch_count = max(1, (total + _RENDER_INSERT_BATCH - 1) // _RENDER_INSERT_BATCH)
         tick = min(_RENDER_TICK_MAX, max(_RENDER_TICK_MIN, _RENDER_TICK_TARGET / batch_count))
         while not build.done and build.next_index < total:
-            if self._staged_build is not build or self.active_session_id != session_id:
+            if self._staged_build is not build or not self._is_visible(chat_id):
                 return
             end = min(build.next_index + _RENDER_INSERT_BATCH, total)
             model.append_items(items[build.next_index : end], keys[build.next_index : end])
@@ -1094,8 +1175,8 @@ class ChatController(QObject):
                 state.init_banner_displayed = True
         if self._staged_build is build:
             self._staged_build = None
-            if not build.done and session_id == self.active_session_id:
-                self._update_token_bar(state)
+            if not build.done and self._is_visible(chat_id):
+                self._update_token_bar(chat_id, state)
 
     def _skip_staged_build(self) -> None:
         """Flush any in-progress staged build immediately.
@@ -1116,13 +1197,13 @@ class ChatController(QObject):
         self._staged_build = None
 
     def _compute_render_keys(
-        self, state: SessionState, messages: list[dict], snapshot: dict | None
+        self, state: ChatState, messages: list[dict], snapshot: dict | None
     ) -> list[str]:
         """Compute content-hash keys for incremental render planning.
 
         Args:
-            state: The session's UI state.
-            messages: The session message list.
+            state: The chat's UI state.
+            messages: The chat message list.
             snapshot: The stored context snapshot, if any. A truthy snapshot emits
                 the initial "Original System Context" banner key.
 
@@ -1149,13 +1230,13 @@ class ChatController(QObject):
         return keys
 
     def _build_items(
-        self, state: SessionState, messages: list[dict], snapshot: dict | None
+        self, state: ChatState, messages: list[dict], snapshot: dict | None
     ) -> tuple[list[dict], _RenderIndices]:
         """Build the full list of chat items for the message list.
 
         Args:
-            state: The session's UI state.
-            messages: The session message list.
+            state: The chat's UI state.
+            messages: The chat message list.
             snapshot: The stored context snapshot, if any.
 
         Returns:
@@ -1204,7 +1285,7 @@ class ChatController(QObject):
 
     def _build_assistant_items(
         self,
-        state: SessionState,
+        state: ChatState,
         msg: dict,
         messages: list[dict],
         idx: int,
@@ -1215,11 +1296,11 @@ class ChatController(QObject):
         """Append the items for one assistant message.
 
         Args:
-            state: The session's UI state.
+            state: The chat's UI state.
             msg: The assistant message dict.
             messages: Full message list.
             idx: Current message index.
-            is_last_busy: Whether this is the last message and the session is busy.
+            is_last_busy: Whether this is the last message and the chat is busy.
             items: Item accumulator.
             indices: Streaming-card index accumulator.
         """
@@ -1248,7 +1329,7 @@ class ChatController(QObject):
 
     def _build_streaming_assistant_items(
         self,
-        state: SessionState,
+        state: ChatState,
         d: dict[str, Any],
         messages: list[dict],
         idx: int,
@@ -1258,7 +1339,7 @@ class ChatController(QObject):
         """Append streaming items (with pending cards) for the busy assistant.
 
         Args:
-            state: The session's UI state.
+            state: The chat's UI state.
             d: The assistant decision dict from :func:`_assistant_decision`.
             messages: Full message list.
             idx: Current message index.
@@ -1318,52 +1399,59 @@ class ChatController(QObject):
     #  Rendering: append / swap / live update
     # ------------------------------------------------------------------
 
-    def _append_user_message(self, text: str) -> None:
-        """Optimistically append a user message item to the active model.
+    def _append_user_message(self, chat_id: str, text: str) -> None:
+        """Optimistically append a user message item to a chat's model.
 
         Args:
+            chat_id: The chat to append to.
             text: User message text.
         """
-        if not self.active_session_id:
+        if not chat_id:
             return
-        model = self.model_for(self.active_session_id)
+        model = self.model_for(chat_id)
         model.append_item(build_user_item(text), "u:" + _content_hash(text))
 
-    def _append_waiting_placeholder(self) -> None:
-        """Optimistically append the pre-response scanner to the active model.
+    def _append_waiting_placeholder(self, chat_id: str) -> None:
+        """Optimistically append the pre-response scanner to a chat's model.
 
         Appended in the same frame as the user card so the scanner is visible
-        immediately, before the blocking session hydration and the network
+        immediately, before the blocking chat hydration and the network
         request. The render plan emits the matching ``w:pending`` key while
         waiting, so a later rebuild leaves the row untouched; the first streamed
         card replaces it.
+
+        Args:
+            chat_id: The chat to append to.
         """
-        if not self.active_session_id:
+        if not chat_id:
             return
-        model = self.model_for(self.active_session_id)
+        model = self.model_for(chat_id)
         model.append_item(build_waiting_item(), "w:pending")
 
-    def _swap_pending_result_card(self, tool_call_id: str, tool_name: str, content: str) -> None:
+    def _swap_pending_result_card(
+        self, chat_id: str, tool_call_id: str, tool_name: str, content: str
+    ) -> None:
         """Replace a pending tool-result card with the real result in place.
 
         Args:
+            chat_id: The chat whose card to replace.
             tool_call_id: The tool-call id to match.
             tool_name: Tool name for the real result card.
             content: Result content text.
         """
-        if not self.active_session_id:
+        if not chat_id:
             return
-        model = self._models.get(self.active_session_id)
+        model = self._models.get(chat_id)
         if model is None:
             return
         row = model.find_pending_result(tool_call_id)
         if row < 0:
-            self._rebuild_chat_display(self.active_session_id)
+            self._rebuild_chat_display(chat_id)
             return
         item = build_tool_result_item(tool_name, content, token_count=count_tokens(content))
         model.replace_item(row, item, "tr:" + tool_name + ":" + _content_hash(content))
 
-    def _update_live_assistant(self, state: SessionState) -> None:
+    def _update_live_assistant(self, chat_id: str, state: ChatState) -> None:
         """Live render the streaming assistant message with a short throttle.
 
         Structural changes (tool calls/results appearing, streaming tool calls
@@ -1373,17 +1461,16 @@ class ChatController(QObject):
         place via ``update_item``.
 
         Args:
-            state: The session's UI state.
+            chat_id: The chat being rendered.
+            state: The chat's UI state.
         """
-        if not self.active_session_id:
+        model = self._models.get(chat_id)
+        if not chat_id or model is None or model.count() == 0:
             return
-        model = self._models.get(self.active_session_id)
-        if model is None or model.count() == 0:
+        chat = chat_manager.get_chat(chat_id)
+        if not chat:
             return
-        session = session_manager.get_session(self.active_session_id)
-        if not session:
-            return
-        messages = session.messages
+        messages = chat.messages
         if not messages or messages[-1].get("role") != "assistant":
             return
         last_msg = messages[-1]
@@ -1404,33 +1491,40 @@ class ChatController(QObject):
 
         if tool_calls_changed or tool_results_changed or streaming_tc_needs_rebuild:
             state.last_rebuild_time = now
-            self._rebuild_chat_display(self.active_session_id)
-            self._track_rendered_state(state)
+            self._rebuild_chat_display(chat_id)
+            self._track_rendered_state(chat_id, state)
             return
         missing_pending_card = (
             thinking_text and not decision["thinking_done"] and state.thinking.item_index is None
         ) or (content_text and not decision["response_done"] and state.response.item_index is None)
         if missing_pending_card:
             state.last_rebuild_time = now
-            self._rebuild_chat_display(self.active_session_id)
-            self._track_rendered_state(state)
+            self._rebuild_chat_display(chat_id)
+            self._track_rendered_state(chat_id, state)
             return
         content_only = thinking_changed or content_changed
         streaming_active = streaming_tc_changed and bool(state.tool_call_indices)
         if not (content_only or streaming_active):
             return
         if now - state.last_content_update_time < _STREAM_UPDATE_INTERVAL:
-            self._track_rendered_state(state)
+            self._track_rendered_state(chat_id, state)
             return
         state.last_content_update_time = now
         self._apply_streaming_item_updates(
-            state, thinking_text, content_text, streaming_tcs, thinking_changed, content_changed
+            chat_id,
+            state,
+            thinking_text,
+            content_text,
+            streaming_tcs,
+            thinking_changed,
+            content_changed,
         )
-        self._track_rendered_state(state)
+        self._track_rendered_state(chat_id, state)
 
     def _apply_streaming_item_updates(
         self,
-        state: SessionState,
+        chat_id: str,
+        state: ChatState,
         thinking_text: str,
         content_text: str,
         streaming_tcs: list | None,
@@ -1443,14 +1537,15 @@ class ChatController(QObject):
         and refreshes the header token text and live tool-call token counts.
 
         Args:
-            state: The session's UI state.
+            chat_id: The chat being rendered.
+            state: The chat's UI state.
             thinking_text: Current thinking text.
             content_text: Current response text.
             streaming_tcs: Live streaming tool calls, if any.
             thinking_changed: Whether the thinking text changed.
             content_changed: Whether the response text changed.
         """
-        model = self._models.get(self.active_session_id or "")
+        model = self._models.get(chat_id)
         if model is None:
             return
         if thinking_changed:
@@ -1489,17 +1584,17 @@ class ChatController(QObject):
                     {int(ChatRole.TOKEN_TEXT): f"{count_tokens(args_str)} tk"},
                 )
 
-    def _track_rendered_state(self, state: SessionState) -> None:
+    def _track_rendered_state(self, chat_id: str, state: ChatState) -> None:
         """Store the currently rendered streaming state for diff detection.
 
         Args:
-            state: The session's UI state to update.
+            state: The chat's UI state to update.
         """
-        if not self.active_session_id:
+        if not chat_id:
             return
-        session = session_manager.get_session(self.active_session_id)
-        if session and session.messages:
-            last = session.messages[-1]
+        chat = chat_manager.get_chat(chat_id)
+        if chat and chat.messages:
+            last = chat.messages[-1]
             if last.get("role") == "assistant":
                 state.last_rendered_thinking_text = last.get("reasoning_content", "")
                 state.last_rendered_message_text = last.get("content", "") or ""
@@ -1514,21 +1609,21 @@ class ChatController(QObject):
     #  State: token bar / buttons / loading
     # ------------------------------------------------------------------
 
-    def _update_token_bar(self, state: SessionState | None = None) -> None:
-        """Update the token counts shown in the token bar.
+    def _update_token_bar(self, chat_id: str, state: ChatState | None = None) -> None:
+        """Update the token counts shown for a chat.
 
         Args:
-            state: Optional session state carrying true API token counts.
+            chat_id: The chat whose tokens to show.
+            state: Optional chat state carrying true API token counts.
         """
-        if not self.active_session_id:
-            self._set_token_counts(0, 0)
+        if not chat_id:
             return
         if state and state.true_input_tokens > 0:
             ctx = state.true_input_tokens
             out = state.true_output_cum
         else:
-            session = session_manager.get_session(self.active_session_id)
-            ctx = session._estimated_total if session else 0
+            chat = chat_manager.get_chat(chat_id)
+            ctx = chat._estimated_total if chat else 0
             out = 0
         self._set_token_counts(ctx, out)
 
@@ -1543,22 +1638,31 @@ class ChatController(QObject):
         self._output_tokens = output_tokens
         self.token_counts_changed.emit(input_tokens, output_tokens)
 
-    def _update_button_state(self) -> None:
-        """Reflect the active session's busy state on the busy property."""
-        state = self.session.state(self.active_session_id) if self.active_session_id else None
+    def _update_button_state(self, chat_id: str = "") -> None:
+        """Reflect a chat's busy state on the legacy focused busy property.
+
+        Args:
+            chat_id: The chat to reflect.
+        """
+        target = chat_id or self.active_chat_id
+        state = self.session.state(target) if target else None
         is_busy = bool(state and state.is_busy)
         if self._busy == is_busy:
             return
         self._busy = is_busy
         self.busy_changed.emit(is_busy)
 
-    def _set_loading(self, loading: bool) -> None:
-        """Set the session-switch loading flag.
+    def _set_loading(self, chat_id: str, loading: bool) -> None:
+        """Set a chat's switch rebuild loading flag.
 
         Args:
+            chat_id: The chat whose loading flag to set.
             loading: Whether a switch rebuild is in progress.
         """
-        if self._loading == loading:
+        if not chat_id:
             return
-        self._loading = loading
-        self.loading_changed.emit(loading)
+        state = self.session.state(chat_id)
+        if state.is_loading == loading:
+            return
+        state.is_loading = loading
+        self.chat_state_changed.emit(chat_id)

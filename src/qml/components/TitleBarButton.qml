@@ -14,7 +14,7 @@ Rectangle {
     implicitWidth: Theme.metrics.titleBarButtonWidth
     implicitHeight: Theme.metrics.titleBarHeight
     color: mouseArea.containsMouse
-           ? (control.danger ? Theme.colors.accentRed : Theme.colors.hoverBg)
+           ? (control.danger ? Theme.colors.buttonPrimaryBg : Theme.colors.hoverBg)
            : Theme.colors.surfaceBg
     radius: Theme.metrics.buttonRadius
 

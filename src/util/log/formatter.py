@@ -111,12 +111,12 @@ def format_preset_delete(preset_name: str) -> str:
     return f"Preset {color_label}  {color_name}"
 
 
-def log_session_skills(
+def log_chat_skills(
     primary_skills: list[str],
     secondary_skills: list[str],
     tool_defs: list[dict],
 ) -> None:
-    """Print loaded session skills and their tools to stderr.
+    """Print loaded chat skills and their tools to stderr.
 
     Args:
         primary_skills: Names of primary (fully loaded) skill paths.
@@ -131,7 +131,7 @@ def log_session_skills(
         skill_path = td.get("skill_path", "")
         tools_by_skill.setdefault(skill_path, []).append(td["name"])
 
-    print(f"\n  {_BOLD}session skills{_RESET}", file=sys.stderr)
+    print(f"\n  {_BOLD}chat skills{_RESET}", file=sys.stderr)
     print(f"  {_BOLD}primary{_RESET}    {_BOLD_GREEN}{primary}{_RESET}", file=sys.stderr)
     print(f"  {_BOLD}secondary{_RESET}  {_BOLD_YELLOW}{secondary}{_RESET}", file=sys.stderr)
     print(f"  {_BOLD}tools{_RESET}", file=sys.stderr)

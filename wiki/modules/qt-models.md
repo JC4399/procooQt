@@ -1,8 +1,9 @@
 # qt.models — QAbstractListModel layer for QML views
 
-Sources: `src/qt/models/base.py`, `src/qt/models/session_list_model.py`,
-`src/qt/models/chat_list_model.py`, `src/qt/models/skill_tree_model.py`,
-`src/qt/models/tool_mode_model.py`, `src/qt/models/file_tree_model.py`
+Sources: `src/qt/models/base.py`, `src/qt/models/chat_tab_model.py`,
+`src/qt/models/session_menu_model.py`, `src/qt/models/chat_list_model.py`,
+`src/qt/models/skill_tree_model.py`, `src/qt/models/tool_mode_model.py`,
+`src/qt/models/file_tree_model.py`
 
 ## Purpose
 
@@ -16,22 +17,27 @@ stream token.
 
 ## Role-keyed dicts
 
-- A row is `Item = dict[int, Any]`; keys are `int(SessionRole.PRIMARY)` etc.
+- A row is `Item = dict[int, Any]`; keys are `int(ChatListRole.KIND)` etc.
 - `data(index, role)` returns `item.get(role)`.
 - `get(row)` returns a **string-keyed** map (`{str(role): value}`) for QML, via
   a `QVariantMap` slot.
-- Identity keys (`keys`) are per-row strings (e.g. `f"session:{id}"`) used by
+- Identity keys (`keys`) are per-row strings (e.g. `f"chat:{id}"`) used by
   `diff_update`/`find_divergence` to locate the first changed row.
 
 ## Deliverables
 
 - `ListModel` — base model (`roleNames`, `rowCount`, `data`, mutation, QML
   slots).
-- `SessionListModel` — folders + session tiles for `SessionPanel.qml`.
+- `ChatTabModel` — chat tabs for one panel's `ChatTabBar.qml`.
+- `SessionMenuModel` — sessions + trailing `+` for `SessionSelector.qml`.
 - `ChatListModel` — rendered chat items for `ChatPanel.qml`.
 - `SkillTreeModel` — flattened skill/folder tree with selection state.
 - `ToolModeModel` — per-tool permission rows grouped by skill.
 - `FileTreeModel` — flattened file/folder tree for `EditorPanel.qml`.
+
+> The per-panel `ChatPanelModel` (`src/qt/chat_panel_model.py`) is a plain
+> `QObject` view model, not a `ListModel`; see
+> [`qt-chat-panel-model`](qt-chat-panel-model.md).
 
 ## Steps / Flow
 
@@ -89,25 +95,31 @@ stream token.
 
 ## Concrete models
 
-### `SessionListModel`
+### `ChatTabModel`
 
-Flattens folders and (expanded) sessions into one list. Folder headers are
-always emitted; session rows follow only while the folder is expanded. Unfiled
-sessions render after the folders with no synthetic header. Summaries must be
-pre-enriched with `title` and `status` by the controller.
+Chat tabs for one panel. Rows are built from enriched chat summaries already
+filtered to the panel's chats and ordered. Summaries must be pre-enriched with
+`title` and `status` by the controller.
 
 | Signature | Inputs | Output | Flow / Side effects |
 |---|---|---|---|
-| `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `SessionRole`; init `_expanded` |
-| `def set_folder_expansion(self, name: str, expanded: bool) -> None` | folder `name`, `expanded` | `None` | stores expansion, no re-flatten |
-| `def is_expanded(self, name: str) -> bool` | `name` | expanded flag (default `False`) | — |
-| `def set_sessions(self, sessions: list[dict[str, Any]], folders: list[str], active_id: str \| None, states: dict[str, SessionState]) -> None` | summaries, folder order, active id, per-session states | `None` | build rows+keys → `set_items`; full reset |
-| `_append_folder(rows, keys, folder, session_count)` | accumulators, folder, count | `None` | appends header; `MESSAGE_COUNT` = session count; key `folder:{name}` |
-| `_append_session(rows, keys, session, active_id, states)` | accumulators, session, active id, states | `None` | appends tile; `IS_BLINKING = is_busy and not pending_tool_info`; key `session:{id}` |
+| `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `ChatTabRole` |
+| `def set_chats(self, chats: list[dict[str, Any]], active_id: str \| None, states: dict[str, ChatState]) -> None` | summaries, active id, per-chat states | `None` | build rows+keys → `set_items`; full reset |
+
+### `SessionMenuModel`
+
+Session rows plus an always-present trailing `+` row (role `IS_ADD`) for the
+title-bar selector. The `+` row stays visible even when `Default` is the only
+session.
+
+| Signature | Inputs | Output | Flow / Side effects |
+|---|---|---|---|
+| `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `SessionMenuRole` |
+| `def set_sessions(self, names: list[str], active_name: str \| None) -> None` | session names, active name | `None` | one row per session + a trailing `+` row → `set_items` |
 
 ### `ChatListModel`
 
-Incremental list of chat items for one session.
+Incremental list of chat items for one chat.
 
 | Signature | Inputs | Output | Flow / Side effects |
 |---|---|---|---|

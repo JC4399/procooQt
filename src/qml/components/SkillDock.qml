@@ -1,18 +1,36 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 
-import "../components"
+// Per-panel skill/tool dock. Collapsed it is a thin rail at the panel's right
+// edge with an arrow; expanded it covers the panel's chat area with its own
+// collapse rail on the left. Collapsed by default; one instance per chat panel.
+Item {
+    id: dock
 
-Rectangle {
-    id: panel
+    property bool expanded: false
+    property string chatId: ""
+    // Width of the expanded panel (user-adjustable via the left edge).
+    property real expandedWidth: 380
 
-    // Emitted when the user requests the separate editor window.
+    // Width of the thin rail shown when collapsed (also reserved in the layout).
+    readonly property real railWidth: 18
+
     signal openEditorRequested()
 
-    color: Theme.colors.surfaceBg
-    border.color: Theme.colors.borderDefault
-    border.width: 1
+    onExpandedChanged: {
+        if (expanded && chatId !== "")
+            skill._handle_chat_activated(chatId)
+    }
+    onChatIdChanged: {
+        if (expanded && chatId !== "")
+            skill._handle_chat_activated(chatId)
+    }
+
+    // ------------------------------------------------------------------
+    //  Shared button
+    // ------------------------------------------------------------------
 
     component PanelButton: Button {
         id: control
@@ -41,16 +59,120 @@ Rectangle {
         }
     }
 
-    ColumnLayout {
-        anchors.fill: parent
-        spacing: 0
+    // ------------------------------------------------------------------
+    //  Collapsed rail (right edge)
+    // ------------------------------------------------------------------
 
-        // ----------------------------------------------------------
-        //  Skills pane
-        // ----------------------------------------------------------
+    Rectangle {
+        id: collapsedRail
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: dock.railWidth
+        visible: !dock.expanded
+        color: Theme.colors.surfaceBg
+        border.color: Theme.colors.borderDefault
+        border.width: 1
+        radius: 0
+
+        Text {
+            anchors.centerIn: parent
+            text: "\u25c0"
+            color: Theme.colors.textSecondary
+            font.family: Theme.fontMono
+            font.pointSize: Theme.metrics.fontSizeBase
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: dock.expanded = true
+        }
+    }
+
+    // ------------------------------------------------------------------
+    //  Expanded panel
+    // ------------------------------------------------------------------
+
+    Rectangle {
+        id: expandedPanel
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: Math.max(220, Math.min((dock.parent ? dock.parent.width - 40 : 800),
+                                      dock.expandedWidth))
+        visible: dock.expanded
+        color: Theme.colors.surfaceBg
+        border.color: Theme.colors.borderDefault
+        border.width: 1
+        radius: 0
+        z: 1
+
+        // Collapse rail on the panel's left edge (also the resize handle).
+        Rectangle {
+            id: expandedRail
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: dock.railWidth
+            color: Theme.colors.elevatedBg
+            border.color: Theme.colors.borderDefault
+            border.width: 1
+            radius: 0
+
+            Text {
+                anchors.centerIn: parent
+                text: "\u25b6"
+                color: Theme.colors.textSecondary
+                font.family: Theme.fontMono
+                font.pointSize: Theme.metrics.fontSizeBase
+            }
+
+            MouseArea {
+                id: railArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.SizeHorCursor
+
+                property real startWidth: 0
+                property real startSceneX: 0
+                property bool moved: false
+
+                function sceneX(mx) {
+                    var root = Window.window ? Window.window.contentItem : null
+                    return railArea.mapToItem(root, mx, 0).x
+                }
+
+                onPressed: function (mouse) {
+                    railArea.startWidth = dock.expandedWidth
+                    railArea.startSceneX = railArea.sceneX(mouse.x)
+                    railArea.moved = false
+                }
+                onPositionChanged: function (mouse) {
+                    if (!pressed)
+                        return
+                    var delta = railArea.startSceneX - railArea.sceneX(mouse.x)
+                    if (Math.abs(delta) > 3)
+                        railArea.moved = true
+                    if (railArea.moved) {
+                        var maxWidth = (dock.parent ? dock.parent.width - 40 : 800)
+                        dock.expandedWidth = Math.max(220, Math.min(maxWidth,
+                                                                     railArea.startWidth + delta))
+                    }
+                }
+                onReleased: {
+                    if (!railArea.moved)
+                        dock.expanded = false
+                }
+                onCanceled: railArea.moved = false
+            }
+        }
+
         ColumnLayout {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+            anchors.left: expandedRail.right
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
             spacing: 0
 
             PresetBar {
@@ -71,9 +193,6 @@ Rectangle {
                 color: Theme.colors.borderDefault
             }
 
-            // ------------------------------------------------------
-            //  Search row
-            // ------------------------------------------------------
             RowLayout {
                 Layout.fillWidth: true
                 Layout.margins: 6
@@ -110,9 +229,6 @@ Rectangle {
                 }
             }
 
-            // ------------------------------------------------------
-            //  Skill tree
-            // ------------------------------------------------------
             ListView {
                 id: skillList
                 Layout.fillWidth: true
@@ -158,9 +274,6 @@ Rectangle {
                 color: Theme.colors.borderDefault
             }
 
-            // ------------------------------------------------------
-            //  Tools header
-            // ------------------------------------------------------
             RowLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: 8
@@ -205,9 +318,6 @@ Rectangle {
                 }
             }
 
-            // ------------------------------------------------------
-            //  Tool groups
-            // ------------------------------------------------------
             Flickable {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -238,28 +348,25 @@ Rectangle {
                     }
                 }
             }
-        }
 
-        // ----------------------------------------------------------
-        //  Bottom: open the separate editor window
-        // ----------------------------------------------------------
-        Rectangle {
-            Layout.fillWidth: true
-            height: 1
-            color: Theme.colors.borderDefault
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.margins: 6
-            spacing: 6
-
-            PanelButton {
+            Rectangle {
                 Layout.fillWidth: true
-                text: qsTr("Open Editor")
-                baseColor: Theme.colors.buttonPrimaryBg
-                labelColor: Theme.colors.buttonPrimaryFg
-                onClicked: panel.openEditorRequested()
+                height: 1
+                color: Theme.colors.borderDefault
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 6
+                spacing: 6
+
+                PanelButton {
+                    Layout.fillWidth: true
+                    text: qsTr("Open Editor")
+                    baseColor: Theme.colors.buttonPrimaryBg
+                    labelColor: Theme.colors.buttonPrimaryFg
+                    onClicked: dock.openEditorRequested()
+                }
             }
         }
     }

@@ -124,7 +124,7 @@ files mid-edit is blocked in the controller (`_open_file_in_editor` warning).
 ### Editor window (QML)
 
 `src/qml/windows/EditorWindow.qml` is a hidden `Window` created by `Main.qml` and
-shown by the "Open Editor" button in `SkillPanel.qml`; it reports visibility via
+shown by the "Open Editor" button in `SkillDock.qml`; it reports visibility via
 `editor._handle_window_visibility(visible)`. `EditorPanel.qml` places the file
 tree pane to the left of the code pane and renders `file_conflict` as a themed
 modal `Dialog` (mono font, `fontSizeBase` = 12, square surfaces) whose buttons

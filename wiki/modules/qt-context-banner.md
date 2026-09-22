@@ -6,7 +6,7 @@ Source: `src/qt/context_banner.py`
 
 Build context banner items (initial system context and config deltas) for
 `ChatListModel`, rendered by `src/qml/cards/ContextBanner.qml`. Banners are derived UI
-items only — `session.messages` remains canonical. Builders return plain
+items only — `chat.messages` remains canonical. Builders return plain
 `ChatRole`-keyed dictionaries and never touch QML objects.
 
 ## Deliverables

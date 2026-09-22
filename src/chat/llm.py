@@ -1,4 +1,4 @@
-"""OpenAI-compatible chat communication — types, formatting, and model client."""
+"""OpenAI-compatible LLM communication — types, formatting, and model client."""
 
 from __future__ import annotations
 
@@ -23,13 +23,13 @@ else:
 
 
 # ------------------------------------------------------------------
-#  Chat response types
+#  LLM response types
 # ------------------------------------------------------------------
 
 
 @dataclass
-class ChatUsage:
-    """Usage information for a chat model API invocation.
+class TokenUsage:
+    """Usage information for an LLM API invocation.
 
     Attributes:
         input_tokens: Number of prompt tokens consumed.
@@ -43,8 +43,8 @@ class ChatUsage:
 
 
 @dataclass
-class ChatResponse:
-    """The response from a chat model.
+class LLMResponse:
+    """The response from an LLM.
 
     Attributes:
         content: List of content block dicts with ``"type"`` key
@@ -56,12 +56,12 @@ class ChatResponse:
 
     content: list[dict]
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
-    usage: ChatUsage | None = None
+    usage: TokenUsage | None = None
     metadata: dict | None = None
 
 
 # ------------------------------------------------------------------
-#  OpenAI Chat Model
+#  OpenAI Model
 # ------------------------------------------------------------------
 
 
@@ -92,8 +92,8 @@ def _try_parse_json_dict(json_str: str) -> dict | list:
     return {} if not json_str.strip() else _json_loads_with_repair(json_str)
 
 
-class OpenAIChatModel:
-    """OpenAI-compatible chat model client with streaming support.
+class OpenAIModel:
+    """OpenAI-compatible LLM client with streaming support.
 
     Handles text, thinking, and tool_use content blocks.  No audio/video
     support.  Only ``openai`` client type is supported.
@@ -107,7 +107,7 @@ class OpenAIChatModel:
         client_kwargs: dict[str, Any] | None = None,
         generate_kwargs: dict[str, Any] | None = None,
     ) -> None:
-        """Initialise the chat model client.
+        """Initialise the LLM client.
 
         Args:
             model_name: The model identifier passed to the OpenAI API
@@ -140,7 +140,7 @@ class OpenAIChatModel:
         tools: list[dict] | None = None,
         tool_choice: str | None = None,
         **kwargs: Any,
-    ) -> ChatResponse | AsyncGenerator[ChatResponse]:
+    ) -> LLMResponse | AsyncGenerator[LLMResponse]:
         """Invoke the chat completion API.
 
         Args:
@@ -151,8 +151,8 @@ class OpenAIChatModel:
             **kwargs: Additional parameters forwarded to the API call.
 
         Returns:
-            A ``ChatResponse`` for non-streaming calls, or an
-            ``AsyncGenerator[ChatResponse]`` for streaming calls.
+            A ``LLMResponse`` for non-streaming calls, or an
+            ``AsyncGenerator[LLMResponse]`` for streaming calls.
 
         Raises:
             ValueError: If ``messages`` is not a list or if any message
@@ -202,12 +202,12 @@ class OpenAIChatModel:
         self,
         start_datetime: datetime,
         response: AsyncStream,
-    ) -> AsyncGenerator[ChatResponse]:
-        """Parse a streaming chat completion into ``ChatResponse`` chunks.
+    ) -> AsyncGenerator[LLMResponse]:
+        """Parse a streaming chat completion into ``LLMResponse`` chunks.
 
         Handles incremental text, thinking/reasoning content, and
         partial tool-call argument accumulation.  Yields a
-        ``ChatResponse`` for each chunk received.
+        ``LLMResponse`` for each chunk received.
 
         Args:
             start_datetime: The timestamp when the API call began
@@ -215,7 +215,7 @@ class OpenAIChatModel:
             response: The raw ``AsyncStream`` from the OpenAI client.
 
         Yields:
-            ``ChatResponse`` objects with the accumulated content so far.
+            ``LLMResponse`` objects with the accumulated content so far.
         """
         usage = None
         response_id: str | None = None
@@ -240,14 +240,14 @@ class OpenAIChatModel:
                 if response_id is None:
                     response_id = getattr(chunk, "id", None)
                 if chunk.usage:
-                    usage = ChatUsage(
+                    usage = TokenUsage(
                         input_tokens=chunk.usage.prompt_tokens,
                         output_tokens=chunk.usage.completion_tokens,
                         time=(datetime.now() - start_datetime).total_seconds(),
                     )
                 if not chunk.choices:
                     if usage and contents:
-                        yield ChatResponse(content=contents, usage=usage, id=response_id or "")
+                        yield LLMResponse(content=contents, usage=usage, id=response_id or "")
                     continue
 
                 choice = chunk.choices[0]
@@ -303,7 +303,7 @@ class OpenAIChatModel:
                     )
 
                 if contents:
-                    yield ChatResponse(content=contents, usage=usage, id=response_id or "")
+                    yield LLMResponse(content=contents, usage=usage, id=response_id or "")
 
     # ------------------------------------------------------------------
     #  Private: Parse completion response
@@ -313,8 +313,8 @@ class OpenAIChatModel:
         self,
         start_datetime: datetime,
         response: ChatCompletion,
-    ) -> ChatResponse:
-        """Parse a non-streaming chat completion into a ``ChatResponse``.
+    ) -> LLMResponse:
+        """Parse a non-streaming chat completion into a ``LLMResponse``.
 
         Args:
             start_datetime: The timestamp when the API call began.
@@ -322,7 +322,7 @@ class OpenAIChatModel:
                 client.
 
         Returns:
-            A single ``ChatResponse`` with all content blocks and usage.
+            A single ``LLMResponse`` with all content blocks and usage.
         """
         content_blocks: list = []
 
@@ -354,13 +354,13 @@ class OpenAIChatModel:
 
         usage = None
         if response.usage:
-            usage = ChatUsage(
+            usage = TokenUsage(
                 input_tokens=response.usage.prompt_tokens,
                 output_tokens=response.usage.completion_tokens,
                 time=(datetime.now() - start_datetime).total_seconds(),
             )
 
-        return ChatResponse(
+        return LLMResponse(
             content=content_blocks,
             usage=usage,
             id=getattr(response, "id", ""),

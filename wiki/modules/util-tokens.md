@@ -8,13 +8,13 @@ Token estimation for context budgeting and UI display:
 
 - `counter.py` — word-count based estimation of plain text and OpenAI-style
   message content (no external tokenizer).
-- `tracker.py` — per-session tracker that caches the system-prompt count and
-  computes session token/byte totals, with offloaded (async) variants.
+- `tracker.py` — per-chat tracker that caches the system-prompt count and
+  computes chat token/byte totals, with offloaded (async) variants.
 
 ## Deliverables
 
 - `count_tokens(text)`, `count_content_tokens(content)` (handles str / list-of-parts).
-- `SessionTokenTracker` with `sys_prompt_tokens`, `compute_total(messages)`,
+- `ChatTokenTracker` with `sys_prompt_tokens`, `compute_total(messages)`,
   `compute_bytes(messages)`, and async `compute_total_async` / `compute_bytes_async`.
 
 ## counter.py — Function Reference
@@ -38,13 +38,13 @@ Token estimation for context budgeting and UI display:
 
 ## tracker.py — Function Reference
 
-### `SessionTokenTracker`
+### `ChatTokenTracker`
 
 | | |
 |---|---|
 | Attributes | `sys_prompt_tokens` (`int`) — cached system-prompt estimate. |
 
-### `SessionTokenTracker.__init__`
+### `ChatTokenTracker.__init__`
 
 | | |
 |---|---|

@@ -15,9 +15,9 @@ from pathlib import Path
 import traceback
 from typing import cast
 
-from .chat import (
-    ChatResponse,
-    OpenAIChatModel,
+from .llm import (
+    LLMResponse,
+    OpenAIModel,
 )
 
 logger = logging.getLogger("procoo_qt")
@@ -37,7 +37,7 @@ class Agent:
     are ignored by the API).
 
     Attributes:
-        session_id: Unique identifier for this session.
+        chat_id: Unique identifier for this chat.
         event_queue: ``asyncio.Queue`` of UI events produced during generation.
         messages: Conversation history in OpenAI-compatible format with ``_``
             prefixed metadata keys (``reasoning_content`` on assistant, ``_mode`` on
@@ -49,7 +49,7 @@ class Agent:
 
     def __init__(
         self,
-        session_id: str,
+        chat_id: str,
         model: dict,
         primary_skill_contents: list[dict],
         secondary_skill_contents: list[dict],
@@ -60,12 +60,12 @@ class Agent:
         sampling_config: dict | None = None,
         initial_messages: list[dict] | None = None,
         summary_prompt: str = "",
-        session_limits: dict | None = None,
+        chat_limits: dict | None = None,
     ) -> None:
         """Initialise the agent.
 
         Args:
-            session_id: Unique session identifier.
+            chat_id: Unique chat identifier.
             model: LLM configuration dict (model_name, api_key, api_base).
             primary_skill_contents: List of skill-content dicts for primary skills.
             secondary_skill_contents: List of skill-content dicts for secondary skills.
@@ -76,14 +76,14 @@ class Agent:
             sampling_config: Optional LLM sampling parameters.
             initial_messages: Optional list of role/content dicts to seed
                 the conversation history with.
-            summary_prompt: Instruction used when summarizing an over-limit session.
-            session_limits: Optional ``{"max_bytes": int, "max_tokens": int}``
+            summary_prompt: Instruction used when summarizing an over-limit chat.
+            chat_limits: Optional ``{"max_bytes": int, "max_tokens": int}``
                 compaction limits (``0`` disables the corresponding limit).
         """
-        from ..util.log.formatter import log_session_skills
-        from ..util.tokens.tracker import SessionTokenTracker
+        from ..util.log.formatter import log_chat_skills
+        from ..util.tokens.tracker import ChatTokenTracker
 
-        self.session_id = session_id
+        self.chat_id = chat_id
         self.event_queue: asyncio.Queue = asyncio.Queue()
         self._pending_approvals: dict[str, asyncio.Queue] = {}
         self.messages: list[dict] = list(initial_messages) if initial_messages else []
@@ -109,14 +109,14 @@ class Agent:
         if secondary_skill_contents:
             self.sys_prompt += self._format_secondary_skills_prompt(secondary_skill_contents)
 
-        self._tokens = SessionTokenTracker(self.sys_prompt)
+        self._tokens = ChatTokenTracker(self.sys_prompt)
 
         _model = model or {}
         model_name = _model.get("model_name", "qwen2.5")
         api_key = _model.get("api_key", "ollama")
         api_base = _model.get("api_base", "http://localhost:11434/v1")
 
-        self._model = OpenAIChatModel(
+        self._model = OpenAIModel(
             model_name=model_name,
             api_key=api_key,
             client_kwargs={"base_url": api_base},
@@ -134,11 +134,11 @@ class Agent:
         self._estimated_bytes: int = 0
 
         self.summary_prompt = summary_prompt
-        limits = session_limits or {}
+        limits = chat_limits or {}
         self._max_bytes: int = int(limits.get("max_bytes", 0) or 0)
         self._max_tokens: int = int(limits.get("max_tokens", 0) or 0)
 
-        log_session_skills(self.primary_skills, self.secondary_skills, self._tool_defs)
+        log_chat_skills(self.primary_skills, self.secondary_skills, self._tool_defs)
 
     # ------------------------------------------------------------------
     #  Public: Configuration
@@ -284,10 +284,10 @@ class Agent:
 
             await self.refresh_estimated()
 
-            await self._emit_event({"type": "done", "session_id": self.session_id})
+            await self._emit_event({"type": "done", "chat_id": self.chat_id})
 
         except asyncio.CancelledError:
-            logger.warning("Agent[%s] cancelled by user", self.session_id)
+            logger.warning("Agent[%s] cancelled by user", self.chat_id)
             await self._emit_event(
                 {
                     "type": "error",
@@ -299,7 +299,7 @@ class Agent:
         except Exception as e:
             tb = traceback.format_exception(type(e), e, e.__traceback__)
             detail = "".join(tb)
-            logger.error("Agent[%s] error: %s", self.session_id, detail)
+            logger.error("Agent[%s] error: %s", self.chat_id, detail)
             await self._emit_event(
                 {
                     "type": "error",
@@ -487,7 +487,7 @@ class Agent:
                     last_usage = chunk.usage
                 await asyncio.sleep(0)
         else:
-            cr = cast(ChatResponse, res)
+            cr = cast(LLMResponse, res)
             tool_blocks = await self._process_blocks(cr.content)
             last_usage = cr.usage
 
@@ -587,11 +587,7 @@ class Agent:
             proc.kill()
             return f"Tool '{tool_name}' timed out after {td.get('timeout', 600)}s."
 
-        output = (
-            stdout.decode("utf-8", errors="replace")
-            .replace("\r\n", "\n")
-            .replace("\r", "\n")
-        )
+        output = stdout.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
         stderr_output = stderr.decode("utf-8", errors="replace").strip() if stderr else ""
         if proc.returncode is not None and proc.returncode != 0:
             err_detail = stderr_output or output.strip()
@@ -661,7 +657,7 @@ class Agent:
         )
         logger.info(
             "Agent[%s] injected media user message (%d images)",
-            self.session_id,
+            self.chat_id,
             len(media_list),
         )
 
@@ -695,7 +691,7 @@ class Agent:
         render argument streaming before execution begins.
 
         Args:
-            blocks: Content block dicts from ``ChatResponse.content``.
+            blocks: Content block dicts from ``LLMResponse.content``.
 
         Returns:
             Tool_use blocks found in this chunk (empty list if none).
@@ -827,7 +823,7 @@ class Agent:
     # ------------------------------------------------------------------
 
     async def refresh_estimated(self) -> None:
-        """Recompute cached session token and byte estimates (offloaded).
+        """Recompute cached chat token and byte estimates (offloaded).
 
         Runs the word-count total and JSON byte-size computations in a
         worker thread so the UI event loop never blocks.
@@ -835,8 +831,8 @@ class Agent:
         self._estimated_total = await self._tokens.compute_total_async(self.messages)
         self._estimated_bytes = await self._tokens.compute_bytes_async(self.messages)
 
-    def session_token_count(self) -> int:
-        """Return the canonical session token count.
+    def chat_token_count(self) -> int:
+        """Return the canonical chat token count.
 
         Uses the latest true API input-token count when available,
         otherwise falls back to the cached word-count estimate.
@@ -845,16 +841,16 @@ class Agent:
             return self.api_input_latest
         return self._estimated_total
 
-    def session_byte_size(self) -> int:
+    def chat_byte_size(self) -> int:
         """Return the cached JSON byte size of the message history."""
         return self._estimated_bytes
 
     # ------------------------------------------------------------------
-    #  Session compaction
+    #  Chat compaction
     # ------------------------------------------------------------------
 
     def check_limit_exceeded(self) -> dict | None:
-        """Return limit info when the session exceeds a configured limit.
+        """Return limit info when the chat exceeds a configured limit.
 
         Checks the JSON byte size against ``max_bytes`` and the token
         count against ``max_tokens``.  A limit of ``0`` disables that
@@ -864,11 +860,11 @@ class Agent:
             Dict with ``reason`` (``"bytes"``/``"tokens"``), ``bytes`` and
             ``tokens`` when exceeded, otherwise ``None``.
         """
-        tokens = self.session_token_count()
+        tokens = self.chat_token_count()
         if self._max_tokens and tokens > self._max_tokens:
-            return {"reason": "tokens", "bytes": self.session_byte_size(), "tokens": tokens}
-        if self._max_bytes and self.session_byte_size() > self._max_bytes:
-            return {"reason": "bytes", "bytes": self.session_byte_size(), "tokens": tokens}
+            return {"reason": "tokens", "bytes": self.chat_byte_size(), "tokens": tokens}
+        if self._max_bytes and self.chat_byte_size() > self._max_bytes:
+            return {"reason": "bytes", "bytes": self.chat_byte_size(), "tokens": tokens}
         return None
 
     async def summarize(self) -> str:
@@ -895,12 +891,12 @@ class Agent:
                             response_text = block.get("response", "") or response_text
                     await asyncio.sleep(0)
             else:
-                cr = cast(ChatResponse, res)
+                cr = cast(LLMResponse, res)
                 for block in cr.content:
                     if isinstance(block, dict) and block.get("type") == "response":
                         response_text = block.get("response", "") or response_text
         except Exception as e:
-            logger.error("Agent[%s] summarization failed: %s", self.session_id, e)
+            logger.error("Agent[%s] summarization failed: %s", self.chat_id, e)
 
         return response_text.strip()
 

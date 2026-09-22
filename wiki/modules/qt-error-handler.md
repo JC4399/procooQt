@@ -14,7 +14,7 @@ a short `brief` (shown in the toast) and a `detail` (logged).
 - Constants `TOAST_ERROR = "error"`, `TOAST_WARNING = "warning"`,
   `TOAST_INFO = "info"`.
 - `show_error` / `show_warning` — request a toast at the given level.
-- `handle_error(error, session=None)` — log and surface an exception.
+- `handle_error(error, chat=None)` — log and surface an exception.
 
 ## Steps / Flow
 
@@ -23,9 +23,9 @@ a short `brief` (shown in the toast) and a `detail` (logged).
 1. If `error` is a `ProcooError`: log `error.detail` at `ERROR` and toast
    `error.brief` at `TOAST_ERROR`.
 2. Otherwise: `logger.exception("Unhandled UI error")` and toast `str(error)`.
-3. If a `session` is given, push
+3. If a `chat` is given, push
    `{"type": "error", "brief": str(error), "detail": "", "category": "general"}`
-   onto `session.event_queue`.
+   onto `chat.event_queue`.
 
 ### ToastHost consumption (QML)
 
@@ -54,7 +54,7 @@ a short `brief` (shown in the toast) and a `detail` (logged).
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def handle_error(self, error: BaseException, session: Agent \| None = None) -> None` | `error` — exception; `session` — optional `Agent` | `None` | `ProcooError` → log `detail` + toast `brief`; else `logger.exception` + toast `str(error)`; then push to `session.event_queue` | Emits `toast_requested`; mutates `session.event_queue` when `session` is set |
+| `def handle_error(self, error: BaseException, chat: Agent \| None = None) -> None` | `error` — exception; `chat` — optional `Agent` | `None` | `ProcooError` → log `detail` + toast `brief`; else `logger.exception` + toast `str(error)`; then push to `session.event_queue` | Emits `toast_requested`; mutates `chat.event_queue` when `chat` is set |
 
 ### Signal and constants
 
@@ -67,5 +67,5 @@ a short `brief` (shown in the toast) and a `detail` (logged).
 
 ## See also
 
-- [qt-models](qt-models.md) — `SessionListModel` rows expose the same status
+- [qt-models](qt-models.md) — `ChatTabModel` rows expose the same status
   vocabulary the toast levels mirror.

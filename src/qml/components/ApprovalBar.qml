@@ -8,8 +8,11 @@ Rectangle {
     id: bar
 
     property bool resolving: false
+    property bool approvalVisible: false
+    property string approvalText: ""
+    property string chatId: ""
 
-    visible: chat.approvalVisible
+    visible: bar.approvalVisible
     implicitHeight: visible ? content.implicitHeight + 16 : 0
     color: Theme.colors.approvalBg
     border.color: Theme.colors.approvalBorder
@@ -58,7 +61,7 @@ Rectangle {
 
         Text {
             Layout.fillWidth: true
-            text: chat.approvalText
+            text: bar.approvalText
             color: Theme.colors.textPrimary
             font.family: Theme.fontMono
             font.pointSize: Theme.metrics.fontSizeBase
@@ -76,7 +79,7 @@ Rectangle {
                 enabled: !bar.resolving
                 onClicked: {
                     bar.resolving = true
-                    chat._handle_approve()
+                    chat._handle_approve_for(bar.chatId)
                 }
             }
 
@@ -85,7 +88,7 @@ Rectangle {
                 enabled: !bar.resolving
                 onClicked: {
                     bar.resolving = true
-                    chat._handle_deny(reasonField.text)
+                    chat._handle_deny_for(bar.chatId, reasonField.text)
                 }
             }
 

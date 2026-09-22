@@ -1,7 +1,7 @@
 """Context banner items and section formatters.
 
 Builders produce the context banner card and the section builders used by the chat
-and skill panels. Banners are derived UI items only: ``session.messages`` remains
+and skill panels. Banners are derived UI items only: ``chat.messages`` remains
 canonical. Builders return plain role-keyed dicts consumed by ``ChatListModel``; they
 never touch QML objects.
 """
@@ -99,7 +99,7 @@ def build_context_sections_from_snapshot(snapshot: dict) -> list[dict]:
     Only the full system prompt is emitted; no other snapshot fields follow.
 
     Args:
-        snapshot: A context snapshot dict as stored in session data.
+        snapshot: A context snapshot dict as stored in chat data.
 
     Returns:
         List of section dicts with ``header`` and ``content`` keys.

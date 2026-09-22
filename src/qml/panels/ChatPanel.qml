@@ -8,6 +8,22 @@ import "../cards"
 Rectangle {
     id: panel
 
+    // The ChatPanelModel supplied by the workspace, and this panel's index.
+    property var panelModel: null
+    property int panelIndex: 0
+
+    // Split-drop hint from the workspace: "" (none), "left", "right", or "move".
+    property string dropHint: ""
+
+    // Height of the tab bar region (used by the workspace to detect "move" drops).
+    readonly property real tabBarHeight: 30
+
+    signal openEditorRequested()
+    signal dragStarted(string chatId, string title, real sceneX, real sceneY)
+    signal dragMoved(real sceneX, real sceneY)
+    signal dragEnded(string chatId, real sceneX, real sceneY)
+    signal dragCanceled()
+
     color: Theme.colors.pageBg
     border.color: Theme.colors.borderDefault
     border.width: 1
@@ -48,10 +64,26 @@ Rectangle {
         spacing: 0
 
         // ----------------------------------------------------------
-        //  Active config bar
+        //  Chat tab bar
         // ----------------------------------------------------------
-        ActiveConfigBar {
+        ChatTabBar {
             Layout.fillWidth: true
+            panelIndex: panel.panelIndex
+            tabModel: panel.panelModel ? panel.panelModel.tabModel : null
+            onNewChatRequested: session._handle_new_chat(panel.panelIndex)
+            onTabClicked: function (chatId) {
+                session._handle_panel_activate(panel.panelIndex, chatId)
+            }
+            onDragStarted: function (chatId, title, sceneX, sceneY) {
+                panel.dragStarted(chatId, title, sceneX, sceneY)
+            }
+            onDragMoved: function (sceneX, sceneY) {
+                panel.dragMoved(sceneX, sceneY)
+            }
+            onDragEnded: function (chatId, sceneX, sceneY) {
+                panel.dragEnded(chatId, sceneX, sceneY)
+            }
+            onDragCanceled: panel.dragCanceled()
         }
 
         // ----------------------------------------------------------
@@ -60,6 +92,7 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.rightMargin: skillDock.railWidth
             color: Theme.colors.pageBg
             border.color: Theme.colors.chatBorder
             border.width: 1
@@ -151,7 +184,7 @@ Rectangle {
                     spacing: 6
 
                     Repeater {
-                        model: chat.activeModel
+                        model: panel.panelModel ? panel.panelModel.chatModel : null
 
                         delegate: Item {
                             width: chatColumn.width
@@ -259,7 +292,7 @@ Rectangle {
                 }
             }
 
-            // Shown while a session's transcript is being built. The opaque fill
+            // Shown while a chat's transcript is being built. The opaque fill
             // hides the partially-built list and the scanner keeps running until
             // the build finishes; on hide the view is pinned to the newest card.
             Rectangle {
@@ -268,10 +301,10 @@ Rectangle {
                 color: Theme.colors.pageBg
                 z: 30
 
-                // Hold briefly after the build finishes so short sessions show a
+                // Hold briefly after the build finishes so short chats show a
                 // clean scan instead of a one-frame flash.
                 property bool holdVisible: false
-                visible: chat.loading || holdVisible
+                visible: (panel.panelModel ? panel.panelModel.loading : false) || holdVisible
 
                 onVisibleChanged: {
                     if (visible) {
@@ -303,13 +336,24 @@ Rectangle {
         // ----------------------------------------------------------
         ApprovalBar {
             Layout.fillWidth: true
+            Layout.rightMargin: skillDock.railWidth
+            chatId: panel.panelModel ? panel.panelModel.activeChatId : ""
+            approvalVisible: panel.panelModel ? panel.panelModel.approvalVisible : false
+            approvalText: panel.panelModel ? panel.panelModel.approvalText : ""
         }
 
         // ----------------------------------------------------------
-        //  Token bar
+        //  Combined config + token bar (above the input)
         // ----------------------------------------------------------
-        TokenBar {
+        ConfigTokenBar {
             Layout.fillWidth: true
+            Layout.rightMargin: skillDock.railWidth
+            primaryCount: panel.panelModel ? panel.panelModel.primaryCount : 0
+            allowCount: panel.panelModel ? panel.panelModel.allowCount : 0
+            askCount: panel.panelModel ? panel.panelModel.askCount : 0
+            blockCount: panel.panelModel ? panel.panelModel.blockCount : 0
+            inputTokens: panel.panelModel ? panel.panelModel.inputTokens : 0
+            outputTokens: panel.panelModel ? panel.panelModel.outputTokens : 0
         }
 
         // ----------------------------------------------------------
@@ -317,7 +361,10 @@ Rectangle {
         // ----------------------------------------------------------
         RowLayout {
             Layout.fillWidth: true
-            Layout.margins: 8
+            Layout.leftMargin: 8
+            Layout.topMargin: 8
+            Layout.bottomMargin: 8
+            Layout.rightMargin: skillDock.railWidth + (8)
             spacing: 8
 
             ScrollView {
@@ -361,7 +408,7 @@ Rectangle {
                     width: inputScroll.availableWidth
                     placeholderText: qsTr("Type a message...")
                     wrapMode: TextArea.Wrap
-                    enabled: !chat.busy
+                    enabled: !(panel.panelModel && panel.panelModel.busy)
                     color: Theme.colors.inputText
                     placeholderTextColor: Theme.colors.textDisabled
                     font.family: Theme.fontMono
@@ -386,7 +433,7 @@ Rectangle {
 
                 ActionButton {
                     text: qsTr("Send")
-                    visible: !chat.busy
+                    visible: !(panel.panelModel && panel.panelModel.busy)
                     baseColor: Theme.colors.buttonPrimaryBg
                     labelColor: Theme.colors.buttonPrimaryFg
                     onClicked: panel.submit()
@@ -394,29 +441,65 @@ Rectangle {
 
                 ActionButton {
                     text: qsTr("Stop")
-                    visible: chat.busy
+                    visible: panel.panelModel ? panel.panelModel.busy : false
                     baseColor: Theme.colors.buttonPrimaryBg
                     labelColor: Theme.colors.buttonPrimaryFg
-                    onClicked: chat._handle_stop()
+                    onClicked: chat._handle_stop_for(panel.activeChatId())
                 }
 
                 ActionButton {
                     text: qsTr("Regenerate")
-                    visible: !chat.busy
-                    onClicked: chat._handle_regenerate()
+                    visible: !(panel.panelModel && panel.panelModel.busy)
+                    onClicked: chat._handle_regenerate_for(panel.activeChatId())
                 }
             }
         }
     }
 
     // ------------------------------------------------------------------
+    //  Split drop indicator
+    // ------------------------------------------------------------------
+
+    Rectangle {
+        id: splitOverlay
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        width: parent.width / 2
+        x: panel.dropHint === "left" ? 0 : parent.width / 2
+        z: 40
+        visible: panel.dropHint === "left" || panel.dropHint === "right"
+        color: Theme.colors.splitDropFill
+        border.color: Theme.colors.splitDropBorder
+        border.width: 1
+    }
+
+    // ------------------------------------------------------------------
+    //  Per-chat skill dock (collapsed by default; spans the panel body)
+    // ------------------------------------------------------------------
+
+    SkillDock {
+        id: skillDock
+        anchors.top: parent.top
+        anchors.topMargin: panel.tabBarHeight
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        z: 35
+        chatId: panel.activeChatId()
+        onOpenEditorRequested: panel.openEditorRequested()
+    }
+
+    // ------------------------------------------------------------------
     //  Input submission
     // ------------------------------------------------------------------
+
+    function activeChatId() {
+        return panel.panelModel ? panel.panelModel.activeChatId : ""
+    }
 
     function submit() {
         if (!input.text.trim())
             return
-        chat._handle_send(input.text)
+        chat._handle_send_for(panel.activeChatId(), input.text)
         input.text = ""
     }
 

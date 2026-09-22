@@ -1,20 +1,21 @@
-# qt.session_state — SessionState
+# qt.chat_state — ChatState
 
-Source: `src/qt/session_state.py`
+Source: `src/qt/chat_state.py`
 
 ## Purpose
 
-Per-session mutable UI state for the Procoo Qt UI. Each live session owns a
-`SessionState`, so several sessions can generate concurrently while the user
-switches between them. The state holds [`ChatListModel`](qt-chat-controller.md)
-row indices and small value objects — it never holds a QML object.
+Per-chat mutable UI state for the Procoo Qt UI. Each live chat owns a
+`ChatState`, so several chats can generate concurrently across split panels
+while the user switches between them. The state holds
+[`ChatListModel`](qt-chat-controller.md) row indices and small value objects — it
+never holds a QML object.
 
 ## Deliverables
 
 - `StreamingCardState` — tracking state for one streaming card
   (thinking or response).
-- `SessionState` — per-session state with a per-turn reset.
-- `SessionState.reset_turn()` — resets streaming, tool, token, and
+- `ChatState` — per-chat state with a per-turn reset.
+- `ChatState.reset_turn()` — resets streaming, tool, token, and
   render-tracking fields.
 
 ## `StreamingCardState`
@@ -30,13 +31,14 @@ row indices and small value objects — it never holds a QML object.
 |---|---|---|---|---|
 | `def reset(self) -> None` | — | `None` | `item_index = None`; `token_count = 0` | Clears the card tracking state |
 
-## `SessionState`
+## `ChatState`
 
 | Field | Type | Description |
 |---|---|---|
-| `session_id` | `str` | The session this state belongs to |
+| `chat_id` | `str` | The chat this state belongs to |
 | `generation_id` | `int` | Incremented per generation to detect stale tasks |
 | `is_busy` | `bool` | Whether a generation is currently running |
+| `is_loading` | `bool` | Whether the switch-rebuild overlay is showing |
 | `active_task` | `asyncio.Task \| None` | The running `Agent.run` task |
 | `approval_event` | `asyncio.Event \| None` | Set when the user resolves a pending approval |
 | `approval_text` | `str` | Prompt shown in the approval bar |
@@ -49,6 +51,8 @@ row indices and small value objects — it never holds a QML object.
 | `init_banner_displayed` | `bool` | Whether the initial context banner was shown |
 | `true_input_tokens` | `int` | Latest true input token count from `token_usage` |
 | `true_output_cum` | `int` | Cumulative true output token count |
+| `primary_count` | `int` | Primary skills selected for this chat |
+| `allow_count` / `ask_count` / `block_count` | `int` | Tool counts per mode |
 | `rendered_item_keys` | `list[str]` | Content hashes of the last rendered chat items |
 | `tool_call_indices` | `list[int]` | Row indices of rendered tool-call cards |
 | `last_rendered_thinking_text` | `str` | Last thinking text pushed to the model |
@@ -69,4 +73,4 @@ prefix sprawl on the controller.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def reset_turn(self) -> None` | — | `None` | reset `thinking`/`response` → clear `current_tool_calls`/`tool_results` → clear `pending_tool_info`/`approval_event`/`approval_text` → zero `true_input_tokens`/`true_output_cum` → clear `rendered_item_keys`/`tool_call_indices` → blank all `last_rendered_*` / `last_tok_counted_*` → zero the two timers | Called by [`ChatController._finalize_turn`](qt-chat-controller.md); does **not** touch `session_id`, `is_busy`, `generation_id`, `context_banners_data`, or `init_banner_displayed` |
+| `def reset_turn(self) -> None` | — | `None` | reset `thinking`/`response` → clear `current_tool_calls`/`tool_results` → clear `pending_tool_info`/`approval_event`/`approval_text` → zero `true_input_tokens`/`true_output_cum` → clear `rendered_item_keys`/`tool_call_indices` → blank all `last_rendered_*` / `last_tok_counted_*` → zero the two timers | Called by [`ChatController._finalize_turn`](qt-chat-controller.md); does **not** touch `chat_id`, `is_busy`, `generation_id`, `context_banners_data`, or `init_banner_displayed` |

@@ -15,8 +15,8 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
 
 - Module-level color constants grouped by UI region (backgrounds, text,
   accents, borders, buttons, bubbles, approval, context banner, chat border,
-  toasts, session status, cards, chips, tool-mode badges, toast, drag feedback,
-  resize handle, inputs).
+  toasts, chat status, cards, chips, tool-mode badges, toast, drag feedback,
+  split-drop, resize handle, inputs).
 - Sizing/font constants (`BUTTON_RADIUS`, `CARD_RADIUS`, `STATUS_DOT_RADIUS`,
   `CONTROL_INDICATOR_SIZE`, `CONTROL_INDICATOR_RADIUS`, `CONTROL_DOT_SIZE`,
   `FONT_MONO`, `FONT_SIZE_BASE`, `FONT_SIZE_MARKDOWN`, `LINE_HEIGHT_BODY`,
@@ -41,9 +41,10 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
 | Approval | `COLOR_APPROVAL_BG`, `COLOR_APPROVAL_BORDER` |
 | Context banner | `COLOR_CONTEXT_BANNER_BG/BORDER`, `COLOR_CONTEXT_BANNER_DELTA_BG/BORDER` |
 | Toasts | `COLOR_ERROR_SNACKBAR`, `COLOR_WARNING_SNACKBAR` |
-| Session status | `COLOR_SESSION_{SELECTED_BG,EMPTY,FINISHED,WAITING,ERROR,RUNNING,FLASH}` |
+| Chat status | `COLOR_CHAT_{SELECTED_BG,EMPTY,FINISHED,WAITING,ERROR,RUNNING,FLASH}` |
 | Cards | `COLOR_THINKING_*`, `COLOR_TOOL_CALL_*`, `COLOR_TOOL_RESULT_*`, `COLOR_CARD_HEADER_DIVIDER` |
-| Chips | `COLOR_CHIP_{PRIMARY,SECONDARY,ALLOW,ASK,BLOCK}_{BG,FG}` |
+| Chips | `COLOR_CHIP_{PRIMARY,SECONDARY,ALLOW,ASK,BLOCK}_{BG,FG}` + `COLOR_CHIP_{PRIMARY,ALLOW,ASK,BLOCK}_FG_MUTED` for the config/token readout |
+| Drag / split | `COLOR_DRAG_FEEDBACK_BG/BORDER`, `COLOR_DRAG_ICON`, `COLOR_SPLIT_DROP_FILL/BORDER` |
 | Tool modes | `COLOR_TOOL_MODE_{ALLOW,ASK,BLOCK,DEFAULT}_{BG,FG}` |
 | Markdown | `COLOR_MD_TEXT` (#eeeeee), `_HEADING`, `_BOLD`, `_ITALIC`, `_CODE`, `_LINK`, `_LIST_MARKER`, `_LIST_NUMBER`, `_QUOTE`, `_RULE` |
 | Inputs | `INPUT_BORDER_COLOR`, `INPUT_FOCUSED_BORDER_COLOR`, `INPUT_FILL_COLOR`, `INPUT_CURSOR_COLOR`, `INPUT_TEXT_COLOR` |
@@ -60,7 +61,7 @@ so Python and QML agree on one vocabulary:
 
 ```python
 COLORS["pageBg"]              # "#0d1117"
-COLORS["sessionWaiting"]      # COLOR_ACCENT_AMBER
+COLORS["chatWaiting"]         # COLOR_ACCENT_AMBER
 METRICS["cardRadius"]         # 0
 METRICS["fontSizeBase"]       # 12
 METRICS["fontSizeMarkdown"]   # 12

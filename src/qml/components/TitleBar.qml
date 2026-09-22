@@ -55,15 +55,10 @@ Rectangle {
         smooth: true
     }
 
-    Text {
-        anchors.centerIn: parent
-        text: titleBar.title
-        color: Theme.colors.textPrimary
-        font.family: Theme.fontMono
-        font.pointSize: Theme.metrics.fontSizeBase
-        horizontalAlignment: Text.AlignHCenter
-        elide: Text.ElideRight
-        width: Math.max(0, titleBar.width - 2 * controls.width)
+    SessionSelector {
+        id: sessionSelector
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.verticalCenter: parent.verticalCenter
     }
 
     Row {

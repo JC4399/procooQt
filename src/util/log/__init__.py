@@ -1,1 +1,1 @@
-"""Logging utilities — ANSI-coloured formatting and session logging."""
+"""Logging utilities — ANSI-coloured formatting and chat logging."""

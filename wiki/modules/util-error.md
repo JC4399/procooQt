@@ -12,7 +12,7 @@ the terminal). If only one is supplied, the other defaults to it, so
 ## Deliverables
 
 - `ProcooError` base class + four subclasses (`ConfigError`, `AgentError`,
-  `ToolError`, `SessionError`), each tagged with a `category` string.
+  `ToolError`, `ChatError`), each tagged with a `category` string.
 - Instances that carry `.brief`, `.detail`, and `.category` attributes.
 
 ## Function Reference
@@ -40,4 +40,4 @@ the terminal). If only one is supplied, the other defaults to it, so
 | `ConfigError` | `"config"` | a required config key is missing/invalid |
 | `AgentError` | `"agent"` | the LLM agent fails during generation |
 | `ToolError` | `"tool"` | a tool cannot be loaded/executed |
-| `SessionError` | `"session"` | a session operation fails |
+| `ChatError` | `"chat"` | a chat operation fails |

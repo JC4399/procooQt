@@ -2,7 +2,7 @@
 
 How one user message becomes a streamed assistant response (with tools).
 
-Related: [`session-agent`](../modules/session-agent.md), [`session-chat`](../modules/session-chat.md), [`qt-chat-controller`](../modules/qt-chat-controller.md).
+Related: [`chat-agent`](../modules/chat-agent.md), [`chat-llm`](../modules/chat-llm.md), [`qt-chat-controller`](../modules/qt-chat-controller.md).
 
 ## Sequence
 
@@ -10,22 +10,22 @@ Related: [`session-agent`](../modules/session-agent.md), [`session-chat`](../mod
 user types / presses Enter (ChatPanel.qml)
    │
    ▼
-ChatPanel.submit → chat._handle_send(text)          [ChatController @Slot(str)]
-   │  validate non-empty + active session + not busy
-   │  _append_user_message(text) → model.append_item (optimistic row)
+ChatPanel.submit → chat._handle_send_for(chat_id, text)   [ChatController @Slot]
+   │  validate non-empty + active chat + not busy
+   │  _append_user_message(chat_id, text) → model.append_item (optimistic row)
    ▼
-_launch_generation(message)
+_launch_generation(chat_id, message)
    │  state.is_busy=True, generation_id++
    │  _append_waiting_placeholder → model.append_item (w:pending scanner)
    │  _spawn(_run_chat_loop)
    ▼
-_run_chat_loop(message, gen_id, session_id)
-   │  _hydrate_phase → session._hydrate_session (build/restore Agent)
-   │  task = ensure_future(session.run(message))
+_run_chat_loop(message, gen_id, chat_id)
+   │  _hydrate_phase → session._hydrate_chat (build/restore Agent)
+   │  task = ensure_future(chat.run(message))
    │  await sleep(0) → rebuild (reconciles; scanner already visible)
-   │  await _consume_events(session, session_id, state, task)
+   │  await _consume_events(chat, chat_id, state, task)
    ▼
-Agent.run(message)  [src/session/agent.py]
+Agent.run(message)  [src/chat/agent.py]
    │  flush _pending_sys_message (skill delta) as system msg
    │  append user msg
    ▼
@@ -62,9 +62,9 @@ _resolve_tool_calls ───────────┘
 3. **tool_result** — appended to `state.tool_results`; `_swap_pending_result_card`
    replaces the pending card in place.
 4. **token_usage** — `state.true_input_tokens` / `state.true_output_cum`
-   update; `_update_token_bar` refreshes the QML `TokenBar`.
+   update; the panel's `ConfigTokenBar` (via `ChatPanelModel`) refreshes.
 5. **done / error** — break out of the loop.
-6. `finally: _finalize_turn` — rebuild the chat display, save the session,
+6. `finally: _finalize_turn` — rebuild the chat display, save the chat,
    reset per-turn tracking, and update the Send/Stop buttons.
 
 `_launch_generation` appends the pre-response scanner immediately: right after
@@ -80,7 +80,7 @@ append the user message), which reconciles because
 while waiting. The first `thinking`/`message`/`tool_call_streaming` card diverges
 at that index and replaces the scanner via `ChatListModel.diff_update`.
 
-The drain loop uses `await asyncio.wait_for(session.event_queue.get(), 0.1)`
+The drain loop uses `await asyncio.wait_for(chat.event_queue.get(), 0.1)`
 so it also exits once the `Agent.run` task is done and the queue is empty.
 
 ## Live rendering (`_render_active_event` / `_update_live_assistant`)
@@ -107,7 +107,7 @@ divergence only.
 
 ## Compaction handoff
 
-After `_finalize_turn`, if `session.check_limit_exceeded()` reports a breach,
-`ChatController._compact_session` summarizes the session
-(`Agent.summarize`) and creates a fresh session seeded with the summary
-(`_create_compacted_session`), then switches to it.
+After `_finalize_turn`, if `chat.check_limit_exceeded()` reports a breach,
+`ChatController._compact_chat` summarizes the chat
+(`Agent.summarize`) and creates a fresh chat seeded with the summary
+(`_create_compacted_chat`), then opens it in the source chat's panel.

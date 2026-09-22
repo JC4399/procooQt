@@ -9,7 +9,7 @@ from ..qt_roles import ChatRole, role_names
 
 
 class ChatListModel(ListModel):
-    """Incremental list model of chat items for one session.
+    """Incremental list model of chat items for one chat.
 
     Attributes:
         roles: Chat role mapping (inherited).

@@ -260,8 +260,8 @@ SplitView {
                     text: conflictDialog.kind === "deleted"
                           ? qsTr("Remove file")
                           : qsTr("Discard & reload")
-                    baseColor: Theme.colors.accentRed
-                    labelColor: Theme.colors.pageBg
+                    baseColor: Theme.colors.buttonPrimaryBg
+                    labelColor: Theme.colors.buttonPrimaryFg
                     onClicked: {
                         editor._handle_conflict_discard()
                         conflictDialog.close()

@@ -1,23 +1,23 @@
-# session.chat — OpenAIChatModel & response types
+# chat.llm — OpenAIModel & response types
 
-Source: `procooQt/src/session/chat.py`
+Source: `src/chat/llm.py`
 
 ## Purpose
 
 OpenAI-compatible chat communication layer: response dataclasses
-(`ChatUsage`, `ChatResponse`), JSON-repair helpers, and an
-`OpenAIChatModel` client with streaming support.
+(`TokenUsage`, `LLMResponse`), JSON-repair helpers, and an
+`OpenAIModel` client with streaming support.
 
 ## Deliverables
 
-- `ChatUsage` (input/output tokens + timing).
-- `ChatResponse` (content blocks + id + usage).
-- `OpenAIChatModel` — `AsyncClient` wrapper returning either a single
-  `ChatResponse` or an `AsyncGenerator[ChatResponse]`.
+- `TokenUsage` (input/output tokens + timing).
+- `LLMResponse` (content blocks + id + usage).
+- `OpenAIModel` — `AsyncClient` wrapper returning either a single
+  `LLMResponse` or an `AsyncGenerator[LLMResponse]`.
 
 ## Content block format
 
-`ChatResponse.content` is a list of block dicts with a `type` key:
+`LLMResponse.content` is a list of block dicts with a `type` key:
 
 | Type | Fields | Produced from |
 |---|---|---|
@@ -31,17 +31,17 @@ OpenAI-compatible chat communication layer: response dataclasses
 
 1. Accumulate `thinking`, `text`, and `tool_calls` (by index) across chunks.
 2. Capture `usage` from the final chunk (`stream_options.include_usage`).
-3. Build content blocks per chunk and `yield ChatResponse`.
+3. Build content blocks per chunk and `yield LLMResponse`.
 
 ### Non-streaming (`_parse_completion_response`)
 
 1. Read `reasoning`/`reasoning_content`, `content`, and `tool_calls`.
 2. Repair tool-call arguments with `_json_loads_with_repair`.
-3. Return a single `ChatResponse` with usage.
+3. Return a single `LLMResponse` with usage.
 
 ## Function Reference
 
-### `ChatUsage`
+### `TokenUsage`
 
 | Field | Type | Description |
 |---|---|---|
@@ -49,16 +49,16 @@ OpenAI-compatible chat communication layer: response dataclasses
 | `output_tokens` | `int` | completion tokens |
 | `time` | `float` | wall-clock seconds |
 
-### `ChatResponse`
+### `LLMResponse`
 
 | Field | Type | Description |
 |---|---|---|
 | `content` | `list[dict]` | content blocks |
 | `id` | `str` | UUID hex (default) |
-| `usage` | `ChatUsage \| None` | optional usage |
+| `usage` | `TokenUsage \| None` | optional usage |
 | `metadata` | `dict \| None` | optional |
 
-### `OpenAIChatModel.__init__`
+### `OpenAIModel.__init__`
 
 | | |
 |---|---|
@@ -67,13 +67,13 @@ OpenAI-compatible chat communication layer: response dataclasses
 | Output | `None` |
 | Side effects | builds `openai.AsyncClient`. |
 
-### `OpenAIChatModel.__call__`
+### `OpenAIModel.__call__`
 
 | | |
 |---|---|
-| Signature | `async def __call__(self, messages, tools=None, tool_choice=None, **kwargs) -> ChatResponse \| AsyncGenerator[ChatResponse]` |
+| Signature | `async def __call__(self, messages, tools=None, tool_choice=None, **kwargs) -> LLMResponse \| AsyncGenerator[LLMResponse]` |
 | Inputs | `messages` — OpenAI message dicts; `tools` — tool schemas; `tool_choice` — `auto`/`none`/`required`/function name; `**kwargs` — extra API args. |
-| Output | `ChatResponse` (non-stream) or `AsyncGenerator` (stream). |
+| Output | `LLMResponse` (non-stream) or `AsyncGenerator` (stream). |
 | Flow | validate messages → build `api_kwargs` → add tools/tool_choice/stream_options → `client.chat.completions.create` → parse. |
 | Raises | `ValueError` if messages not a list or missing `role`/`content`. |
 

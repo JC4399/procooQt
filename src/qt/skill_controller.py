@@ -3,7 +3,7 @@
 Owns the skill tree and tool-mode models: the right sidebar's primary/secondary
 checkboxes, per-tool allow/ask/block modes, preset load/save/delete, search filtering,
 the active-config chip bar, and the config-sync flow that pushes selections to the
-live session and appends a delta context banner.
+live chat and appends a delta context banner.
 
 The skill watcher runs on a ``watchdog`` background thread. Its callback only emits
 :attr:`skill_files_changed`; the connected slot runs queued on the GUI thread and
@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
-from ..session.manager import session_manager
+from ..chat.manager import chat_manager
 from ..util.log.formatter import (
     format_preset_delete,
     format_preset_load,
@@ -84,7 +84,8 @@ class SkillController(QObject):
         _config_chips: list[dict[str, str]]
         _search_text: str
         _preset_name: str
-        _loading_session_config: bool
+        _loading_chat_config: bool
+        _sidebar_chat_id: str
         _tasks: set[asyncio.Task[Any]]
 
         # Attributes provided by other controllers (composition)
@@ -93,7 +94,7 @@ class SkillController(QObject):
         session: SessionController
 
         # Cross-controller method stubs
-        def rebuild_chat_display(self, session_id: str) -> None: ...
+        def rebuild_chat_display(self, chat_id: str) -> None: ...
 
     # ------------------------------------------------------------------
     #  Setup
@@ -123,7 +124,8 @@ class SkillController(QObject):
         self._config_chips = []
         self._search_text = ""
         self._preset_name = ""
-        self._loading_session_config = False
+        self._loading_chat_config = False
+        self._sidebar_chat_id = ""
         self.skill_files_changed.connect(self._handle_skill_files_changed)
         self._refresh_presets(emit=False)
         self._rebuild_skill_sidebar()
@@ -165,7 +167,7 @@ class SkillController(QObject):
         """Return the active-config chip list.
 
         Returns:
-            List of ``{"label", "bg", "fg"}`` chip dicts for the active session.
+            List of ``{"label", "bg", "fg"}`` chip dicts for the active chat.
         """
         return self._config_chips
 
@@ -198,34 +200,38 @@ class SkillController(QObject):
 
     @Slot()
     def start(self) -> None:
-        """Start watching the skills directory and load the active session config."""
+        """Start watching the skills directory and load the active chat config."""
         self.app.skill_manager.start_watching(self._on_skill_files_changed)
-        session_id = self.session.active_session_id
-        if session_id:
-            self._handle_session_activated(session_id)
+        chat_id = self.session.active_chat_id
+        if chat_id:
+            self._handle_chat_activated(chat_id)
 
     # ------------------------------------------------------------------
-    #  Slot: Session activated
+    #  Slot: Chat activated
     # ------------------------------------------------------------------
 
     @Slot(str)
-    def _handle_session_activated(self, session_id: str) -> None:
-        """Load a newly activated session's skill/tool config into the sidebar.
+    def _handle_chat_activated(self, chat_id: str) -> None:
+        """Load a newly activated chat's skill/tool config into the sidebar.
+
+        The chat becomes the target for subsequent config-sync writes, so edits
+        made in a panel's skill dock apply to that panel's own chat.
 
         Args:
-            session_id: The newly active session id (empty when none).
+            chat_id: The newly active chat id (empty when none).
         """
-        if not session_id:
-            self._loading_session_config = True
+        self._sidebar_chat_id = chat_id or ""
+        if not chat_id:
+            self._loading_chat_config = True
             try:
                 self._skill_model.apply_selection(set(), set())
                 self._apply_tool_modes({})
             finally:
-                self._loading_session_config = False
+                self._loading_chat_config = False
             self._refresh_tool_model()
             self._update_config_chips()
             return
-        self._load_config_into_sidebar(session_id)
+        self._load_config_into_sidebar(chat_id)
 
     # ------------------------------------------------------------------
     #  Slot: Search
@@ -263,7 +269,7 @@ class SkillController(QObject):
         self._skill_model.set_selection(path, kind, checked)
         self._refresh_tool_model()
         self.skills_changed.emit()
-        if self._loading_session_config:
+        if self._loading_chat_config:
             return
         display = self.app.skill_manager.path_to_display_name(path)
         logger.info("%s", format_skill_change(display, kind, checked))
@@ -286,7 +292,7 @@ class SkillController(QObject):
         self._tool_modes[tool_name] = mode
         self._tool_model.set_mode(tool_name, mode)
         logger.info("%s", format_tool_change(tool_name, mode))
-        if self._loading_session_config:
+        if self._loading_chat_config:
             return
         self._schedule_sync()
 
@@ -345,12 +351,12 @@ class SkillController(QObject):
             name: The preset to load; an empty name clears all selections.
         """
         if not name:
-            self._loading_session_config = True
+            self._loading_chat_config = True
             try:
                 self._skill_model.apply_selection(set(), set())
                 self._apply_tool_modes({})
             finally:
-                self._loading_session_config = False
+                self._loading_chat_config = False
             self._refresh_tool_model()
             self._update_config_chips()
             self.toast_requested.emit("Preset selections cleared.", TOAST_INFO)
@@ -372,12 +378,12 @@ class SkillController(QObject):
                 tools,
             ),
         )
-        self._loading_session_config = True
+        self._loading_chat_config = True
         try:
             self._skill_model.apply_selection(primary, secondary)
             self._apply_tool_modes(tools)
         finally:
-            self._loading_session_config = False
+            self._loading_chat_config = False
         self._refresh_tool_model()
         self._update_config_chips()
         self._schedule_sync()
@@ -423,7 +429,7 @@ class SkillController(QObject):
         return dict(self._tool_modes)
 
     def _collect_sidebar_config(self) -> dict[str, Any]:
-        """Collect the sidebar selections into a session config dict.
+        """Collect the sidebar selections into a chat config dict.
 
         Returns:
             Dict with ``primary``, ``secondary``, and ``tools`` (tool config for
@@ -440,12 +446,12 @@ class SkillController(QObject):
         }
 
     # ------------------------------------------------------------------
-    #  Sync: config to session
+    #  Sync: config to chat
     # ------------------------------------------------------------------
 
     def _schedule_sync(self) -> None:
         """Schedule the config-sync coroutine on the running event loop."""
-        self._spawn(self._sync_config_to_session())
+        self._spawn(self._sync_config_to_chat())
 
     def _spawn(self, coro: Coroutine[Any, Any, Any]) -> None:
         """Schedule a coroutine and keep a reference until it completes.
@@ -471,68 +477,69 @@ class SkillController(QObject):
         if error is not None:
             logger.error("Skill background task failed: %s", error)
 
-    async def _sync_config_to_session(self) -> None:
-        """Synchronise sidebar selections to the active session.
+    async def _sync_config_to_chat(self) -> None:
+        """Synchronise sidebar selections to the active chat.
 
         Persists the config, refreshes the chip bar, pushes the config to the live
-        session, surfaces warnings, appends a delta context banner, and rebuilds the
+        chat, surfaces warnings, appends a delta context banner, and rebuilds the
         active chat display.
         """
-        if self._loading_session_config:
+        if self._loading_chat_config:
             return
-        session_id = self.session.active_session_id
-        if not session_id:
+        chat_id = self._sidebar_chat_id
+        if not chat_id:
             return
         config = self._collect_sidebar_config()
-        old_tool_config = self._persist_config(session_id, config)
+        old_tool_config = self._persist_config(chat_id, config)
         self._update_config_chips()
-        await self._apply_live_config(session_id, config, old_tool_config)
+        self._publish_config_summary(chat_id, config)
+        await self._apply_live_config(chat_id, config, old_tool_config)
 
-    def _persist_config(self, session_id: str, config: dict[str, Any]) -> dict[str, str]:
-        """Persist the sidebar config to the session store.
+    def _persist_config(self, chat_id: str, config: dict[str, Any]) -> dict[str, str]:
+        """Persist the sidebar config to the chat store.
 
         Args:
-            session_id: The active session id.
+            chat_id: The active chat id.
             config: The collected ``{primary, secondary, tools}`` config.
 
         Returns:
             The previous tool-mode mapping, used to compute mode changes.
         """
-        stored = self.app.session_store.load_session(session_id)
+        stored = self.app.chat_store.load_chat(chat_id)
         if not stored:
             return {}
         old_tool_config = stored.get("skills_config", {}).get("tools", {})
         stored["skills_config"] = config
-        self.app.session_store.save_session(session_id, stored)
+        self.app.chat_store.save_chat(chat_id, stored)
         return old_tool_config
 
     async def _apply_live_config(
         self,
-        session_id: str,
+        chat_id: str,
         config: dict[str, Any],
         old_tool_config: dict[str, str],
     ) -> None:
-        """Push the config to the live session and append a delta banner.
+        """Push the config to the live chat and append a delta banner.
 
         Args:
-            session_id: The active session id.
+            chat_id: The active chat id.
             config: The collected config dict.
             old_tool_config: The previous tool-mode mapping.
         """
-        if session_manager.get_session(session_id) is None:
+        if chat_manager.get_chat(chat_id) is None:
             return
         primary, secondary, tool_defs, tool_config = await asyncio.to_thread(
             self._load_config_payloads, config
         )
-        result = session_manager.update_session_config(
-            session_id, primary, secondary, tool_defs, tool_config
+        result = chat_manager.update_chat_config(
+            chat_id, primary, secondary, tool_defs, tool_config
         )
         for warning in result.get("warnings", []):
             self.toast_requested.emit(warning, TOAST_WARNING)
         self._append_delta_banner(
-            session_id, config, old_tool_config, result, primary, secondary, tool_defs
+            chat_id, config, old_tool_config, result, primary, secondary, tool_defs
         )
-        self.chat.rebuild_chat_display(session_id)
+        self.chat.rebuild_chat_display(chat_id)
 
     def _load_config_payloads(
         self, config: dict[str, Any]
@@ -555,7 +562,7 @@ class SkillController(QObject):
 
     def _append_delta_banner(
         self,
-        session_id: str,
+        chat_id: str,
         config: dict[str, Any],
         old_tool_config: dict[str, str],
         result: dict[str, Any],
@@ -563,13 +570,13 @@ class SkillController(QObject):
         secondary: list[dict],
         tool_defs: list[dict],
     ) -> None:
-        """Append the latest delta context banner to the session state.
+        """Append the latest delta context banner to the chat state.
 
         Args:
-            session_id: The active session id.
+            chat_id: The active chat id.
             config: The collected config dict.
             old_tool_config: The previous tool-mode mapping.
-            result: The ``update_session_config`` result dict.
+            result: The ``update_chat_config`` result dict.
             primary: Loaded primary skill contents.
             secondary: Loaded secondary skill contents.
             tool_defs: Loaded tool definitions.
@@ -586,7 +593,7 @@ class SkillController(QObject):
             if old_mode and old_mode != new_mode:
                 mode_changes[tool_name] = (old_mode, new_mode)
 
-        state = self.session.state(session_id)
+        state = self.session.state(chat_id)
         if state.context_banners_data and state.context_banners_data[-1].get("is_delta"):
             state.context_banners_data.pop()
         if added_primary or added_secondary or added_tools or mode_changes:
@@ -606,27 +613,45 @@ class SkillController(QObject):
     #  State: sidebar / models
     # ------------------------------------------------------------------
 
-    def _load_config_into_sidebar(self, session_id: str) -> None:
-        """Load a session's saved skill/tool config into the sidebar.
+    def _load_config_into_sidebar(self, chat_id: str) -> None:
+        """Load a chat's saved skill/tool config into the sidebar.
 
         Args:
-            session_id: The session id whose config to load.
+            chat_id: The chat id whose config to load.
         """
-        stored = self.app.session_store.load_session(session_id)
+        stored = self.app.chat_store.load_chat(chat_id)
         if not stored:
             return
         config = stored.get("skills_config", {})
         primary = set(config.get("primary", []))
         secondary = set(config.get("secondary", []))
         tools = config.get("tools", {})
-        self._loading_session_config = True
+        self._loading_chat_config = True
         try:
             self._skill_model.apply_selection(primary, secondary)
             self._apply_tool_modes(tools)
         finally:
-            self._loading_session_config = False
+            self._loading_chat_config = False
         self._refresh_tool_model()
         self._update_config_chips()
+        self._publish_config_summary(chat_id, config)
+
+    def _publish_config_summary(self, chat_id: str, config: dict[str, Any]) -> None:
+        """Publish a chat's skill/tool counts to its UI state and panel.
+
+        Args:
+            chat_id: The chat whose counts to publish.
+            config: A ``{primary, secondary, tools}`` config dict.
+        """
+        if not chat_id:
+            return
+        tools = config.get("tools", {}) or {}
+        state = self.session.state(chat_id)
+        state.primary_count = len(config.get("primary", []) or [])
+        state.allow_count = sum(1 for mode in tools.values() if mode == "allow")
+        state.ask_count = sum(1 for mode in tools.values() if mode == "ask")
+        state.block_count = sum(1 for mode in tools.values() if mode == "block")
+        self.session.refresh_chat_panels(chat_id)
 
     def _rebuild_skill_sidebar(self) -> None:
         """Rebuild the skill tree and tool model from refreshed manager data.

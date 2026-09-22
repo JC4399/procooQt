@@ -2,7 +2,7 @@
 
 How a tool call's permission mode (`allow` / `ask` / `block`) is resolved.
 
-Related: [`session-agent`](../modules/session-agent.md), [`qt-chat-controller`](../modules/qt-chat-controller.md), [`qt-session-state`](../modules/qt-session-state.md).
+Related: [`chat-agent`](../modules/chat-agent.md), [`qt-chat-controller`](../modules/qt-chat-controller.md), [`qt-chat-state`](../modules/qt-chat-state.md).
 
 ## Mode semantics
 
@@ -22,7 +22,7 @@ Agent._resolve_tool_calls
 ChatController._consume_events receives "tool_call"
    │  if mode == "ask":
    ▼
-_handle_approval(session_id, event, state)
+_handle_approval(chat_id, event, state)
    │  state.approval_event = asyncio.Event()
    │  state.pending_tool_info = event
    │  state.approval_text = f"Approve {name}?"
@@ -32,12 +32,12 @@ _handle_approval(session_id, event, state)
    ▼
 user clicks Approve / Deny / Stop (ApprovalBar.qml / ChatPanel.qml)
    │
-   ├─ chat._handle_approve    → _approve → session.approve_tool(id)
-   │                                       + state.approval_event.set()
-   ├─ chat._handle_deny(text) → _deny    → session.deny_tool(id, reason)
-   │                                       + state.approval_event.set()
-   └─ chat._handle_stop       → _stop_generation → session.deny_tool(id)
-                                       + event.set() + active_task.cancel()
+    ├─ chat._handle_approve_for(chat_id)      → _approve → chat.approve_tool(id)
+    │                                            + state.approval_event.set()
+    ├─ chat._handle_deny_for(chat_id, text)   → _deny    → chat.deny_tool(id, reason)
+    │                                            + state.approval_event.set()
+    └─ chat._handle_stop_for(chat_id)         → _stop_generation → chat.deny_tool(id)
+                                         + event.set() + active_task.cancel()
    │
    ▼  event.set() releases _handle_approval
    │
@@ -67,8 +67,8 @@ pending at once.
 ## Key structures
 
 - `Agent._pending_approvals: dict[str, asyncio.Queue]` — tool_id → queue.
-- `SessionState.approval_event: asyncio.Event` — gates the consume loop.
-- `SessionState.pending_tool_info: dict` — the awaiting tool_call event.
-- `SessionState.approval_text: str` — prompt shown in the approval bar.
-- `ChatController.approvalVisible` / `approvalText` — QML-bound properties
-  backed by `approval_visibility_changed`.
+- `ChatState.approval_event: asyncio.Event` — gates the consume loop.
+- `ChatState.pending_tool_info: dict` — the awaiting tool_call event.
+- `ChatState.approval_text: str` — prompt shown in the approval bar.
+- `ChatPanelModel.approvalVisible` / `approvalText` — per-panel QML-bound
+  properties backed by `ChatController.chat_state_changed`.
