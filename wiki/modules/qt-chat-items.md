@@ -114,12 +114,14 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 
 ## Body HTML generation
 
-1. **User / tool result** — `_plain_body` escapes the text with `html.escape`
-   and wraps it in
+1. **User / tool result** — `_plain_body` normalises CR/CRLF newlines to LF,
+   escapes the text with `html.escape`, and wraps it in
    `<pre style="white-space:pre-wrap;margin:0;font-family:Sarasa Fixed TC;line-height:125%">`
    (the `font-family` keeps Qt's `<pre>` from substituting its system monospace
    font, matching `Theme.fontMono`; `line-height` comes from
-   `Theme.LINE_HEIGHT_BODY` so plain text matches markdown leading).
+   `Theme.LINE_HEIGHT_BODY` so plain text matches markdown leading). The LF
+   normalisation is required because Qt's rich-text `<pre>` renders each `\r`
+   as an extra line break, which would double-space Windows tool output.
 2. **Thinking / response** — `render_markdown` returns sanitized, inline-styled
    HTML for a QML `TextEdit.RichText` (terminal-style colours, CSS bordered
    tables, clickable links; see [`qt-markdown`](qt-markdown.md)).
@@ -135,7 +137,7 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 | `make_item(kind, *, title="", body_html="", token_text="", collapsed=False, is_pending=False, mode="", tool_name="", tool_call_id="", sections="", is_delta=False) -> dict[int, object]` | `kind` — `KIND_*`; `title`/`body_html`/`token_text` — header and body; `collapsed`/`is_pending` — defaults; `mode`/`tool_name`/`tool_call_id`/`sections`/`is_delta` — tool and banner fields | role-keyed dict (`int(ChatRole.*)` → value) | Maps every argument onto its `ChatRole` key | None |
 | `_card_item(kind, *, title, body_html="", token_count=0, is_pending=False, mode="", tool_name="", tool_call_id="") -> dict[int, object]` | Card fields with a raw `token_count` | role-keyed dict | Calls `make_item` with `token_text=_token_text(token_count)` | None |
 | `_token_text(token_count: int) -> str` | `token_count` | `"42 tk"` | f-string format | None |
-| `_plain_body(text: str) -> str` | `text` | escaped `<pre>` block | `html.escape` into `<pre style="white-space:pre-wrap;margin:0;font-family:…;line-height:125%">` | None |
+| `_plain_body(text: str) -> str` | `text` | escaped `<pre>` block | Normalise CR/CRLF → LF, then `html.escape` into `<pre style="white-space:pre-wrap;margin:0;font-family:…;line-height:125%">` | None |
 
 ### Item builders
 

@@ -67,7 +67,7 @@ while True:
 2. `create_subprocess_exec(tool_python, script_path, stdin=PIPE, ...)`.
 3. `communicate(args_json)` with timeout.
 4. On timeout → kill, return timeout message; non-zero exit → error message;
-   else stdout (+ stderr appended).
+   else stdout (+ stderr appended). Decoded stdout has CR/CRLF normalised to LF.
 
 Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 
@@ -106,8 +106,8 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 |---|---|
 | Signature | `async def run_tool(self, tool_name: str, tool_args: dict \| list) -> str` |
 | Inputs | `tool_name` — registered tool name; `tool_args` — JSON args (stdin). |
-| Output | stdout string, or error/timeout message. |
-| Flow | resolve venv → subprocess → `communicate` with timeout → decode → error handling. |
+| Output | stdout string (CR/CRLF normalised to LF), or error/timeout message. |
+| Flow | resolve venv → subprocess → `communicate` with timeout → decode + LF-normalise → error handling. |
 
 ### `approve_tool` / `deny_tool`
 

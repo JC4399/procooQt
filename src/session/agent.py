@@ -587,7 +587,11 @@ class Agent:
             proc.kill()
             return f"Tool '{tool_name}' timed out after {td.get('timeout', 600)}s."
 
-        output = stdout.decode("utf-8", errors="replace")
+        output = (
+            stdout.decode("utf-8", errors="replace")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+        )
         stderr_output = stderr.decode("utf-8", errors="replace").strip() if stderr else ""
         if proc.returncode is not None and proc.returncode != 0:
             err_detail = stderr_output or output.strip()

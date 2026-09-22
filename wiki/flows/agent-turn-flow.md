@@ -100,7 +100,8 @@ divergence only.
 3. `proc.communicate(json.dumps(tool_args))` with the tool's `timeout`
    (default 600s).
 4. Timeout → kill + message; non-zero exit → error message; else stdout
-   (+ appended stderr).
+   (+ appended stderr). Decoded stdout has CR/CRLF normalised to LF so stored
+   messages and prompts stay clean on Windows.
 5. `_parse_tool_media` detects a `_media: true` JSON result → images are
    injected as a multimodal user message (`_inject_media_user_message`).
 

@@ -145,8 +145,11 @@ def _plain_body(text: str) -> str:
         text: The raw text to display.
 
     Returns:
-        An HTML ``<pre>`` block preserving whitespace and newlines.
+        An HTML ``<pre>`` block preserving whitespace and newlines. CR/CRLF
+        newlines are normalised to LF because Qt's rich-text ``<pre>`` renders
+        each ``\\r`` as an extra line break (double-spacing Windows tool output).
     """
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     return (
         f'<pre style="white-space:pre-wrap;margin:0;font-family:{FONT_MONO};'
         f'line-height:{LINE_HEIGHT_BODY}">{html.escape(text)}</pre>'
