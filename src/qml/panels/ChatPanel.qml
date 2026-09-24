@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window
 
 import "../components"
 import "../cards"
@@ -272,7 +273,7 @@ Rectangle {
                                     target: cardLoader.item
                                     property: "bodyCollapsed"
                                     value: model.collapsed
-                                    when: cardLoader.item !== null && model.kind === "context_banner"
+                                    when: cardLoader.item !== null
                                 }
                             }
                         }
@@ -324,7 +325,7 @@ Rectangle {
 
                 KnightRiderSpinner {
                     anchors.centerIn: parent
-                    running: loadingOverlay.visible
+                    running: loadingOverlay.visible && Window.active
                     baseColor: Theme.colors.accentCyan
                     cells: 10
                 }

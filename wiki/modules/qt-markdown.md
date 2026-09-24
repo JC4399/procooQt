@@ -5,7 +5,8 @@ Source: `src/qt/markdown.py`
 ## Purpose
 
 Render untrusted LLM Markdown into a sanitized HTML fragment for the QML
-rich-text surfaces (`TextEdit.RichText` in the thinking/response cards). The
+rich-text surfaces (`TextEdit.RichText` in the response card; the thinking card
+renders escaped plain text instead). The
 output mimics a TUI markdown pager rather than a browser: syntax marks are
 concealed, every element gets an explicit colour from the
 [`qt.theme`](qt-theme.md) markdown palette, block quotes get a drawn left
@@ -19,24 +20,54 @@ reaches QML.
 ## Deliverables
 
 - `render_markdown(text) -> str` — sanitized, terminal-styled HTML fragment.
+- `IncrementalMarkdown` — a per-card renderer that caches the committed HTML of
+  a growing streaming document and re-renders only the trailing block.
 - `_TerminalRenderer(RendererHTML)` — the token renderer implementing the
   terminal look.
 - `_MarkdownCodeStyle(Style)` and `_FORMATTER` — pygments style matching the
   palette, with `noclasses=True` inline colours.
-- Module-level parser `_MD` (configured `MarkdownIt`).
-- Helpers `_safe_href`, `_sanitize`, `_highlight_code`; and on the renderer,
-  `_cell_open` / `_CELL_STYLE`.
+- `_build_parser()` / `_parser()` and the thread-local `_PARSER_TLS` — one
+  `MarkdownIt` instance per thread (streaming renders run on worker threads).
+- Helpers `_safe_href`, `_sanitize`, `_highlight_code`; the boundary helper
+  `_is_fresh_block_line`; and on the renderer, `_cell_open` / `_CELL_STYLE`.
 
 ## Steps / Flow
 
 ### `render_markdown`
 
 1. Return `""` for empty input.
-2. `_MD.render(text)` — parse Markdown and render with `_TerminalRenderer`;
-   fenced code blocks go through `_highlight_code`.
+2. `_parser().render(text)` — parse Markdown and render with
+   `_TerminalRenderer`; fenced code blocks go through `_highlight_code`.
 3. `_sanitize(fragment)` — drop `<script>`/`<style>` blocks, `on*` attributes,
    and `javascript:` URLs.
 4. Return the sanitized fragment.
+
+### Thread-local parser
+
+`_TERMINAL` state (`_TerminalRenderer._lists` / `_items` / `_links`) lives on the
+renderer instance, so a single shared parser would race when streaming renders
+run on an `asyncio.to_thread` worker. `_parser()` lazily builds and caches one
+`MarkdownIt` per thread in `_PARSER_TLS`, so concurrent renders are safe.
+
+### Incremental streaming renderer (`IncrementalMarkdown`)
+
+1. `render(text)` — if `text` does not start with the committed prefix (e.g. a
+   regeneration), `reset()`.
+2. `_scan(text)` advances a persisted cursor (`_scan_pos`, `_fence`,
+   `_prev_blank`) over only the newly completed lines, returning the last safe
+   commit offset: the start of a line that follows a blank line at top level
+   (outside a fence) and begins an independent block.
+3. When a new boundary exists, render only the newly committed segment and
+   append it to `_committed_html`; then render the trailing partial block.
+4. Return `committed_html + render_markdown(tail)` — equal to
+   `render_markdown(text)` but O(delta) per tick instead of O(total): each
+   source character is boundary-scanned once.
+
+`_is_fresh_block_line` is deliberately conservative: a line with leading
+whitespace, a list marker, or a block quote is never a boundary, because
+committing there could renumber an ordered list, merge/split a loose list, or
+detach an indented block. `_FENCE_MARKER_RE` parity prevents splitting inside a
+fenced code block.
 
 ### `_TerminalRenderer.render`
 
@@ -141,7 +172,14 @@ rendering through a real `QQuickView`:
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def render_markdown(text: str) -> str` | `text` — Markdown source | Sanitized HTML fragment | Empty check → `_MD.render` → `_sanitize` | None; pure |
+| `def render_markdown(text: str) -> str` | `text` — Markdown source | Sanitized HTML fragment | Empty check → `_parser().render` → `_sanitize` | None; pure |
+| `def _build_parser() -> MarkdownIt` | — | Configured parser | `MarkdownIt` → `enable(table, strikethrough)` → tasklists → footnotes | Expensive; cached per thread |
+| `def _parser() -> MarkdownIt` | — | Thread-local parser | Lazy build into `_PARSER_TLS` | None |
+| `class IncrementalMarkdown` | — | Streaming renderer | `render` commits safe prefixes, renders only the tail | Caches committed source + HTML + scan cursor |
+| `def IncrementalMarkdown.render(text: str) -> str` | `text` — full growing source | Sanitized HTML fragment | reset-on-rewrite → `_scan` → render segment + tail | Mutates committed prefix + scan state |
+| `def IncrementalMarkdown._scan(text: str) -> int` | `text` — full growing source | Commit offset or `0` | Walk only newly completed lines, tracking fence/blank state | Advances `_scan_pos`/`_fence`/`_prev_blank` |
+| `def IncrementalMarkdown.reset() -> None` | — | `None` | blank committed source/HTML and scan cursor | — |
+| `def _is_fresh_block_line(line: str) -> bool` | source line | Bool | Reject indented/list/quote lines | None; pure |
 | `def _highlight_code(code: str, lang: str, _attrs: str) -> str` | `code` — raw code; `lang` — fence hint; `_attrs` — unused | Inline-styled HTML, or `""` to fall back | `get_lexer_by_name` → fallback `guess_lexer` → `highlight` | Catches `pygments.util.ClassNotFound` |
 | `def _sanitize(fragment: str) -> str` | `fragment` — rendered HTML | Sanitized HTML | Script/style → event attrs → `javascript:` URLs | None |
 | `def _safe_href(url: str) -> str` | `url` — raw link target | Safe URL or `""` | Regex scheme check | None |
@@ -165,6 +203,9 @@ rendering through a real `QQuickView`:
 | Name | Purpose |
 |---|---|
 | `_FORMATTER` | pygments `HtmlFormatter(nowrap=True, noclasses=True, style=_MarkdownCodeStyle)` |
+| `_PARSER_TLS` | `threading.local` holding one `MarkdownIt` per thread |
+| `_LIST_MARKER_RE` | fresh-block guard: rejects ordered/unordered list markers |
+| `_FENCE_MARKER_RE` | fenced code marker matcher for boundary fence parity |
 | `_CHAR_PX` | Estimated monospace cell width for list hanging indents |
 | `_BLANK_LINE_PX` | Paragraph/heading bottom margin that renders a source blank line as one empty line |
 | `_SCRIPT_STYLE_RE` | `<script>` / `<style>` block matcher |

@@ -28,7 +28,8 @@ split/move, persistence, and hydration. Every panel exposes a
 - Persistence (`_create_stored_chat`, `_save_current_chat_for`,
   `_chat_save_snapshot`, `_build_context_snapshot`) and hydration
   (`_hydrate_chat`, `_create_manager_chat`).
-- Single-pass enrichment (`_collect_summaries` / `_apply_summaries`).
+- Single-pass enrichment (`_collect_summaries` / `_apply_summaries`) with an
+  off-thread `refresh_model_async` variant.
 
 ## Signals
 
@@ -169,7 +170,7 @@ chats fall back to it.
 | `@Slot(str) def refresh_chat_panels(self, chat_id)` | chat | `None` | update the panel showing that chat's runtime values | Updates a `ChatPanelModel` |
 | `def _reconcile_panels(self, name)` | session | `None` | stored layout vs session chats → `_panels` | Saves layout |
 | `def _sync_panels(self)` | — | `None` | push layout + runtime into `ChatPanelModel`s; set visible chats | Emits `panels_changed`/`tabs_changed` |
-| `def _panel_runtime(self, chat_id)` | chat | 11-tuple | busy/approval/tokens/loading + primary/allow/ask/block counts + model name | Reads `ChatState` |
+| `def _panel_runtime(self, chat_id)` | chat | 11-tuple | busy/approval/tokens/loading + primary/allow/ask/block counts + model name | Reads `ChatState`; tokens are the true `token_usage` values (no estimate) |
 | `def _save_layout(self)` | — | `None` | write `{splits:[{chat_ids, active_chat_id}]}` to the store | Writes store |
 | `def _open_chat(self, chat_id)` | chat | `None` | set active → emit `chat_switch_started` → spawn `_open_chat_async` | Emits signals |
 | `async def _open_chat_async(self, chat_id)` | chat | `None` | off-thread load → hydrate if needed → emit `active_chat_changed` | Hydration may toast |
@@ -179,6 +180,7 @@ chats fall back to it.
 | `def _delete_chat_by_id(self, chat_id)` | chat | `None` | forget → store delete → remove from panels → refresh → reopen if active | Deletes store |
 | `def _forget_chat(self, chat_id)` | chat | `None` | pop state, cancel pending, remove live agent | Cancels task |
 | `def _refresh_model(self)` | — | `None` | `_collect_summaries()` → `_apply_summaries()` | Emits `sessions_changed` |
+| `async def refresh_model_async(self)` | — | `None` | snapshot `_states` → off-thread `load_all_chats`/`_enrich_chat`/`list_sessions` → `_apply_summaries` on GUI thread | Used by the chat controller's debounced streaming refresh |
 | `def _collect_summaries(self) -> tuple[list[dict], list[str]]` | — | `(enriched, sessions)` | snapshot `_states` → `load_all_chats()` (one parse/file) → `_enrich_chat` → `list_sessions()` | Thread-safe |
 | `def _apply_summaries(self, enriched, sessions)` | summaries; session names | `None` | seed chat counts + model name → group by session → set menu model → emit → `_sync_panels` | GUI thread only |
 | `def _enrich_chat(self, stored, states) -> dict` | stored chat; states snapshot | Summary + `title`/`status`/`model_name` + counts | derive title/status/counts/model from loaded data | No extra disk read |

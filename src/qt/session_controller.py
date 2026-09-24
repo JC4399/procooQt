@@ -507,6 +507,25 @@ class SessionController(QObject):
         enriched, sessions = self._collect_summaries()
         self._apply_summaries(enriched, sessions)
 
+    async def refresh_model_async(self) -> None:
+        """Reload the sidebar model with the disk scan off the GUI thread.
+
+        Snapshots the per-chat states on the GUI thread, then parses every
+        stored chat on a worker thread (via :func:`asyncio.to_thread`) and
+        applies the result back on the GUI thread. Used by the chat controller's
+        debounced streaming refresh so a long stream never blocks on disk I/O.
+        """
+        states = dict(self._states)
+
+        def _collect() -> tuple[list[dict[str, Any]], list[str]]:
+            stored = self.app.chat_store.load_all_chats()
+            enriched = [self._enrich_chat(data, states) for data in stored]
+            sessions = self.app.chat_store.list_sessions()
+            return enriched, sessions
+
+        enriched, sessions = await asyncio.to_thread(_collect)
+        self._apply_summaries(enriched, sessions)
+
     def _collect_summaries(self) -> tuple[list[dict[str, Any]], list[str]]:
         """Read and enrich every chat summary in a single disk pass.
 
@@ -631,13 +650,8 @@ class SessionController(QObject):
         approval_visible = bool(state and state.pending_tool_info)
         approval_text = state.approval_text if state else ""
         loading = bool(state and state.is_loading)
-        if state and state.true_input_tokens > 0:
-            input_tokens = state.true_input_tokens
-            output_tokens = state.true_output_cum
-        else:
-            chat = chat_manager.get_chat(chat_id)
-            input_tokens = chat._estimated_total if chat else 0
-            output_tokens = 0
+        input_tokens = state.true_input_tokens if state else 0
+        output_tokens = state.true_output_cum if state else 0
         primary_count = state.primary_count if state else 0
         allow_count = state.allow_count if state else 0
         ask_count = state.ask_count if state else 0

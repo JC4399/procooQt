@@ -11,6 +11,8 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
+from .markdown import IncrementalMarkdown
+
 
 @dataclass
 class StreamingCardState:
@@ -19,15 +21,19 @@ class StreamingCardState:
     Attributes:
         item_index: Row index of the card in ``ChatListModel``, or ``None``.
         token_count: Last rendered token count for the card.
+        markdown: Incremental renderer that reuses the card's committed HTML
+            across stream ticks (only the trailing block is re-rendered).
     """
 
     item_index: int | None = None
     token_count: int = 0
+    markdown: IncrementalMarkdown = field(default_factory=IncrementalMarkdown)
 
     def reset(self) -> None:
         """Clear the card tracking state."""
         self.item_index = None
         self.token_count = 0
+        self.markdown.reset()
 
 
 @dataclass
@@ -49,8 +55,14 @@ class ChatState:
         response: Streaming state for the response card.
         context_banners_data: Delta context banners to render.
         init_banner_displayed: Whether the initial context banner was shown.
-        true_input_tokens: Latest true input token count from ``token_usage``.
-        true_output_cum: Cumulative true output token count.
+        context_snapshot: Cached context snapshot, so live rebuilds do not have
+            to re-read the chat file from disk.
+        item_cache: Rendered chat items keyed by their identity (content-hash)
+            key, so a structural rebuild reuses every unchanged message.
+        true_input_tokens: Latest true input token count from ``token_usage``,
+            persisted across turns so the token bar never drops to zero.
+        true_output_cum: Cumulative true output token count for the current run,
+            persisted across turns until the next run reports usage.
         primary_count: Number of primary skills selected for this chat.
         allow_count: Number of tools set to ``allow``.
         ask_count: Number of tools set to ``ask``.
@@ -83,6 +95,8 @@ class ChatState:
     response: StreamingCardState = field(default_factory=StreamingCardState)
     context_banners_data: list[dict[str, Any]] = field(default_factory=list)
     init_banner_displayed: bool = False
+    context_snapshot: dict[str, Any] | None = None
+    item_cache: dict[str, dict[int, object]] = field(default_factory=dict)
     true_input_tokens: int = 0
     true_output_cum: int = 0
     primary_count: int = 0
@@ -111,8 +125,6 @@ class ChatState:
         self.pending_tool_info = None
         self.approval_event = None
         self.approval_text = ""
-        self.true_input_tokens = 0
-        self.true_output_cum = 0
         self.rendered_item_keys.clear()
         self.tool_call_indices.clear()
         self.last_rendered_thinking_text = ""

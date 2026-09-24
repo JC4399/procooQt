@@ -6,9 +6,9 @@ Source: `src/qt/chat_items.py`
 
 Build role-keyed chat-item dictionaries for `ChatListModel`, rendered by the QML
 card delegates under `src/qml/cards/`. Builders never touch QML objects. Body HTML is
-pre-rendered here: escaped `<pre>` for user/tool-result, `render_markdown` for
-thinking/response, and `highlight_yaml_html` over the YAML serializer for
-tool calls.
+pre-rendered here: escaped `<pre>` for user / tool-result / thinking,
+`render_markdown` for response, and `highlight_yaml_html` over the YAML
+serializer for tool calls.
 
 ## Deliverables
 
@@ -20,7 +20,8 @@ tool calls.
   `build_response_pending_item`, `build_tool_call_item` /
   `build_tool_call_pending_item`, `build_tool_result_item` /
   `build_tool_result_pending_item`.
-- Shared card helpers: `_card_item`, `_token_text`, `_plain_body`.
+- Shared card helpers: `_card_item`, `_token_text`, `_plain_body`,
+  `thinking_body`.
 - Tool-argument helpers: `_parse_tool_arguments`, `_yaml_quote`,
   `_format_yaml_value`, `_to_yaml_string`.
 
@@ -33,8 +34,7 @@ defaults. The QML side renders any item through `src/qml/cards/CardBase.qml`:
 ```
 header row (icon + title [+ mode badge] [+ subtitle]) ── token text ── collapse arrow
   ─────────────────────────────── (divider)
-body (rich-text HTML) or KnightRiderSpinner while isPending
-```
+body (rich-text HTML) or KnightRiderSpinner while isPending```
 
 `CardBase.qml` is the single header implementation; each concrete card
 (`UserCard.qml`, `ThinkingCard.qml`, …) only sets `iconGlyph`, accent colours,
@@ -45,7 +45,9 @@ mirrors the same 8 px default. Pending variants keep
 the same header and set `isPending`; `CardBase` shows a `KnightRiderSpinner`
 (`src/qml/components/KnightRiderSpinner.qml`) only while pending with no body
 yet, so a streaming thinking/response card renders its growing body instead of
-the spinner. `CardBase` also exposes `headerVisible` (default `true`); the
+the spinner. Spinners run only while the window is active
+(`running: visible && Window.active`), and the tab status-dot blink does the
+same, so an unfocused window does not repaint continuously. `CardBase` also exposes `headerVisible` (default `true`); the
 headerless `WaitingCard.qml` sets it `false` so the pre-response placeholder is
 just a grey scanner. The waiting item is emitted (keyed `w:pending`) at the end
 of the render plan while a generation is busy but the current assistant turn has
@@ -68,11 +70,12 @@ streaming-driven height growth apply instantly, so they do not churn the scroll
 position.
 
 The chat list in `ChatPanel.qml` is a **non-virtualized** `Flickable` + `Column` +
-`Repeater`, not a `ListView`: every card is instantiated so `contentHeight` is
-exact. A virtualized `ListView` was tried and abandoned — with these
-variable-height cards its `contentHeight` is only an estimate, and
-`positionViewAtEnd()` against that estimate shifted `originY` without bound
-(runaway scrolling, a jumping scrollbar, and a middle-of-viewport landing).
+`Repeater`: every card is instantiated so `contentHeight` is exact. A virtualized
+`ListView` was tried and abandoned — with these variable-height cards its
+`contentHeight` is only an estimate, and `positionViewAtEnd()` against that
+estimate shifted `originY` without bound (runaway scrolling, a jumping scrollbar,
+and a middle-of-viewport landing); a second attempt (ListView + per-delegate
+layer caching) rendered blank panels on flick, so it was reverted too.
 Auto-scroll sets `contentY = contentHeight - height` through a 30 ms debounce
 `Timer` guarded by `!moving && !flicking`, following the newest card whenever
 `autoScrollToggle.checked` is true. That flag is the single source of truth:
@@ -96,13 +99,23 @@ card. Wheeling up moves `contentY` away from the bottom, which the
 the end reactivates it. A vertical `ScrollBar` (`ScrollBar.AsNeeded`) provides
 feedback and drag-scroll.
 
+Because the list is not virtualized, **older cards are built collapsed** to bound
+scroll cost. `ChatController._COLLAPSE_OLDER_THAN` (12) marks every message older
+than the last 12 as collapsed; `CardBase`'s body `TextEdit` uses
+`visible: hasBody && !bodyCollapsed`, so Qt never lays out or renders the rich
+text of a collapsed body. The card stays in the list as its header, and clicking
+the header expands it. Collapsed cards carry a `:c` key suffix so a message
+ageing out of the window is rebuilt once (rather than reusing an expanded cached
+item). This keeps the per-frame cost proportional to the recent messages, not
+the whole history, without touching the exact scroll physics.
+
 ## Card types
 
 | Card | `kind` | QML delegate | Border | Header | Body |
 |---|---|---|---|---|---|
 | User | `user` | `UserCard.qml` | 3px green | `❯` + "User" | escaped `<pre>` |
 | Waiting | `waiting` | `WaitingCard.qml` | top/bottom grey | none (headerless) | `KnightRiderSpinner` (pending) |
-| Thinking | `thinking` | `ThinkingCard.qml` | top/bottom blue | `◌` + "Thinking" | `render_markdown` (streamed while pending) |
+| Thinking | `thinking` | `ThinkingCard.qml` | top/bottom blue | `◌` + "Thinking" | escaped `<pre>` (streamed while pending) |
 | Response | `response` | `ResponseCard.qml` | 3px amber | `◆` + "Response" | `render_markdown` (streamed while pending) |
 | Tool call | `tool_call` | `ToolCallCard.qml` | top/bottom magenta | `⚙` + "Tool Call" + mode badge | `highlight_yaml_html` |
 | Tool result | `tool_result` | `ToolResultCard.qml` | top/bottom magenta | `▤` + "Tool Result" (subtitle = tool name) | escaped `<pre>` |
@@ -114,17 +127,23 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 
 ## Body HTML generation
 
-1. **User / tool result** — `_plain_body` normalises CR/CRLF newlines to LF,
-   escapes the text with `html.escape`, and wraps it in
+1. **User / tool result / thinking** — `_plain_body` normalises CR/CRLF
+   newlines to LF, escapes the text with `html.escape`, and wraps it in
    `<pre style="white-space:pre-wrap;margin:0;font-family:Sarasa Fixed TC;line-height:125%">`
    (the `font-family` keeps Qt's `<pre>` from substituting its system monospace
    font, matching `Theme.fontMono`; `line-height` comes from
    `Theme.LINE_HEIGHT_BODY` so plain text matches markdown leading). The LF
    normalisation is required because Qt's rich-text `<pre>` renders each `\r`
    as an extra line break, which would double-space Windows tool output.
-2. **Thinking / response** — `render_markdown` returns sanitized, inline-styled
-   HTML for a QML `TextEdit.RichText` (terminal-style colours, CSS bordered
-   tables, clickable links; see [`qt-markdown`](qt-markdown.md)).
+   `thinking_body` is a named wrapper over `_plain_body`: thinking streams
+   verbatim and deliberately skips the Markdown parser/pygments, since
+   re-rendering the full accumulated reasoning on every stream tick was a
+   dominant cost.
+2. **Response** — `render_markdown` returns sanitized, inline-styled HTML for a
+   QML `TextEdit.RichText` (terminal-style colours, CSS bordered tables,
+   clickable links; see [`qt-markdown`](qt-markdown.md)). During streaming the
+   controller uses [`IncrementalMarkdown`](qt-markdown.md#incremental-streaming-renderer-incrementalmarkdown),
+   which re-renders only the trailing block.
 3. **Tool call** — `_to_yaml_string` serializes `{name, mode, arguments}` and
    `highlight_yaml_html` colourises it into a `<pre>` HTML block.
 
@@ -138,20 +157,21 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 | `_card_item(kind, *, title, body_html="", token_count=0, is_pending=False, mode="", tool_name="", tool_call_id="") -> dict[int, object]` | Card fields with a raw `token_count` | role-keyed dict | Calls `make_item` with `token_text=_token_text(token_count)` | None |
 | `_token_text(token_count: int) -> str` | `token_count` | `"42 tk"` | f-string format | None |
 | `_plain_body(text: str) -> str` | `text` | escaped `<pre>` block | Normalise CR/CRLF → LF, then `html.escape` into `<pre style="white-space:pre-wrap;margin:0;font-family:…;line-height:125%">` | None |
+| `thinking_body(text: str) -> str` | `text` — raw thinking | escaped `<pre>` block | Named wrapper over `_plain_body`; thinking never runs Markdown | None |
 
 ### Item builders
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `build_user_item(text: str) -> dict[int, object]` | `text` | role-keyed dict | `_card_item(KIND_USER, title="User", body_html=_plain_body(text))` | None |
+| `build_user_item(text: str, *, collapsed=False) -> dict[int, object]` | `text`; `collapsed` | role-keyed dict | `_card_item(KIND_USER, title="User", body_html=_plain_body(text))` | None |
 | `build_waiting_item() -> dict[int, object]` | — | role-keyed dict | `make_item(KIND_WAITING, is_pending=True)` — empty title/token/body | None |
-| `build_thinking_item(text: str, *, token_count=0) -> dict[int, object]` | `text`; `token_count` | role-keyed dict | Body = `render_markdown(text)`, title "Thinking" | None |
-| `build_thinking_pending_item(text="", *, token_count=0) -> dict[int, object]` | `text` — partial streamed content; `token_count` | role-keyed dict | Body = `render_markdown(text)`, title "Thinking", `is_pending=True` | None |
-| `build_response_item(text: str, *, token_count=0) -> dict[int, object]` | `text`; `token_count` | role-keyed dict | Body = `render_markdown(text)`, title "Response" | None |
+| `build_thinking_item(text: str, *, token_count=0, collapsed=False) -> dict[int, object]` | `text`; `token_count`; `collapsed` | role-keyed dict | Body = `thinking_body(text)` (escaped plain text), title "Thinking" | None |
+| `build_thinking_pending_item(text="", *, token_count=0) -> dict[int, object]` | `text` — partial streamed content; `token_count` | role-keyed dict | Body = `thinking_body(text)`, title "Thinking", `is_pending=True` | None |
+| `build_response_item(text: str, *, token_count=0, collapsed=False) -> dict[int, object]` | `text`; `token_count`; `collapsed` | role-keyed dict | Body = `render_markdown(text)`, title "Response" | None |
 | `build_response_pending_item(text="", *, token_count=0) -> dict[int, object]` | `text` — partial streamed content; `token_count` | role-keyed dict | Body = `render_markdown(text)`, title "Response", `is_pending=True` | None |
-| `build_tool_call_item(entry: dict, *, token_count=0) -> dict[int, object]` | `entry` — `{name, mode, arguments}` | role-keyed dict | `_to_yaml_string` → `highlight_yaml_html`; stores `mode` + `tool_name` | None |
+| `build_tool_call_item(entry: dict, *, token_count=0, collapsed=False) -> dict[int, object]` | `entry` — `{name, mode, arguments}`; `collapsed` | role-keyed dict | `_to_yaml_string` → `highlight_yaml_html`; stores `mode` + `tool_name` | None |
 | `build_tool_call_pending_item(name: str, mode: str, token_count=0) -> dict[int, object]` | `name`; `mode`; `token_count` | role-keyed dict | `is_pending=True`, keeps `mode`/`tool_name` | None |
-| `build_tool_result_item(name: str, content: str, *, token_count=0) -> dict[int, object]` | `name`; `content`; `token_count` | role-keyed dict | Body = `_plain_body(content)`, stores `tool_name` | None |
+| `build_tool_result_item(name: str, content: str, *, token_count=0, collapsed=False) -> dict[int, object]` | `name`; `content`; `token_count`; `collapsed` | role-keyed dict | Body = `_plain_body(content)`, stores `tool_name` | None |
 | `build_tool_result_pending_item(name: str, tool_call_id="", token_count=0) -> dict[int, object]` | `name`; `tool_call_id`; `token_count` | role-keyed dict | `is_pending=True`, stores `tool_call_id` for later swap | None |
 
 ### Tool-argument parsing and YAML formatting

@@ -76,7 +76,7 @@ for the whole wait, whether that is hydration, model prefill, a slow network, or
 a pending failure; it does not wait for an HTTP response. `_run_chat_loop` later
 rebuilds once after `await asyncio.sleep(0)` (long enough for `Agent.run` to
 append the user message), which reconciles because
-`_compute_render_keys`/`_build_items` emit the matching `u:<hash>` + `w:pending`
+`_build_plan` emits the matching `u:<hash>` + `w:pending`
 while waiting. The first `thinking`/`message`/`tool_call_streaming` card diverges
 at that index and replaces the scanner via `ChatListModel.diff_update`.
 
@@ -86,12 +86,20 @@ so it also exits once the `Agent.run` task is done and the queue is empty.
 ## Live rendering (`_render_active_event` / `_update_live_assistant`)
 
 Structural changes (tool calls/results appearing, streaming tool calls first
-appearing) rebuild immediately. Content-only streaming updates are throttled
-to one-second intervals and applied in place via
-`ChatListModel.update_item`; the token bar and card token labels update without
-a full reset. A full rebuild computes content-hash render keys and calls
+appearing) rebuild immediately; the rebuild reuses memoized items for every
+unchanged message, so only the changed trailing message is re-rendered.
+Content-only streaming updates are throttled (`_STREAM_UPDATE_INTERVAL`, 0.08 s)
+and applied in place via `ChatListModel.update_item`: thinking is written as
+escaped plain text, and the response is rendered through a per-card
+`IncrementalMarkdown` on a worker thread (`asyncio.to_thread`) so only the
+trailing Markdown block is re-rendered and the parse/highlight never blocks the
+GUI thread. A full rebuild computes content-hash render keys and calls
 `ChatListModel.diff_update`, which removes and re-inserts rows from the first
 divergence only.
+
+The sidebar refresh triggered by a message-count change is debounced (0.3 s) and
+its disk scan runs off the GUI thread via
+`SessionController.refresh_model_async`.
 
 ## Tool execution detail (`Agent.run_tool`)
 

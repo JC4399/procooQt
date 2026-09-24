@@ -24,12 +24,13 @@ never holds a QML object.
 |---|---|---|
 | `item_index` | `int \| None` | Row index of the card in `ChatListModel`, or `None` |
 | `token_count` | `int` | Last rendered token count for the card |
+| `markdown` | `IncrementalMarkdown` | Per-card streaming Markdown renderer that reuses the committed prefix HTML across ticks |
 
 ### `reset`
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def reset(self) -> None` | — | `None` | `item_index = None`; `token_count = 0` | Clears the card tracking state |
+| `def reset(self) -> None` | — | `None` | `item_index = None`; `token_count = 0`; `markdown.reset()` | Clears the card tracking state |
 
 ## `ChatState`
 
@@ -49,8 +50,10 @@ never holds a QML object.
 | `response` | `StreamingCardState` | Streaming state for the response card |
 | `context_banners_data` | `list[dict]` | Delta context banners to render |
 | `init_banner_displayed` | `bool` | Whether the initial context banner was shown |
-| `true_input_tokens` | `int` | Latest true input token count from `token_usage` |
-| `true_output_cum` | `int` | Cumulative true output token count |
+| `context_snapshot` | `dict \| None` | Cached context snapshot so live rebuilds never re-read the chat file |
+| `item_cache` | `dict[str, dict[int, object]]` | Rendered chat items keyed by identity (content-hash) key; lets a rebuild reuse every unchanged message |
+| `true_input_tokens` | `int` | Latest true input token count from `token_usage`; persisted across turns |
+| `true_output_cum` | `int` | Cumulative true output token count for the current run; persisted across turns |
 | `primary_count` | `int` | Primary skills selected for this chat |
 | `allow_count` / `ask_count` / `block_count` | `int` | Tool counts per mode |
 | `model_name` | `str` | LLM model selected for this chat (empty = config default) |
@@ -74,4 +77,4 @@ prefix sprawl on the controller.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def reset_turn(self) -> None` | — | `None` | reset `thinking`/`response` → clear `current_tool_calls`/`tool_results` → clear `pending_tool_info`/`approval_event`/`approval_text` → zero `true_input_tokens`/`true_output_cum` → clear `rendered_item_keys`/`tool_call_indices` → blank all `last_rendered_*` / `last_tok_counted_*` → zero the two timers | Called by [`ChatController._finalize_turn`](qt-chat-controller.md); does **not** touch `chat_id`, `is_busy`, `generation_id`, `context_banners_data`, or `init_banner_displayed` |
+| `def reset_turn(self) -> None` | — | `None` | reset `thinking`/`response` → clear `current_tool_calls`/`tool_results` → clear `pending_tool_info`/`approval_event`/`approval_text` → clear `rendered_item_keys`/`tool_call_indices` → blank all `last_rendered_*` / `last_tok_counted_*` → zero the two timers | Called by [`ChatController._finalize_turn`](qt-chat-controller.md); does **not** touch `chat_id`, `is_busy`, `generation_id`, `true_input_tokens`, `true_output_cum`, `context_banners_data`, `init_banner_displayed`, `context_snapshot`, or `item_cache` |

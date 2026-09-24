@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 import re
+import threading
 
 from markdown_it import MarkdownIt
 from markdown_it.common.utils import escapeHtml
@@ -855,10 +856,40 @@ class _TerminalRenderer(RendererHTML):
 #  Renderer
 # ------------------------------------------------------------------
 
-_MD = MarkdownIt("commonmark", {"highlight": _highlight_code}, renderer_cls=_TerminalRenderer)
-_MD.enable(["table", "strikethrough"])
-_MD.use(tasklists_plugin, enabled=True)
-_MD.use(footnote_plugin)
+
+def _build_parser() -> MarkdownIt:
+    """Create a configured ``MarkdownIt`` parser.
+
+    Returns:
+        A parser with terminal rendering, tables, strikethrough, task lists,
+        and footnotes enabled.
+    """
+    parser = MarkdownIt(
+        "commonmark", {"highlight": _highlight_code}, renderer_cls=_TerminalRenderer
+    )
+    parser.enable(["table", "strikethrough"])
+    parser.use(tasklists_plugin, enabled=True)
+    parser.use(footnote_plugin)
+    return parser
+
+
+#: One parser per thread. ``_TerminalRenderer`` keeps per-document state on the
+#: instance, so a shared parser would race when streaming renders run on a
+#: worker thread (``asyncio.to_thread``).
+_PARSER_TLS = threading.local()
+
+
+def _parser() -> MarkdownIt:
+    """Return this thread's parser, creating it on first use.
+
+    Returns:
+        A thread-local ``MarkdownIt`` instance.
+    """
+    parser: MarkdownIt | None = getattr(_PARSER_TLS, "parser", None)
+    if parser is None:
+        parser = _build_parser()
+        _PARSER_TLS.parser = parser
+    return parser
 
 
 def render_markdown(text: str) -> str:
@@ -872,4 +903,129 @@ def render_markdown(text: str) -> str:
     """
     if not text:
         return ""
-    return _sanitize(_MD.render(text))
+    return _sanitize(_parser().render(text))
+
+
+# ------------------------------------------------------------------
+#  Incremental streaming renderer
+# ------------------------------------------------------------------
+
+_LIST_MARKER_RE = re.compile(r"^\s{0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)")
+_FENCE_MARKER_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+
+
+def _is_fresh_block_line(line: str) -> bool:
+    """Return whether a line safely begins a new top-level Markdown block.
+
+    Deliberately conservative: a line with leading whitespace (list
+    continuation or indented code), a list marker, or a block quote is never a
+    boundary. Committing there could renumber an ordered list, merge/split a
+    loose list, or detach an indented block from its parent.
+
+    Args:
+        line: A single source line without its terminator.
+
+    Returns:
+        ``True`` when the line starts a block independent of the prefix.
+    """
+    if not line or line[0] in " \t":
+        return False
+    return not (line.startswith(">") or _LIST_MARKER_RE.match(line))
+
+
+class IncrementalMarkdown:
+    """Render a growing Markdown document with a committed-prefix cache.
+
+    Completed top-level blocks are rendered once and reused; only the trailing
+    partial block is re-rendered on each update. The boundary scan keeps a
+    cursor and fence/blank-line state across calls, so each character of the
+    source is scanned at most once. Falls back to a full render when the source
+    is rewritten (e.g. a regeneration) or no safe block boundary exists.
+
+    Attributes:
+        _committed_text: Source prefix already rendered into ``_committed_html``.
+        _committed_html: Sanitized HTML for ``_committed_text``.
+        _scan_pos: Offset of the first complete line not yet boundary-scanned.
+        _fence: Open fence character at ``_scan_pos``, or ``None``.
+        _prev_blank: Whether the line before ``_scan_pos`` was blank.
+    """
+
+    def __init__(self) -> None:
+        """Initialise an empty incremental renderer."""
+        self._committed_text = ""
+        self._committed_html = ""
+        self._scan_pos = 0
+        self._fence: str | None = None
+        self._prev_blank = False
+
+    def reset(self) -> None:
+        """Discard all cached rendering and scan state."""
+        self._committed_text = ""
+        self._committed_html = ""
+        self._scan_pos = 0
+        self._fence = None
+        self._prev_blank = False
+
+    def render(self, text: str) -> str:
+        """Return HTML for ``text``, reusing the committed prefix when possible.
+
+        Args:
+            text: The full current Markdown source.
+
+        Returns:
+            A sanitized HTML fragment equivalent to ``render_markdown(text)``.
+        """
+        if not text:
+            return ""
+        if not text.startswith(self._committed_text):
+            self.reset()
+        boundary = self._scan(text)
+        if boundary > len(self._committed_text):
+            segment = text[len(self._committed_text) : boundary]
+            self._committed_html += render_markdown(segment)
+            self._committed_text = text[:boundary]
+        tail = text[len(self._committed_text) :]
+        return self._committed_html + render_markdown(tail)
+
+    def _scan(self, text: str) -> int:
+        """Advance the boundary scan over newly completed lines.
+
+        Args:
+            text: The full current Markdown source.
+
+        Returns:
+            The last safe commit offset seen, or ``0`` when none exists.
+        """
+        last_nl = text.rfind("\n")
+        if last_nl < 0:
+            return 0
+        scan_end = last_nl + 1
+        pos = self._scan_pos
+        if pos >= scan_end:
+            return 0
+        committed_len = len(self._committed_text)
+        fence = self._fence
+        prev_blank = self._prev_blank
+        boundary = 0
+        while pos < scan_end:
+            nl = text.find("\n", pos)
+            line = text[pos:nl]
+            stripped = line.strip()
+            marker = _FENCE_MARKER_RE.match(line)
+            if fence is not None:
+                if marker and marker.group(1)[0] == fence:
+                    fence = None
+                prev_blank = False
+            elif marker:
+                fence = marker.group(1)[0]
+                prev_blank = False
+            elif prev_blank and stripped and pos >= committed_len and _is_fresh_block_line(line):
+                boundary = pos
+                prev_blank = False
+            else:
+                prev_blank = stripped == ""
+            pos = nl + 1
+        self._scan_pos = scan_end
+        self._fence = fence
+        self._prev_blank = prev_blank
+        return boundary

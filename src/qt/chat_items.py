@@ -9,7 +9,8 @@ through it.
 Body HTML is pre-rendered here:
 
 * user / tool result — escaped text inside a ``<pre>`` block;
-* thinking / response — :func:`render_markdown`;
+* thinking — escaped plain text (never Markdown);
+* response — :func:`render_markdown`;
 * tool call — :func:`highlight_yaml_html` over the YAML serializer.
 """
 
@@ -110,6 +111,7 @@ def _card_item(
     mode: str = "",
     tool_name: str = "",
     tool_call_id: str = "",
+    collapsed: bool = False,
 ) -> dict[int, object]:
     """Build one card item with the shared header/token/pending defaults.
 
@@ -122,6 +124,8 @@ def _card_item(
         mode: Tool permission mode for tool-call cards.
         tool_name: Tool name for tool-call/result cards.
         tool_call_id: Tool-call id for result cards.
+        collapsed: Whether the body starts collapsed (older cards collapse so
+            their rich text is not laid out or rendered).
 
     Returns:
         A role-keyed chat item dictionary.
@@ -135,6 +139,7 @@ def _card_item(
         mode=mode,
         tool_name=tool_name,
         tool_call_id=tool_call_id,
+        collapsed=collapsed,
     )
 
 
@@ -156,21 +161,38 @@ def _plain_body(text: str) -> str:
     )
 
 
+def thinking_body(text: str) -> str:
+    """Render thinking content as escaped plain text.
+
+    Thinking streams verbatim, so it deliberately skips the Markdown
+    parser/pygments; re-rendering the full accumulated reasoning through
+    :func:`render_markdown` on every stream tick was a dominant cost.
+
+    Args:
+        text: Raw thinking content.
+
+    Returns:
+        An escaped HTML ``<pre>`` block.
+    """
+    return _plain_body(text)
+
+
 # ------------------------------------------------------------------
 #  User card
 # ------------------------------------------------------------------
 
 
-def build_user_item(text: str) -> dict[int, object]:
+def build_user_item(text: str, *, collapsed: bool = False) -> dict[int, object]:
     """Build a user message card item.
 
     Args:
         text: User message text.
+        collapsed: Whether the body starts collapsed.
 
     Returns:
         A role-keyed chat item dictionary.
     """
-    return _card_item(KIND_USER, title="User", body_html=_plain_body(text))
+    return _card_item(KIND_USER, title="User", body_html=_plain_body(text), collapsed=collapsed)
 
 
 # ------------------------------------------------------------------
@@ -198,12 +220,15 @@ def build_waiting_item() -> dict[int, object]:
 # ------------------------------------------------------------------
 
 
-def build_thinking_item(text: str, *, token_count: int = 0) -> dict[int, object]:
+def build_thinking_item(
+    text: str, *, token_count: int = 0, collapsed: bool = False
+) -> dict[int, object]:
     """Build a completed thinking card item.
 
     Args:
         text: Thinking content.
         token_count: Token count displayed in the header.
+        collapsed: Whether the body starts collapsed.
 
     Returns:
         A role-keyed chat item dictionary.
@@ -211,8 +236,9 @@ def build_thinking_item(text: str, *, token_count: int = 0) -> dict[int, object]
     return _card_item(
         KIND_THINKING,
         title="Thinking",
-        body_html=render_markdown(text),
+        body_html=thinking_body(text),
         token_count=token_count,
+        collapsed=collapsed,
     )
 
 
@@ -233,7 +259,7 @@ def build_thinking_pending_item(text: str = "", *, token_count: int = 0) -> dict
     return _card_item(
         KIND_THINKING,
         title="Thinking",
-        body_html=render_markdown(text),
+        body_html=thinking_body(text),
         token_count=token_count,
         is_pending=True,
     )
@@ -244,12 +270,15 @@ def build_thinking_pending_item(text: str = "", *, token_count: int = 0) -> dict
 # ------------------------------------------------------------------
 
 
-def build_response_item(text: str, *, token_count: int = 0) -> dict[int, object]:
+def build_response_item(
+    text: str, *, token_count: int = 0, collapsed: bool = False
+) -> dict[int, object]:
     """Build a completed assistant response card item.
 
     Args:
         text: Response content in markdown.
         token_count: Token count displayed in the header.
+        collapsed: Whether the body starts collapsed.
 
     Returns:
         A role-keyed chat item dictionary.
@@ -259,6 +288,7 @@ def build_response_item(text: str, *, token_count: int = 0) -> dict[int, object]
         title="Response",
         body_html=render_markdown(text),
         token_count=token_count,
+        collapsed=collapsed,
     )
 
 
@@ -429,12 +459,15 @@ def _to_yaml_string(entry: dict) -> str:
 # ------------------------------------------------------------------
 
 
-def build_tool_call_item(entry: dict, *, token_count: int = 0) -> dict[int, object]:
+def build_tool_call_item(
+    entry: dict, *, token_count: int = 0, collapsed: bool = False
+) -> dict[int, object]:
     """Build a finalized tool call card item.
 
     Args:
         entry: Tool call entry with ``name``, ``mode``, ``arguments`` keys.
         token_count: Token count displayed in the header.
+        collapsed: Whether the body starts collapsed.
 
     Returns:
         A role-keyed chat item dictionary.
@@ -451,6 +484,7 @@ def build_tool_call_item(entry: dict, *, token_count: int = 0) -> dict[int, obje
         token_count=token_count,
         mode=mode,
         tool_name=name,
+        collapsed=collapsed,
     )
 
 
@@ -480,13 +514,16 @@ def build_tool_call_pending_item(name: str, mode: str, token_count: int = 0) -> 
 # ------------------------------------------------------------------
 
 
-def build_tool_result_item(name: str, content: str, *, token_count: int = 0) -> dict[int, object]:
+def build_tool_result_item(
+    name: str, content: str, *, token_count: int = 0, collapsed: bool = False
+) -> dict[int, object]:
     """Build a completed tool result card item.
 
     Args:
         name: Tool name.
         content: Result content text.
         token_count: Token count displayed in the header.
+        collapsed: Whether the body starts collapsed.
 
     Returns:
         A role-keyed chat item dictionary.
@@ -497,6 +534,7 @@ def build_tool_result_item(name: str, content: str, *, token_count: int = 0) -> 
         body_html=_plain_body(content),
         token_count=token_count,
         tool_name=name,
+        collapsed=collapsed,
     )
 
 

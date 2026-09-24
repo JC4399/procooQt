@@ -8,8 +8,12 @@ Owns one [`ChatListModel`](#per-chat-model-cache) per chat and drives the ReAct
 event loop for every live chat. Rendering is gated on a **visible-chat set** so
 up to four split panels can stream independently. `chat.messages` stays
 canonical: the render plan is derived from it, diffed by content hash, and
-clipped into the model. Approval blocks the loop on an `asyncio.Event`, and long
-streams are rendered with throttled in-place updates.
+clipped into the model. Approval blocks the loop on an `asyncio.Event`. Because
+the app runs a single qasync loop on the GUI thread, streaming keeps work small
+and off the critical path: per-message items are memoized by content hash,
+incremental Markdown re-renders only the trailing block (response) or writes
+escaped plain text (thinking), the response render runs on a worker thread, and
+the sidebar refresh is debounced and offloaded.
 
 ## Deliverables
 
@@ -21,10 +25,10 @@ streams are rendered with throttled in-place updates.
   focused-chat wrappers.
 - The streaming generation loop split into hydrate / consume-events / cleanup
   phases.
-- Incremental content-hash rendering (`_rebuild_chat_display` →
-  `_compute_render_keys` → `_build_items` → `diff_update`), with the plan
+- Content-hash rendering (`_rebuild_chat_display` → `_compute_render_plan` →
+  `_build_plan` → `diff_update`) with a per-chat item cache, and the plan
   computed off the GUI thread for panel switches.
-- The `_StagedBuildState` and `_RenderIndices` dataclasses.
+- The `_PlanBuilder`, `_StagedBuildState` and `_RenderIndices` dataclasses.
 - Tool approval via `asyncio.Event`, stop/regenerate, and automatic chat
   compaction.
 - `chat_state_changed(chat_id)` — emitted whenever a chat's runtime state
@@ -94,7 +98,7 @@ reading with `asyncio.wait_for(..., timeout=0.1)`. By `event["type"]`:
 |---|---|
 | `tool_call` (mode `ask`) | `await _handle_approval(chat_id, event, state)` — blocks |
 | `tool_result` | Append to `state.tool_results` |
-| `token_usage` | Set `true_input_tokens` / `true_output_cum`; emit `chat_state_changed` when visible |
+| `token_usage` | Set `true_input_tokens` / `true_output_cum`; when visible, `_update_token_bar` refreshes the bar |
 | `done` | Break out of the loop |
 | `error` | Toast the `brief` (when visible) and break |
 
@@ -107,14 +111,21 @@ and when visible `_render_active_event(...)` updates the display.
   pending result card in place via `_swap_pending_result_card(chat_id, ...)`.
 - Otherwise rebuild the display.
 - If unchanged and the last message is not an assistant message, rebuild; else
-  `_update_live_assistant(chat_id, state)` (throttled).
+  `await _update_live_assistant(chat_id, state)` (throttled, and for the response
+  body offloaded to a worker thread).
 
 ### Rebuild pipeline
 
-`_compute_render_plan(chat_id)` loads the state, stored snapshot, and a snapshot
-of the live messages, then `_compute_render_keys` + `_build_items`. It returns
-`(keys, items, snapshot, indices)` without mutating state, so it can run on a
-worker thread.
+`_compute_render_plan(chat_id)` resolves the message list and context snapshot
+(for a live chat it reuses the state's cached `context_snapshot` instead of
+re-reading the chat file), then `_build_plan` produces `(keys, items, indices)`
+in a single pass. `_PlanBuilder.emit` looks each key up in the chat state's
+`item_cache`, so only messages whose content actually changed are re-rendered;
+streaming entries are marked `cacheable=False` because their keys change each
+tick. Messages older than `_COLLAPSE_OLDER_THAN` (12) are built with
+`collapsed=True` and a `:c` key suffix, so they start collapsed in QML (their
+rich text is never laid out) and ageing a message out rebuilds it once. The plan
+does not mutate Qt models, so it is safe on a worker thread.
 
 `_rebuild_chat_display(chat_id)` applies the plan synchronously; after a panel
 switch `_rebuild_chat_display_staged(chat_id)` builds it behind the loading
@@ -125,12 +136,25 @@ toward a 0.6 s target). The plan is computed off-thread.
 
 ### Live update throttling (`_update_live_assistant`)
 
-- **Structural** changes force an immediate `_rebuild_chat_display`.
+- **Structural** changes force an immediate `_rebuild_chat_display`, which now
+  reuses cached items for all unchanged messages.
 - A pending thinking/response card whose row does not exist yet rebuilds
   immediately.
 - **Content-only** updates and streaming-tool-call argument changes are throttled
   to `_STREAM_UPDATE_INTERVAL` (0.08 s) and applied in place by
-  `_apply_streaming_item_updates`.
+  `_apply_streaming_item_updates`. Thinking is escaped via
+  [`thinking_body`](qt-chat-items.md); the response is rendered through the
+  card's [`IncrementalMarkdown`](qt-markdown.md#incremental-streaming-renderer-incrementalmarkdown)
+  on a worker thread (`asyncio.to_thread`), so parse/highlight/sanitize never
+  block the GUI thread.
+
+### Sidebar refresh (`_refresh_sidebar`)
+
+`_refresh_sidebar` only sets a dirty flag and starts `_refresh_sidebar_loop`, a
+single task that waits for a `_SIDEBAR_REFRESH_DEBOUNCE` (0.3 s) quiet period,
+then calls `SessionController.refresh_model_async` — the disk scan runs on a
+worker thread and is applied back on the GUI thread. This coalesces the burst of
+message-count changes during a stream.
 
 ### Approval (`_handle_approval`)
 
@@ -161,11 +185,13 @@ That generates a new id, copies `skills_config`, `session`, `model_name`, and
 
 ### Token accounting
 
-`_update_token_bar(chat_id, state)` prefers true API counts when
-`state.true_input_tokens > 0`, else the live chat's `_estimated_total` with zero
-output. `ChatPanelModel` reads these through `SessionController._panel_runtime`;
-`_set_token_counts` still emits `token_counts_changed` for the focused chat.
-`_accumulate_tokens` counts only the appended suffix of each text field.
+`_update_token_bar(chat_id, state)` shows only the true API counts reported by
+`token_usage` (`state.true_input_tokens` / `state.true_output_cum`); it never
+falls back to a word-count estimate, so a chat with no response yet shows zero.
+`ChatPanelModel` reads the same values through `SessionController._panel_runtime`;
+`_set_token_counts` emits `token_counts_changed` for the focused chat.
+`_accumulate_tokens` counts only the appended suffix of each text field and feeds
+the per-card `tk` estimate, which is independent of the token bar.
 
 ## Function Reference
 
@@ -176,7 +202,8 @@ output. `ChatPanelModel` reads these through `SessionController._panel_runtime`;
 | `def _is_visible(self, chat_id: str) -> bool` | chat id | Bool | `chat_id in _visible_chat_ids` | — |
 | `@Property(QObject, notify=active_model_changed) def activeModel(self)` | — | Focused model or `None` | `_models.get(active_chat_id)` | Legacy |
 | `def model_for(self, chat_id: str) -> ChatListModel` | chat id | Chat model | create on demand | Inserts into `_models` |
-| `def _refresh_sidebar(self) -> None` | — | `None` | `self.session._refresh_model()` | Emits `sessions_changed` |
+| `def _refresh_sidebar(self) -> None` | — | `None` | set dirty flag → start `_refresh_sidebar_loop` if idle | Debounced; no blocking I/O |
+| `async def _refresh_sidebar_loop(self) -> None` | — | `None` | wait for quiet period → `session.refresh_model_async()` | Off-thread disk scan |
 | `def _spawn(self, coro: Coroutine) -> None` | coroutine | `None` | `ensure_future` → track → discard | Fire-and-forget |
 | `@Slot(str, str) def _handle_send_for(self, chat_id, text)` | chat, text | `None` | validate → append → launch | Error toasts |
 | `@Slot(str) def _handle_send(self, text)` | text | `None` | `_handle_send_for(active_chat_id, text)` | — |
@@ -191,7 +218,7 @@ output. `ChatPanelModel` reads these through `SessionController._panel_runtime`;
 | `async def _run_chat_loop(self, message, gen_id, chat_id)` | message, generation, chat | `None` | hydrate → run → reconcile → consume → finalize → compact on limit | Cancellable; persists |
 | `async def _hydrate_phase(self, chat_id, gen_id)` | chat, generation | Live chat or `None` | `_hydrate_chat`; on failure clear busy/rebuild | Side effects on failure |
 | `async def _consume_events(self, chat, chat_id, state, task)` | live chat, id, state, task | `None` | 0.1s poll → per-type branches | May block on approval |
-| `def _render_active_event(self, event, chat, chat_id, state, msg_count, last_rendered)` | event + render context | New count | swap result vs rebuild vs live | May mutate model |
+| `async def _render_active_event(self, event, chat, chat_id, state, msg_count, last_rendered)` | event + render context | New count | swap result vs rebuild vs live | May mutate model; awaits worker render |
 | `def _finalize_turn(self, chat_id, state, gen_id)` | chat, state, generation | `None` | clear busy → rebuild → reset → save → refresh → emit state | Persists |
 | `async def _stop_generation(self, chat_id)` | chat | `None` | deny pending → set event → cancel task | Cancels task |
 | `async def _approve(self, chat_id)` | chat | `None` | `approve_tool` → set event → emit state | Releases approval |
@@ -204,18 +231,19 @@ output. `ChatPanelModel` reads these through `SessionController._panel_runtime`;
 | `async def _compact_chat(self, chat_id, chat)` | chat, live agent | `None` | limit check → toast → summarize → `_create_compacted_chat` | Toasts |
 | `async def _create_compacted_chat(self, chat_id, summary)` | old id, summary | `None` | new record seeded with summary → `session.open_chat_after` | Writes store |
 | `@Slot(str) def rebuild_chat_display(self, chat_id)` | chat | `None` | no-op on empty → `_rebuild_chat_display` | Public entry for skill sync |
-| `def _compute_render_plan(self, chat_id)` | chat | `(keys, items, snapshot, indices)` | load stored → snapshot live/stored → keys + items | Pure; worker-thread safe |
+| `def _compute_render_plan(self, chat_id)` | chat | `(keys, items, snapshot, indices)` | live chat reuses cached snapshot + item cache; else load stored → `_build_plan` | Pure; worker-thread safe |
 | `def _apply_render_indices(self, state, indices)` | state, indices | `None` | copy row indices onto state | GUI thread only |
 | `def _rebuild_chat_display(self, chat_id)` | chat | `None` | skip staged → plan → indices → `diff_update` → keys → tokens | Mutates model/state |
 | `async def _rebuild_chat_display_staged(self, chat_id)` | chat | `None` | off-thread plan → indices → `_StagedBuildState` → batched inserts | Aborts on cancel/visibility change |
 | `def _skip_staged_build(self)` / `def _cancel_staged_build(self)` | — | `None` | flush / drop the staged build | — |
-| `def _compute_render_keys(self, state, messages, snapshot)` | state, messages, snapshot | Keys | banners → user/assistant/tool → trailing `w:pending` | — |
-| `def _build_items(self, state, messages, snapshot)` | state, messages, snapshot | `(items, indices)` | banners → builders → waiting item | No state mutation |
+| `def _build_plan(self, state, messages, snapshot)` | state, messages, snapshot | `_PlanBuilder` | banners → user/assistant/tool → trailing `w:pending`, each item memoized by key; messages older than `_COLLAPSE_OLDER_THAN` get `collapsed=True` + `:c` key suffix | Populates `state.item_cache` |
+| `def _build_assistant_plan(self, builder, msg, messages, idx, is_last_busy, collapsed)` | builder, message, messages, index, busy, collapsed | `None` | completed assistant: thinking/response/tool-call items | Emits cacheable items |
+| `def _build_streaming_assistant_plan(self, builder, msg, d, messages, idx)` | builder, message, decision, messages, index | `None` | busy assistant: pending/completed cards, records indices | Emits non-cacheable items |
 | `def _append_user_message(self, chat_id, text)` | chat, text | `None` | `append_item(user item, key)` | Inserts a row |
 | `def _append_waiting_placeholder(self, chat_id)` | chat | `None` | `append_item(waiting item, "w:pending")` | Inserts scanner |
 | `def _swap_pending_result_card(self, chat_id, tool_call_id, tool_name, content)` | chat, tool call, content | `None` | find pending row → replace; else rebuild | Replaces a row |
-| `def _update_live_assistant(self, chat_id, state)` | chat, state | `None` | structural rebuild vs throttled body update | Mutates model/state |
-| `def _apply_streaming_item_updates(self, chat_id, state, ...)` | chat, state, texts, flags | `None` | accumulate tokens → `update_item` | Updates rows/state |
+| `async def _update_live_assistant(self, chat_id, state)` | chat, state | `None` | structural rebuild vs throttled body update | Mutates model/state |
+| `async def _apply_streaming_item_updates(self, chat_id, state, ...)` | chat, state, texts, flags | `None` | accumulate tokens → plain thinking / threaded incremental response → `update_item` | Updates rows/state |
 | `def _track_rendered_state(self, chat_id, state)` | chat, state | `None` | snapshot last assistant text/counts | Mutates state |
 | `def _update_token_bar(self, chat_id, state=None)` | chat, optional state | `None` | true counts or estimate → `_set_token_counts` | Emits signal |
 | `def _set_loading(self, chat_id, loading)` | chat, flag | `None` | dedupe → `state.is_loading` → emit `chat_state_changed` | Emits signal |
@@ -230,5 +258,7 @@ output. `ChatPanelModel` reads these through `SessionController._panel_runtime`;
 | `def _assistant_decision(msg: dict) -> dict` | assistant message | Decision dict | Thinking/response/tool-call state |
 | `def _is_waiting_for_assistant(state: ChatState, messages) -> bool` | state, messages | Bool | Busy with no assistant content yet |
 | `def _count_trailing_tool_results(messages, after_idx) -> int` | messages, index | Count | Consecutive `role == "tool"` messages |
-| `def _compute_assistant_keys(msg, messages, idx, is_last_busy) -> list[str]` | message, messages, index, busy | Keys | Pending vs completed card keys |
 | `def _accumulate_tokens(text, previous, current) -> int` | text, counted prefix, count | Updated count | Counts the appended suffix only |
+
+`_PlanBuilder` (class) accumulates keys/items/indices and owns the
+cache-reuse-by-key logic described above.

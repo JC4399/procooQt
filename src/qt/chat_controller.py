@@ -8,7 +8,7 @@ the render plan is derived from it, diffed by content hash, and clipped into the
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 import hashlib
 import json
@@ -32,10 +32,10 @@ from .chat_items import (
     build_tool_result_pending_item,
     build_user_item,
     build_waiting_item,
+    thinking_body,
 )
 from .context_banner import build_context_banner_item, build_context_sections_from_snapshot
 from .error_handler import TOAST_ERROR
-from .markdown import render_markdown
 from .models.chat_list_model import ChatListModel
 from .qt_roles import ChatRole
 
@@ -52,15 +52,29 @@ logger = logging.getLogger("procoo_qt")
 #: of the accumulated markdown so long outputs do not thrash the rich-text layout.
 _STREAM_UPDATE_INTERVAL = 0.08
 
-#: Staged chat build after a chat switch. The chat list is non-virtualized, so
-#: inserting every card at once blocks the GUI thread for the whole build; rows
-#: are inserted ``_RENDER_INSERT_BATCH`` at a time with a short tick so the
-#: loading overlay's scanner keeps animating. The tick bounds the extra time the
-#: staging adds to roughly ``_RENDER_TICK_TARGET`` seconds.
+#: Staged chat build after a chat switch. The plan computation (hashing,
+#: markdown rendering, token counting) runs on a worker thread; rows are inserted
+#: ``_RENDER_INSERT_BATCH`` at a time with a short tick so the loading overlay's
+#: scanner keeps animating while the (virtualized) list populates. The tick
+#: bounds the extra time the staging adds to roughly ``_RENDER_TICK_TARGET``
+#: seconds.
 _RENDER_INSERT_BATCH = 8
 _RENDER_TICK_MIN = 0.006
 _RENDER_TICK_MAX = 0.02
 _RENDER_TICK_TARGET = 0.6
+
+#: Quiet period (seconds) the sidebar refresh waits for before rebuilding chat
+#: summaries. Coalesces the burst of message-count changes during a stream into
+#: a single off-thread disk scan.
+_SIDEBAR_REFRESH_DEBOUNCE = 0.3
+
+#: Messages older than this many from the end are built with their card bodies
+#: collapsed. Collapsed bodies set ``TextEdit.visible = false`` in QML, so Qt
+#: never lays out or renders their rich text; this keeps scroll cost bounded in
+#: the non-virtualized list while leaving full history navigable (click to
+#: expand). Their identity keys carry a ``:c`` suffix so ageing a message out
+#: rebuilds it once instead of reusing an expanded cached item.
+_COLLAPSE_OLDER_THAN = 12
 
 
 @dataclass
@@ -90,7 +104,7 @@ class _StagedBuildState:
 class _RenderIndices:
     """Row indices of the streaming-capable cards produced by a render plan.
 
-    Returned by :meth:`ChatController._build_items` instead of mutating the
+    Returned by :meth:`ChatController._build_plan` instead of mutating the
     chat state, so the plan can be computed on a worker thread and the
     indices applied on the GUI thread.
 
@@ -103,6 +117,59 @@ class _RenderIndices:
     thinking_index: int | None = None
     response_index: int | None = None
     tool_call_indices: list[int] = field(default_factory=list)
+
+
+class _PlanBuilder:
+    """Accumulate render-plan keys and items, reusing cached items by key.
+
+    The per-chat item cache lets a structural rebuild reuse the fully rendered
+    items of every unchanged message, so only the changed trailing message is
+    re-rendered instead of the whole conversation.
+
+    Attributes:
+        state: The chat's UI state, which owns the item cache.
+        keys: Accumulated identity keys, parallel to ``items``.
+        items: Accumulated role-keyed items.
+        indices: Streaming-card row indices recorded while building.
+    """
+
+    def __init__(self, state: ChatState) -> None:
+        """Initialise the builder for one chat.
+
+        Args:
+            state: The chat's UI state.
+        """
+        self.state = state
+        self.keys: list[str] = []
+        self.items: list[dict[int, object]] = []
+        self.indices = _RenderIndices()
+
+    def emit(
+        self,
+        key: str,
+        builder: Callable[[], dict[int, object]],
+        *,
+        cacheable: bool = True,
+    ) -> int:
+        """Append one item, reusing the cache for finalized ``key``s.
+
+        Args:
+            key: The row's identity key (content hash or pending marker).
+            builder: Callable producing the item on a cache miss.
+            cacheable: Whether the item may be cached. Streaming items are not,
+                because their keys change every tick and would bloat the cache.
+
+        Returns:
+            The appended row index.
+        """
+        item = self.state.item_cache.get(key) if cacheable else None
+        if item is None:
+            item = builder()
+            if cacheable:
+                self.state.item_cache[key] = item
+        self.keys.append(key)
+        self.items.append(item)
+        return len(self.items) - 1
 
 
 # ------------------------------------------------------------------
@@ -228,63 +295,6 @@ def _count_trailing_tool_results(messages: list[dict], after_idx: int) -> int:
     return count
 
 
-def _compute_assistant_keys(
-    msg: dict, messages: list[dict], idx: int, is_last_busy: bool
-) -> list[str]:
-    """Compute render keys for one assistant message.
-
-    Args:
-        msg: The assistant message dict.
-        messages: Full message list (for looking ahead at tool results).
-        idx: Current message index.
-        is_last_busy: Whether this is the last message and the chat is busy.
-
-    Returns:
-        List of render-plan key strings for this assistant message.
-    """
-    keys: list[str] = []
-    d = _assistant_decision(msg)
-
-    if is_last_busy:
-        if d["thinking_text"]:
-            if d["thinking_done"]:
-                keys.append("t:" + _content_hash(d["thinking_text"]) + ":done")
-            else:
-                keys.append("t:pending")
-        if d["content_text"]:
-            if d["response_done"]:
-                keys.append("r:" + _content_hash(d["content_text"]) + ":done")
-            else:
-                keys.append("r:pending")
-        for tc in d["effective_tool_calls"]:
-            tc_id = tc.get("id", "")
-            name = tc.get("function", {}).get("name", "")
-            if tc_id in d["finalized_ids"]:
-                args = tc.get("function", {}).get("arguments", "{}")
-                keys.append("c:" + name + ":" + _content_hash(args) + ":f")
-            else:
-                keys.append("c:p:" + name + ":" + tc_id)
-        if d["tool_calls"]:
-            result_count = _count_trailing_tool_results(messages, idx)
-            for k in range(result_count, len(d["tool_calls"])):
-                tc = d["tool_calls"][k]
-                keys.append(
-                    "ptr:" + tc.get("function", {}).get("name", "") + ":" + tc.get("id", "")
-                )
-        return keys
-
-    if d["thinking_text"]:
-        keys.append("t:" + _content_hash(d["thinking_text"]))
-    if d["content_text"]:
-        keys.append("r:" + _content_hash(d["content_text"]))
-    for tc in d["effective_tool_calls"]:
-        name = tc.get("function", {}).get("name", "")
-        args = tc.get("function", {}).get("arguments", "{}")
-        tc_id = tc.get("id", "")
-        keys.append("c:" + name + ":" + _content_hash(args) + ":" + tc_id)
-    return keys
-
-
 def _accumulate_tokens(text: str, previous: str, current: int) -> int:
     """Accumulate a token estimate for streamed text.
 
@@ -330,6 +340,8 @@ class ChatController(QObject):
         _input_tokens: int
         _output_tokens: int
         _staged_build: _StagedBuildState | None
+        _sidebar_dirty: bool
+        _sidebar_task: asyncio.Task[Any] | None
 
         # Cross-controller method stubs
         def _refresh_sidebar(self) -> None: ...
@@ -359,6 +371,8 @@ class ChatController(QObject):
         self._input_tokens = 0
         self._output_tokens = 0
         self._staged_build = None
+        self._sidebar_dirty = False
+        self._sidebar_task = None
 
     # ------------------------------------------------------------------
     #  Builder
@@ -483,8 +497,26 @@ class ChatController(QObject):
         return self._models[chat_id]
 
     def _refresh_sidebar(self) -> None:
-        """Refresh the chat sidebar so status dots and counts update."""
-        self.session._refresh_model()
+        """Schedule a debounced, off-thread refresh of the chat sidebar.
+
+        Streaming changes the message count frequently; coalescing the burst
+        into one quiet-period refresh keeps the per-chat disk scan off the GUI
+        thread so it never stalls input or scrolling.
+        """
+        self._sidebar_dirty = True
+        if self._sidebar_task is None or self._sidebar_task.done():
+            self._sidebar_task = asyncio.ensure_future(self._refresh_sidebar_loop())
+
+    async def _refresh_sidebar_loop(self) -> None:
+        """Wait for a quiet period, then reload summaries on a worker thread."""
+        while True:
+            self._sidebar_dirty = False
+            await asyncio.sleep(_SIDEBAR_REFRESH_DEBOUNCE)
+            if self._sidebar_dirty:
+                continue
+            await self.session.refresh_model_async()
+            if not self._sidebar_dirty:
+                break
 
     def _spawn(self, coro: Coroutine[Any, Any, Any]) -> None:
         """Schedule a coroutine and keep a reference until it completes.
@@ -765,11 +797,11 @@ class ChatController(QObject):
                 last_count = msg_count
                 self._refresh_sidebar()
             if self._is_visible(chat_id):
-                last_rendered = self._render_active_event(
+                last_rendered = await self._render_active_event(
                     event, chat, chat_id, state, msg_count, last_rendered
                 )
 
-    def _render_active_event(
+    async def _render_active_event(
         self,
         event: dict,
         chat: Agent,
@@ -802,7 +834,7 @@ class ChatController(QObject):
         if chat.messages and chat.messages[-1].get("role") != "assistant":
             self._rebuild_chat_display(chat_id)
         else:
-            self._update_live_assistant(chat_id, state)
+            await self._update_live_assistant(chat_id, state)
         return last_rendered
 
     def _finalize_turn(self, chat_id: str, state: ChatState, gen_id: int) -> None:
@@ -1077,35 +1109,40 @@ class ChatController(QObject):
         """Compute the render plan for a chat without touching models.
 
         Pure computation (hashing, markdown rendering, token counting) over the
-        chat's messages; it does not mutate the chat state, so it is safe
-        to run on a worker thread via ``asyncio.to_thread``.
+        chat's messages. Live chats reuse a cached context snapshot and the
+        state's item cache, so it neither re-reads the chat file from disk nor
+        re-renders unchanged messages. Safe to run on a worker thread.
 
         Args:
             chat_id: The chat to render.
 
         Returns:
-            ``(keys, items, snapshot, indices)``; ``snapshot`` is the stored
-            context snapshot, if any. ``indices`` carries the row locations of the
+            ``(keys, items, snapshot, indices)``; ``snapshot`` is the context
+            snapshot, if any. ``indices`` carries the row locations of the
             streaming cards for the caller to apply on the GUI thread.
         """
         state = self.session.state(chat_id)
-        stored = self.app.chat_store.load_chat(chat_id)
-        snapshot = (stored or {}).get("context_snapshot")
         chat = chat_manager.get_chat(chat_id)
         if chat is not None:
             messages = list(chat.messages)
+            snapshot = state.context_snapshot
+            if snapshot is None:
+                snapshot = self.session._build_context_snapshot(chat)
+                state.context_snapshot = snapshot
         else:
+            stored = self.app.chat_store.load_chat(chat_id)
             messages = list((stored or {}).get("messages", []))
-        keys = self._compute_render_keys(state, messages, snapshot)
-        items, indices = self._build_items(state, messages, snapshot)
-        return keys, items, snapshot, indices
+            snapshot = (stored or {}).get("context_snapshot")
+            state.context_snapshot = snapshot
+        builder = self._build_plan(state, messages, snapshot)
+        return builder.keys, builder.items, snapshot, builder.indices
 
     def _apply_render_indices(self, state: ChatState, indices: _RenderIndices) -> None:
         """Apply a render plan's streaming-card row indices to the chat state.
 
         Args:
             state: The chat's UI state.
-            indices: The indices produced by :meth:`_build_items`.
+            indices: The indices produced by :meth:`_build_plan`.
         """
         state.thinking.item_index = indices.thinking_index
         state.response.item_index = indices.response_index
@@ -1136,13 +1173,13 @@ class ChatController(QObject):
     async def _rebuild_chat_display_staged(self, chat_id: str) -> None:
         """Build a chat's chat model in batches while its overlay is shown.
 
-        The chat list is non-virtualized, so inserting every card at once blocks
-        the GUI thread for the whole build. Rows are inserted
-        :data:`_RENDER_INSERT_BATCH` at a time with a short tick between batches so
-        the GUI thread (and the loading scanner) keeps running; the caller keeps
-        the list hidden until this returns. The plan itself (hashing, markdown
-        rendering, token counting) is computed on a worker thread first, so the
-        scanner keeps animating while it is prepared. A user action
+        The list is virtualized, so only viewport delegates are realized and the
+        batched insertion mainly keeps model updates incremental while the
+        loading overlay's scanner keeps animating. The plan itself (hashing,
+        markdown rendering, token counting) is computed on a worker thread first,
+        so the scanner keeps animating while it is prepared. Rows are inserted
+        :data:`_RENDER_INSERT_BATCH` at a time with a short tick between batches;
+        the caller keeps the list hidden until this returns. A user action
         (:meth:`_skip_staged_build`) or a new switch (:meth:`_cancel_staged_build`)
         ends the build early.
 
@@ -1197,203 +1234,222 @@ class ChatController(QObject):
         """Drop an in-progress staged build without flushing (a rebuild replaces it)."""
         self._staged_build = None
 
-    def _compute_render_keys(
+    def _build_plan(
         self, state: ChatState, messages: list[dict], snapshot: dict | None
-    ) -> list[str]:
-        """Compute content-hash keys for incremental render planning.
+    ) -> _PlanBuilder:
+        """Build render-plan keys, items, and streaming indices in one pass.
+
+        Reuses cached items for unchanged messages (keyed by content hash), so a
+        structural rebuild re-renders only the changed trailing message instead
+        of the whole conversation.
 
         Args:
-            state: The chat's UI state.
+            state: The chat's UI state (owns the item cache).
             messages: The chat message list.
-            snapshot: The stored context snapshot, if any. A truthy snapshot emits
-                the initial "Original System Context" banner key.
+            snapshot: The context snapshot, if any.
 
         Returns:
-            List of render-plan keys, one per emitted item.
+            The populated :class:`_PlanBuilder`.
         """
-        keys: list[str] = []
+        builder = _PlanBuilder(state)
         if snapshot:
-            keys.append("b:i")
-        for banner in state.context_banners_data:
-            keys.append("b:d:" + _content_hash(json.dumps(banner, sort_keys=True)))
-        for i, msg in enumerate(messages):
-            role = msg.get("role", "")
-            is_last_busy = state.is_busy and i == len(messages) - 1 and role == "assistant"
-            if role == "user":
-                keys.append("u:" + _content_hash(msg.get("content", "")))
-            elif role == "assistant":
-                keys.extend(_compute_assistant_keys(msg, messages, i, is_last_busy))
-            elif role == "tool":
-                name = msg.get("name", "")
-                keys.append("tr:" + name + ":" + _content_hash(msg.get("content", "")))
-        if _is_waiting_for_assistant(state, messages):
-            keys.append("w:pending")
-        return keys
-
-    def _build_items(
-        self, state: ChatState, messages: list[dict], snapshot: dict | None
-    ) -> tuple[list[dict], _RenderIndices]:
-        """Build the full list of chat items for the message list.
-
-        Args:
-            state: The chat's UI state.
-            messages: The chat message list.
-            snapshot: The stored context snapshot, if any.
-
-        Returns:
-            ``(items, indices)`` — role-keyed chat items aligned with
-            :meth:`_compute_render_keys`, plus the streaming-card row indices for
-            the caller to apply on the GUI thread.
-        """
-        indices = _RenderIndices()
-        items: list[dict] = []
-        if snapshot:
-            items.append(
-                build_context_banner_item(
+            builder.emit(
+                "b:i",
+                lambda: build_context_banner_item(
                     "Original System Context",
                     build_context_sections_from_snapshot(snapshot),
                     is_delta=False,
-                )
+                ),
             )
         for banner in state.context_banners_data:
-            items.append(
-                build_context_banner_item(
+            key = "b:d:" + _content_hash(json.dumps(banner, sort_keys=True))
+            builder.emit(
+                key,
+                lambda banner=banner: build_context_banner_item(
                     banner.get("title", "Context Update"),
                     banner.get("sections", []),
                     is_delta=banner.get("is_delta", True),
-                )
+                ),
             )
+        recent_start = max(0, len(messages) - _COLLAPSE_OLDER_THAN)
         for i, msg in enumerate(messages):
             role = msg.get("role", "")
             is_last_busy = state.is_busy and i == len(messages) - 1 and role == "assistant"
+            collapsed = i < recent_start
+            suffix = ":c" if collapsed else ""
             if role == "user":
                 content = msg.get("content", "")
                 if isinstance(content, list):
                     content = _extract_text_from_multimodal(content)
-                items.append(build_user_item(content))
+                builder.emit(
+                    "u:" + _content_hash(msg.get("content", "")) + suffix,
+                    lambda content=content, collapsed=collapsed: build_user_item(
+                        content, collapsed=collapsed
+                    ),
+                )
             elif role == "assistant":
-                self._build_assistant_items(state, msg, messages, i, is_last_busy, items, indices)
+                self._build_assistant_plan(builder, msg, messages, i, is_last_busy, collapsed)
             elif role == "tool":
                 content = msg.get("content", "")
-                items.append(
-                    build_tool_result_item(
-                        msg.get("name", ""), content, token_count=count_tokens(content)
-                    )
+                name = msg.get("name", "")
+                builder.emit(
+                    "tr:" + name + ":" + _content_hash(content) + suffix,
+                    lambda name=name, content=content, collapsed=collapsed: build_tool_result_item(
+                        name, content, token_count=count_tokens(content), collapsed=collapsed
+                    ),
                 )
         if _is_waiting_for_assistant(state, messages):
-            items.append(build_waiting_item())
-        return items, indices
+            builder.emit("w:pending", build_waiting_item, cacheable=False)
+        return builder
 
-    def _build_assistant_items(
+    def _build_assistant_plan(
         self,
-        state: ChatState,
+        builder: _PlanBuilder,
         msg: dict,
         messages: list[dict],
         idx: int,
         is_last_busy: bool,
-        items: list[dict],
-        indices: _RenderIndices,
+        collapsed: bool,
     ) -> None:
-        """Append the items for one assistant message.
+        """Append the plan entries for one assistant message.
 
         Args:
-            state: The chat's UI state.
+            builder: The plan accumulator.
             msg: The assistant message dict.
             messages: Full message list.
             idx: Current message index.
             is_last_busy: Whether this is the last message and the chat is busy.
-            items: Item accumulator.
-            indices: Streaming-card index accumulator.
+            collapsed: Whether the message is old enough to start collapsed.
         """
         d = _assistant_decision(msg)
         if is_last_busy:
-            self._build_streaming_assistant_items(state, d, messages, idx, items, indices)
+            self._build_streaming_assistant_plan(builder, d, messages, idx)
             return
+        suffix = ":c" if collapsed else ""
         if d["thinking_text"]:
-            items.append(
-                build_thinking_item(
-                    d["thinking_text"], token_count=count_tokens(d["thinking_text"])
-                )
+            text = d["thinking_text"]
+            builder.emit(
+                "t:" + _content_hash(text) + suffix,
+                lambda text=text, collapsed=collapsed: build_thinking_item(
+                    text, token_count=count_tokens(text), collapsed=collapsed
+                ),
             )
         if d["content_text"]:
-            items.append(
-                build_response_item(d["content_text"], token_count=count_tokens(d["content_text"]))
+            text = d["content_text"]
+            builder.emit(
+                "r:" + _content_hash(text) + suffix,
+                lambda text=text, collapsed=collapsed: build_response_item(
+                    text, token_count=count_tokens(text), collapsed=collapsed
+                ),
             )
         for tc in d["effective_tool_calls"]:
-            entry = {
-                "name": tc.get("function", {}).get("name", ""),
-                "arguments": _parse_tool_arguments(tc),
-                "mode": tc.get("_mode", "ask"),
-            }
+            name = tc.get("function", {}).get("name", "")
             args_str = tc.get("function", {}).get("arguments", "{}")
-            items.append(build_tool_call_item(entry, token_count=count_tokens(args_str)))
+            tc_id = tc.get("id", "")
+            builder.emit(
+                "c:" + name + ":" + _content_hash(args_str) + ":" + tc_id + suffix,
+                lambda tc=tc, collapsed=collapsed: build_tool_call_item(
+                    {
+                        "name": tc.get("function", {}).get("name", ""),
+                        "arguments": _parse_tool_arguments(tc),
+                        "mode": tc.get("_mode", "ask"),
+                    },
+                    token_count=count_tokens(tc.get("function", {}).get("arguments", "{}")),
+                    collapsed=collapsed,
+                ),
+            )
 
-    def _build_streaming_assistant_items(
+    def _build_streaming_assistant_plan(
         self,
-        state: ChatState,
+        builder: _PlanBuilder,
         d: dict[str, Any],
         messages: list[dict],
         idx: int,
-        items: list[dict],
-        indices: _RenderIndices,
     ) -> None:
-        """Append streaming items (with pending cards) for the busy assistant.
+        """Append streaming plan entries (with pending cards) for the busy assistant.
+
+        Streaming entries are never cached: their keys either carry a
+        per-tick content hash or a ``:pending`` marker whose body is updated in
+        place, so caching them would only bloat the cache.
 
         Args:
-            state: The chat's UI state.
+            builder: The plan accumulator.
             d: The assistant decision dict from :func:`_assistant_decision`.
             messages: Full message list.
             idx: Current message index.
-            items: Item accumulator.
-            indices: Streaming-card index accumulator.
         """
+        state = builder.state
         if d["thinking_text"]:
+            text = d["thinking_text"]
             if d["thinking_done"]:
-                items.append(
-                    build_thinking_item(
-                        d["thinking_text"], token_count=count_tokens(d["thinking_text"])
-                    )
+                builder.emit(
+                    "t:" + _content_hash(text) + ":done",
+                    lambda text=text: build_thinking_item(text, token_count=count_tokens(text)),
+                    cacheable=False,
                 )
             else:
-                indices.thinking_index = len(items)
-                items.append(
-                    build_thinking_pending_item(
-                        d["thinking_text"], token_count=state.thinking.token_count
-                    )
+                row = builder.emit(
+                    "t:pending",
+                    lambda text=text: build_thinking_pending_item(
+                        text, token_count=state.thinking.token_count
+                    ),
+                    cacheable=False,
                 )
+                builder.indices.thinking_index = row
         if d["content_text"]:
+            text = d["content_text"]
             if d["response_done"]:
-                items.append(
-                    build_response_item(
-                        d["content_text"], token_count=count_tokens(d["content_text"])
-                    )
+                builder.emit(
+                    "r:" + _content_hash(text) + ":done",
+                    lambda text=text: build_response_item(text, token_count=count_tokens(text)),
+                    cacheable=False,
                 )
             else:
-                indices.response_index = len(items)
-                items.append(
-                    build_response_pending_item(
-                        d["content_text"], token_count=state.response.token_count
-                    )
+                row = builder.emit(
+                    "r:pending",
+                    lambda text=text: build_response_pending_item(
+                        text, token_count=state.response.token_count
+                    ),
+                    cacheable=False,
                 )
+                builder.indices.response_index = row
         for tc in d["effective_tool_calls"]:
             tc_id = tc.get("id", "")
             name = tc.get("function", {}).get("name", "")
             mode = tc.get("_mode", "ask")
             args_str = tc.get("function", {}).get("arguments", "{}")
-            indices.tool_call_indices.append(len(items))
             if tc_id in d["finalized_ids"]:
-                entry = {"name": name, "arguments": _parse_tool_arguments(tc), "mode": mode}
-                items.append(build_tool_call_item(entry, token_count=count_tokens(args_str)))
+                row = builder.emit(
+                    "c:" + name + ":" + _content_hash(args_str) + ":f",
+                    lambda tc=tc: build_tool_call_item(
+                        {
+                            "name": tc.get("function", {}).get("name", ""),
+                            "arguments": _parse_tool_arguments(tc),
+                            "mode": tc.get("_mode", "ask"),
+                        },
+                        token_count=count_tokens(tc.get("function", {}).get("arguments", "{}")),
+                    ),
+                    cacheable=False,
+                )
             else:
-                items.append(build_tool_call_pending_item(name, mode, count_tokens(args_str)))
+                row = builder.emit(
+                    "c:p:" + name + ":" + tc_id,
+                    lambda name=name, mode=mode, args_str=args_str: build_tool_call_pending_item(
+                        name, mode, count_tokens(args_str)
+                    ),
+                    cacheable=False,
+                )
+            builder.indices.tool_call_indices.append(row)
         if d["tool_calls"]:
             result_count = _count_trailing_tool_results(messages, idx)
             for k in range(result_count, len(d["tool_calls"])):
                 tc = d["tool_calls"][k]
-                items.append(
-                    build_tool_result_pending_item(
-                        tc.get("function", {}).get("name", ""), tc.get("id", "")
-                    )
+                name = tc.get("function", {}).get("name", "")
+                tc_id = tc.get("id", "")
+                builder.emit(
+                    "ptr:" + name + ":" + tc_id,
+                    lambda name=name, tc_id=tc_id: build_tool_result_pending_item(name, tc_id),
+                    cacheable=False,
                 )
 
     # ------------------------------------------------------------------
@@ -1452,7 +1508,7 @@ class ChatController(QObject):
         item = build_tool_result_item(tool_name, content, token_count=count_tokens(content))
         model.replace_item(row, item, "tr:" + tool_name + ":" + _content_hash(content))
 
-    def _update_live_assistant(self, chat_id: str, state: ChatState) -> None:
+    async def _update_live_assistant(self, chat_id: str, state: ChatState) -> None:
         """Live render the streaming assistant message with a short throttle.
 
         Structural changes (tool calls/results appearing, streaming tool calls
@@ -1511,7 +1567,7 @@ class ChatController(QObject):
             self._track_rendered_state(chat_id, state)
             return
         state.last_content_update_time = now
-        self._apply_streaming_item_updates(
+        await self._apply_streaming_item_updates(
             chat_id,
             state,
             thinking_text,
@@ -1522,7 +1578,7 @@ class ChatController(QObject):
         )
         self._track_rendered_state(chat_id, state)
 
-    def _apply_streaming_item_updates(
+    async def _apply_streaming_item_updates(
         self,
         chat_id: str,
         state: ChatState,
@@ -1534,8 +1590,9 @@ class ChatController(QObject):
     ) -> None:
         """Apply throttled content-only updates to the streaming card rows.
 
-        Re-renders the accumulated thinking/response markdown into ``BODY_HTML``
-        and refreshes the header token text and live tool-call token counts.
+        Thinking is escaped as plain text; the response is rendered through the
+        card's incremental Markdown renderer on a worker thread so the parse,
+        highlight, and sanitize work never blocks the GUI thread.
 
         Args:
             chat_id: The chat being rendered.
@@ -1558,7 +1615,7 @@ class ChatController(QObject):
                 model.update_item(
                     state.thinking.item_index,
                     {
-                        int(ChatRole.BODY_HTML): render_markdown(thinking_text),
+                        int(ChatRole.BODY_HTML): thinking_body(thinking_text),
                         int(ChatRole.TOKEN_TEXT): f"{state.thinking.token_count} tk",
                     },
                 )
@@ -1568,10 +1625,11 @@ class ChatController(QObject):
             )
             state.last_tok_counted_response = content_text
             if state.response.item_index is not None:
+                html = await asyncio.to_thread(state.response.markdown.render, content_text)
                 model.update_item(
                     state.response.item_index,
                     {
-                        int(ChatRole.BODY_HTML): render_markdown(content_text),
+                        int(ChatRole.BODY_HTML): html,
                         int(ChatRole.TOKEN_TEXT): f"{state.response.token_count} tk",
                     },
                 )
@@ -1613,19 +1671,18 @@ class ChatController(QObject):
     def _update_token_bar(self, chat_id: str, state: ChatState | None = None) -> None:
         """Update the token counts shown for a chat.
 
+        The bar shows only true API token counts reported by ``token_usage``
+        events; no word-count estimate is used. A chat that has not yet received
+        a response therefore shows zero.
+
         Args:
             chat_id: The chat whose tokens to show.
             state: Optional chat state carrying true API token counts.
         """
         if not chat_id:
             return
-        if state and state.true_input_tokens > 0:
-            ctx = state.true_input_tokens
-            out = state.true_output_cum
-        else:
-            chat = chat_manager.get_chat(chat_id)
-            ctx = chat._estimated_total if chat else 0
-            out = 0
+        ctx = state.true_input_tokens if state else 0
+        out = state.true_output_cum if state else 0
         self._set_token_counts(ctx, out)
 
     def _set_token_counts(self, input_tokens: int, output_tokens: int) -> None:
