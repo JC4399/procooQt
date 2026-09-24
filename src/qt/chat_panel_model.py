@@ -41,6 +41,7 @@ class ChatPanelModel(QObject):
         self._allow_count = 0
         self._ask_count = 0
         self._block_count = 0
+        self._model_name = ""
 
     # ------------------------------------------------------------------
     #  Properties
@@ -116,6 +117,11 @@ class ChatPanelModel(QObject):
         """Return the active chat's block-mode tool count."""
         return self._block_count
 
+    @Property(str, notify=changed)
+    def modelName(self) -> str:  # noqa: N802
+        """Return the LLM model name selected for the active chat."""
+        return self._model_name
+
     # ------------------------------------------------------------------
     #  Setters (called by the session controller on the GUI thread)
     # ------------------------------------------------------------------
@@ -154,6 +160,7 @@ class ChatPanelModel(QObject):
         allow_count: int,
         ask_count: int,
         block_count: int,
+        model_name: str,
     ) -> None:
         """Update the runtime display values for the active chat.
 
@@ -168,6 +175,7 @@ class ChatPanelModel(QObject):
             allow_count: Number of allow-mode tools.
             ask_count: Number of ask-mode tools.
             block_count: Number of block-mode tools.
+            model_name: LLM model name selected for the active chat.
         """
         self._busy = busy
         self._approval_visible = approval_visible
@@ -179,4 +187,5 @@ class ChatPanelModel(QObject):
         self._allow_count = allow_count
         self._ask_count = ask_count
         self._block_count = block_count
+        self._model_name = model_name
         self.changed.emit()

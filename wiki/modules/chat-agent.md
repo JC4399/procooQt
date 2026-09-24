@@ -17,6 +17,7 @@ layers.
 - `run(message_content)` — executes one user turn.
 - `approve_tool` / `deny_tool` — release pending approvals.
 - `update_skill_config` — hot-swap skills/tools with delta warnings.
+- `set_model` — swap the LLM client for subsequent turns.
 - `run_tool` — subprocess tool execution.
 
 ## Key attributes
@@ -80,7 +81,16 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 | Signature | `def __init__(self, chat_id, model, primary_skill_contents, secondary_skill_contents, tool_functions, tool_config, skills_dir, system_message="You are a helpful assistant.", sampling_config=None, initial_messages=None, summary_prompt="", chat_limits=None) -> None` |
 | Inputs | see docstring; `model` = `{model_name, api_key, api_base}`; `tool_config` = per-tool mode; `initial_messages` seeds history; `summary_prompt` = summarization instruction; `chat_limits` = `{"max_bytes": int, "max_tokens": int}` (0 disables). |
 | Output | `None` |
-| Flow | init queue/approvals → build `sys_prompt` from primary/secondary skills → `ChatTokenTracker` → `OpenAIModel(stream=True)` → register tools → log skills. |
+| Flow | init queue/approvals → build `sys_prompt` from primary/secondary skills → `ChatTokenTracker` → `_build_model(model)` (`OpenAIModel(stream=True)`) → register tools → log skills. |
+
+### `_build_model` / `set_model`
+
+| | |
+|---|---|
+| Signature | `@staticmethod _build_model(model: dict) -> OpenAIModel` / `def set_model(self, model: dict) -> None` |
+| Inputs | `model` = `{model_name, api_key, api_base}`. |
+| Output | `_build_model` returns a streaming `OpenAIModel`; `set_model` returns `None`. |
+| Flow | `_build_model` constructs `OpenAIModel(...)` with the model/key/base URL; `set_model` replaces `self._model` so later turns use the new model. |
 
 ### `run`
 

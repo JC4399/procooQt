@@ -20,8 +20,8 @@ llm:
   - model_name: "qwen2.5"
     api_key: "ollama"
     api_base: "http://localhost:11434/v1"
-    enable: true
+    default: true
   # - model_name: "gpt-4o"
   #   api_key: "your-api-key"
   #   api_base: "https://api.openai.com/v1"
-  #   enable: false
+  #   default: false

@@ -55,6 +55,7 @@ class ChatState:
         allow_count: Number of tools set to ``allow``.
         ask_count: Number of tools set to ``ask``.
         block_count: Number of tools set to ``block``.
+        model_name: LLM model selected for this chat (empty = config default).
         rendered_item_keys: Content hashes of the last rendered chat items.
         tool_call_indices: Row indices of rendered tool-call cards.
         last_rendered_thinking_text: Last thinking text pushed to the model.
@@ -88,6 +89,7 @@ class ChatState:
     allow_count: int = 0
     ask_count: int = 0
     block_count: int = 0
+    model_name: str = ""
     rendered_item_keys: list[str] = field(default_factory=list)
     tool_call_indices: list[int] = field(default_factory=list)
     last_rendered_thinking_text: str = ""

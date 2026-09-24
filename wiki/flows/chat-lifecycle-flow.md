@@ -11,7 +11,8 @@ Related: [`qt-session-controller`](../modules/qt-session-controller.md), [`qt-ch
   layout (`splits: [{chat_ids, active_chat_id}]`, max 4). `Default` is created on
   first run.
 - A **chat** is one conversation stored as `chats/<chat_id>.json` and carrying
-  its own `session`, `skills_config`, `messages`, and `context_snapshot`.
+  its own `session`, `skills_config`, `messages`, `model_name`, and
+  `context_snapshot`.
 
 ```
 (store)  --hydrate-->  (chat_manager / Agent)  <--live generation--
@@ -46,7 +47,8 @@ every visible chat (`set_visible_chats`). Each panel's values reach QML through 
 
 1. `_generate_unique_chat_id` — timestamp id, suffixed on collision.
 2. `_create_stored_chat` → `ChatStore.save_chat` with `session` = the active
-   session and empty `messages` / `skills_config`.
+   session, empty `messages` / `skills_config`, and `model_name` = the config
+   default.
 3. Append the id to that panel's tabs and set it active; refresh + save layout;
    `_open_chat`.
 4. The skill dock later loads/persists real selections via the
@@ -77,11 +79,22 @@ transcript in batches behind the opaque loading overlay
 2. Load the stored dict off-thread (toast error if missing).
 3. `_create_manager_chat` **on a worker thread** (`asyncio.to_thread`):
    `load_skill_contents` (primary/secondary) + `load_tool_functions` (primary) +
-   `build_tool_config`, then `chat_manager.create_chat(...)` with the system
-   prompt and `chat_limits`. Agent construction and skill/AST loading therefore
-   never block the GUI thread or the loading scanner.
+   `build_tool_config`, resolve `model_name` (fallback to the config default),
+   then `chat_manager.create_chat(...)` with the system prompt and `chat_limits`.
+   Agent construction and skill/AST loading therefore never block the GUI thread
+   or the loading scanner.
 4. `await chat.refresh_estimated()` (offloaded); backfill `context_snapshot`
    and save off-thread if it was absent.
+
+## Select model (`SkillDock` dropdown → `session._handle_model_changed`)
+
+1. The dropdown lists `session.modelNames` and highlights
+   `session.modelNameFor(activeChatId)`.
+2. `_handle_model_changed(chat_id, name)` validates the name, writes
+   `ChatState.model_name` and the stored record's `model_name`, calls
+   `Agent.set_model` on the live agent (if present), and refreshes the panel so
+   `ChatPanelModel.modelName` / `ConfigTokenBar` update.
+3. Model changes apply to subsequent turns without recreating the chat.
 
 ## Persist (`SessionController._save_current_chat_for`)
 

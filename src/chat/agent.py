@@ -111,17 +111,7 @@ class Agent:
 
         self._tokens = ChatTokenTracker(self.sys_prompt)
 
-        _model = model or {}
-        model_name = _model.get("model_name", "qwen2.5")
-        api_key = _model.get("api_key", "ollama")
-        api_base = _model.get("api_base", "http://localhost:11434/v1")
-
-        self._model = OpenAIModel(
-            model_name=model_name,
-            api_key=api_key,
-            client_kwargs={"base_url": api_base},
-            stream=True,
-        )
+        self._model = self._build_model(model or {})
 
         self._tools: dict[str, dict] = {}
         for td in self._tool_defs:
@@ -143,6 +133,31 @@ class Agent:
     # ------------------------------------------------------------------
     #  Public: Configuration
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_model(model: dict) -> OpenAIModel:
+        """Build the LLM client from a model config dict.
+
+        Args:
+            model: LLM config dict (``model_name``, ``api_key``, ``api_base``).
+
+        Returns:
+            A streaming :class:`OpenAIModel`.
+        """
+        return OpenAIModel(
+            model_name=model.get("model_name", "qwen2.5"),
+            api_key=model.get("api_key", "ollama"),
+            client_kwargs={"base_url": model.get("api_base", "http://localhost:11434/v1")},
+            stream=True,
+        )
+
+    def set_model(self, model: dict) -> None:
+        """Replace the LLM client used for subsequent turns.
+
+        Args:
+            model: LLM config dict (``model_name``, ``api_key``, ``api_base``).
+        """
+        self._model = self._build_model(model or {})
 
     def update_skill_config(
         self,

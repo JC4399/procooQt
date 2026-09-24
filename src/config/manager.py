@@ -16,7 +16,7 @@ class ConfigManager:
         self._data: dict = {}
         self._config_dir = Path(config_dir).resolve()
         self._load_file()
-        self._enabled_llm()
+        self._default_llm()
 
     def _load_file(self) -> None:
         config_path = self._config_dir / "config.yaml"
@@ -109,13 +109,13 @@ class ConfigManager:
         )
         return str(self._get_optional("agent", "summary_prompt", default=default))
 
-    def _enabled_llm(self) -> dict:
-        """Return the LLM config entry with ``enable: true``.
+    def _default_llm(self) -> dict:
+        """Return the LLM config entry with ``default: true``.
 
         Raises:
             ConfigError: If the ``llm`` section is missing, empty, or not a
-                list, if no entry is enabled, or if more than one entry is
-                enabled.
+                list, if no entry is default, or if more than one entry is
+                marked as default.
         """
         models = self._data.get("llm")
         if not isinstance(models, list) or not models:
@@ -123,45 +123,94 @@ class ConfigManager:
                 brief="No LLM models configured",
                 detail="Config key 'llm' must be a non-empty list of model entries",
             )
-        enabled = [m for m in models if isinstance(m, dict) and m.get("enable") is True]
-        if not enabled:
+        default = [m for m in models if isinstance(m, dict) and m.get("default") is True]
+        if not default:
             raise ConfigError(
-                brief="No LLM model enabled",
-                detail="Set 'enable: true' on exactly one entry under 'llm'",
+                brief="No default LLM model",
+                detail="Set 'default: true' on exactly one entry under 'llm'",
             )
-        if len(enabled) > 1:
-            names = ", ".join(m.get("model_name", "?") for m in enabled)
+        if len(default) > 1:
+            names = ", ".join(m.get("model_name", "?") for m in default)
             raise ConfigError(
-                brief="Multiple LLM models enabled",
-                detail=f"Enabled models: {names} — enable only one",
+                brief="Multiple default LLM models",
+                detail=f"Default models: {names} — mark only one as default",
             )
-        return enabled[0]
+        return default[0]
+
+    @property
+    def llm_models(self) -> list[str]:
+        """Return the model names of every configured LLM entry."""
+        models = self._data.get("llm")
+        if not isinstance(models, list) or not models:
+            raise ConfigError(
+                brief="No LLM models configured",
+                detail="Config key 'llm' must be a non-empty list of model entries",
+            )
+        return [
+            str(m.get("model_name", ""))
+            for m in models
+            if isinstance(m, dict) and m.get("model_name")
+        ]
+
+    def llm_config(self, model_name: str) -> dict:
+        """Return the connection config for a named LLM entry.
+
+        Args:
+            model_name: The ``model_name`` of the entry to look up.
+
+        Returns:
+            A ``{"model_name", "api_key", "api_base"}`` dict.
+
+        Raises:
+            ConfigError: If no entry matches *model_name*, or the entry is
+                missing a required key.
+        """
+        models = self._data.get("llm")
+        if isinstance(models, list):
+            for model in models:
+                if not isinstance(model, dict) or model.get("model_name") != model_name:
+                    continue
+                for key in ("model_name", "api_key", "api_base"):
+                    if key not in model:
+                        raise ConfigError(
+                            brief=f"Missing LLM config key: {key}",
+                            detail=(f"LLM entry '{model_name}' is missing required key '{key}'"),
+                        )
+                return {
+                    "model_name": model["model_name"],
+                    "api_key": model["api_key"],
+                    "api_base": model["api_base"],
+                }
+        raise ConfigError(
+            brief=f"Unknown LLM model: {model_name}",
+            detail=f"No entry under 'llm' has model_name '{model_name}'",
+        )
 
     @property
     def llm_model_name(self) -> str:
-        """Model name of the enabled LLM."""
+        """Model name of the default LLM."""
         return self._get_llm_key("model_name")
 
     @property
     def llm_api_key(self) -> str:
-        """API key of the enabled LLM."""
+        """API key of the default LLM."""
         return self._get_llm_key("api_key")
 
     @property
     def llm_api_base(self) -> str:
-        """API base URL of the enabled LLM."""
+        """API base URL of the default LLM."""
         return self._get_llm_key("api_base")
 
     def _get_llm_key(self, key: str) -> str:
-        """Fetch a required key from the enabled LLM entry, raising ConfigError if missing.
+        """Fetch a required key from the default LLM entry, raising ConfigError if missing.
 
         Args:
             key: The entry key to fetch.
 
         Raises:
-            ConfigError: If the key is missing from the enabled LLM entry.
+            ConfigError: If the key is missing from the default LLM entry.
         """
-        model = self._enabled_llm()
+        model = self._default_llm()
         if key not in model:
             name = model.get("model_name", "?")
             raise ConfigError(

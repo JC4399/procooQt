@@ -13,6 +13,7 @@ Rectangle {
     property int blockCount: 0
     property int inputTokens: 0
     property int outputTokens: 0
+    property string modelName: ""
 
     implicitHeight: 26
     color: Theme.colors.surfaceBg
@@ -62,6 +63,16 @@ Rectangle {
             Layout.alignment: Qt.AlignVCenter
             count: bar.blockCount
             squareColor: Theme.colors.chipBlockFgMuted
+        }
+
+        Text {
+            Layout.alignment: Qt.AlignVCenter
+            Layout.leftMargin: 4
+            text: bar.modelName
+            color: Theme.colors.textSecondary
+            font.family: Theme.fontMono
+            font.pointSize: Theme.metrics.fontSizeBase
+            elide: Text.ElideRight
         }
 
         Item { Layout.fillWidth: true }

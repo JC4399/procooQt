@@ -1046,6 +1046,7 @@ class ChatController(QObject):
                 "updated_at": now,
                 "message_count": 1,
                 "context_snapshot": (old or {}).get("context_snapshot", {}),
+                "model_name": (old or {}).get("model_name") or self.app.config.llm_model_name,
                 "summary_of": chat_id,
             },
         )

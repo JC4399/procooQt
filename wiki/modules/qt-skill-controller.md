@@ -89,6 +89,23 @@ these slots.
    - `_append_delta_banner` builds/pops the trailing delta banner.
    - `chat.rebuild_chat_display(chat_id)`.
 
+### QML dock interaction (`SkillDock.qml`)
+
+One `SkillDock.qml` is instantiated per `ChatPanel`. It is a zero-width overlay
+anchored to the panel's right edge, collapsed by default (a thin rail) and
+expanding leftward over the panel body.
+
+- **Expand / collapse** — clicking the collapsed rail sets `expanded = true`;
+  clicking the expanded panel's left rail collapses it or resizes it by drag.
+- **Outside press collapses** — while expanded, a transparent `MouseArea`
+  (`outsideCatcher`) covers this panel's body to the left of the expanded panel,
+  full height below the tab bar. Pressing there sets `expanded = false` and
+  passes the press through (`mouse.accepted = false`), so the same click still
+  reaches the chat list or input. The catcher is scoped to its own
+  `ChatPanel`; pressing another split panel leaves this dock untouched.
+- **Preset load on select** — choosing a name in the `PresetBar` dropdown emits
+  `loadRequested` (→ `_handle_load_preset`) immediately; there is no Load button.
+
 ## Function Reference
 
 ### Setup and lifecycle

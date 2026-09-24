@@ -354,6 +354,7 @@ Rectangle {
             blockCount: panel.panelModel ? panel.panelModel.blockCount : 0
             inputTokens: panel.panelModel ? panel.panelModel.inputTokens : 0
             outputTokens: panel.panelModel ? panel.panelModel.outputTokens : 0
+            modelName: panel.panelModel ? panel.panelModel.modelName : ""
         }
 
         // ----------------------------------------------------------

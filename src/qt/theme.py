@@ -135,11 +135,13 @@ COLOR_CHIP_ASK_FG = COLOR_ACCENT_AMBER
 COLOR_CHIP_BLOCK_BG = "#3b1a1a"
 COLOR_CHIP_BLOCK_FG = COLOR_ACCENT_RED
 
-# Desaturated variants for the compact config/token number readouts.
-COLOR_CHIP_PRIMARY_FG_MUTED = "#9ebeda"
-COLOR_CHIP_ALLOW_FG_MUTED = "#619768"
-COLOR_CHIP_ASK_FG_MUTED = "#a28852"
-COLOR_CHIP_BLOCK_FG_MUTED = "#ac6261"
+# Chip foreground variants for the compact config/token number readouts
+# (cyan / green / yellow / red chips).
+#
+COLOR_CHIP_PRIMARY_FG_MUTED = "#38B2AC"
+COLOR_CHIP_ALLOW_FG_MUTED = "#48BB78"
+COLOR_CHIP_ASK_FG_MUTED = "#ECC94B"
+COLOR_CHIP_BLOCK_FG_MUTED = "#E53E3E"
 
 # ------------------------------------------------------------------
 # Tool mode badge colors (shown inside tool call cards)

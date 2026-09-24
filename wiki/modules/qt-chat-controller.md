@@ -155,7 +155,7 @@ call `chat.approve_tool` / `chat.deny_tool` and `set()` the event.
 
 `_compact_chat(chat_id, chat)` checks `chat.check_limit_exceeded()`; toasts when
 visible, `await chat.summarize()`, and on success calls `_create_compacted_chat`.
-That generates a new id, copies `skills_config`, `session`, and
+That generates a new id, copies `skills_config`, `session`, `model_name`, and
 `context_snapshot`, seeds `messages` with the summary, records `summary_of`, and
 `session.open_chat_after(chat_id, new_id)`.
 

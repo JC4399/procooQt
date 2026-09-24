@@ -60,6 +60,27 @@ Item {
     }
 
     // ------------------------------------------------------------------
+    //  Outside-press catcher
+    // ------------------------------------------------------------------
+
+    // Press anywhere in this panel's body outside the expanded dock to
+    // collapse it. The press is passed through (accepted = false) so the
+    // underlying chat list / input still reacts to the same click.
+    MouseArea {
+        id: outsideCatcher
+        enabled: dock.expanded
+        visible: dock.expanded
+        x: dock.parent ? -dock.parent.width : 0
+        width: dock.parent ? dock.parent.width - expandedPanel.width : 0
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        onPressed: function (mouse) {
+            dock.expanded = false
+            mouse.accepted = false
+        }
+    }
+
+    // ------------------------------------------------------------------
     //  Collapsed rail (right edge)
     // ------------------------------------------------------------------
 
@@ -174,6 +195,102 @@ Item {
             anchors.top: parent.top
             anchors.bottom: parent.bottom
             spacing: 0
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 6
+                spacing: 6
+
+                ComboBox {
+                    id: modelCombo
+                    Layout.fillWidth: true
+                    implicitHeight: 26
+                    enabled: dock.chatId !== ""
+                    font.family: Theme.fontMono
+                    font.pointSize: Theme.metrics.fontSizeBase
+                    model: session.modelNames
+                    currentIndex: Math.max(0, session.modelNames.indexOf(
+                                               session.modelNameFor(dock.chatId)))
+                    onActivated: function (index) {
+                        session._handle_model_changed(dock.chatId, modelCombo.textAt(index))
+                    }
+
+                    background: Rectangle {
+                        color: Theme.colors.inputFill
+                        border.color: modelCombo.activeFocus
+                                      ? Theme.colors.inputFocusedBorder
+                                      : Theme.colors.inputBorder
+                        border.width: 1
+                        radius: 0
+                    }
+
+                    contentItem: Text {
+                        leftPadding: 6
+                        text: modelCombo.displayText
+                        color: Theme.colors.inputText
+                        font: modelCombo.font
+                        verticalAlignment: Text.AlignVCenter
+                        elide: Text.ElideRight
+                    }
+
+                    indicator: Text {
+                        x: modelCombo.width - width - 6
+                        y: modelCombo.topPadding + (modelCombo.availableHeight - height) / 2
+                        text: "\u25be"
+                        color: Theme.colors.textSecondary
+                        font.family: Theme.fontMono
+                        font.pointSize: Theme.metrics.fontSizeBase
+                    }
+
+                    popup: Popup {
+                        y: modelCombo.height
+                        width: modelCombo.width
+                        implicitHeight: contentItem.implicitHeight
+                        padding: 0
+                        background: Rectangle {
+                            color: Theme.colors.surfaceBg
+                            border.color: Theme.colors.borderDefault
+                            border.width: 1
+                            radius: 0
+                        }
+                        contentItem: ListView {
+                            clip: true
+                            implicitHeight: contentHeight
+                            model: modelCombo.delegateModel
+                            currentIndex: modelCombo.highlightedIndex
+                            highlightMoveDuration: 0
+                        }
+                    }
+
+                    delegate: ItemDelegate {
+                        width: modelCombo.width
+                        height: 24
+                        padding: 0
+                        highlighted: modelCombo.highlightedIndex === index
+                        background: Rectangle {
+                            color: highlighted ? Theme.colors.hoverBg : Theme.colors.surfaceBg
+                            border.color: Theme.colors.borderLight
+                            border.width: 1
+                            radius: 0
+                        }
+                        contentItem: Text {
+                            leftPadding: 6
+                            text: modelData
+                            color: Theme.colors.textPrimary
+                            font.family: Theme.fontMono
+                            font.pointSize: Theme.metrics.fontSizeBase
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: Theme.colors.borderDefault
+            }
 
             PresetBar {
                 id: presetBar

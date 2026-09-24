@@ -66,6 +66,9 @@ Rectangle {
                 font.family: Theme.fontMono
                 font.pointSize: Theme.metrics.fontSizeBase
                 model: bar.presetNames
+                onActivated: function (index) {
+                    bar.loadRequested(presetCombo.textAt(index))
+                }
 
                 background: Rectangle {
                     color: Theme.colors.inputFill
@@ -135,14 +138,6 @@ Rectangle {
                         elide: Text.ElideRight
                     }
                 }
-            }
-
-            FlatButton {
-                text: qsTr("Load")
-                baseColor: Theme.colors.buttonPrimaryBg
-                labelColor: Theme.colors.buttonPrimaryFg
-                onClicked: bar.loadRequested(presetCombo.currentIndex >= 0
-                                              ? presetCombo.currentText : "")
             }
 
             FlatButton {

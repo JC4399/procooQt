@@ -65,6 +65,7 @@ class SessionController(QObject):
     chat_switch_started = Signal(str)
     toast_requested = Signal(str, str)
     new_session_requested = Signal()
+    models_changed = Signal()
 
     if TYPE_CHECKING:
         app: ProcooApp
@@ -160,6 +161,15 @@ class SessionController(QObject):
             The active session name, or an empty string.
         """
         return self.active_session_name or ""
+
+    @Property(list, notify=models_changed)
+    def modelNames(self) -> list[str]:  # noqa: N802
+        """Return the configured LLM model names.
+
+        Returns:
+            The model names exposed to QML as ``session.modelNames``.
+        """
+        return self.app.config.llm_models
 
     # ------------------------------------------------------------------
     #  State
@@ -443,6 +453,52 @@ class SessionController(QObject):
         return _STATUS_COLORS.get(status, COLOR_CHAT_EMPTY)
 
     # ------------------------------------------------------------------
+    #  Slot: Model selection
+    # ------------------------------------------------------------------
+
+    @Slot(str, result=str)
+    def modelNameFor(self, chat_id: str) -> str:  # noqa: N802
+        """Return the LLM model name selected for a chat.
+
+        Args:
+            chat_id: The chat id (empty falls back to the config default).
+
+        Returns:
+            The chat's model name, or the config default when unset.
+        """
+        default = self.app.config.llm_model_name
+        if not chat_id:
+            return default
+        return self.state(chat_id).model_name or default
+
+    @Slot(str, str)
+    def _handle_model_changed(self, chat_id: str, model_name: str) -> None:
+        """Set the LLM model for a chat and apply it immediately.
+
+        Persists the choice to the chat record, updates the chat's UI state,
+        swaps the live agent's model (when one exists), and refreshes the panel.
+
+        Args:
+            chat_id: The chat whose model changed.
+            model_name: The newly selected model name.
+        """
+        if not chat_id or not model_name:
+            return
+        if model_name not in self.app.config.llm_models:
+            self.toast_requested.emit(f"Unknown model: {model_name}", TOAST_ERROR)
+            return
+        state = self.state(chat_id)
+        state.model_name = model_name
+        stored = self.app.chat_store.load_chat(chat_id)
+        if stored:
+            stored["model_name"] = model_name
+            self.app.chat_store.save_chat(chat_id, stored)
+        live = chat_manager.get_chat(chat_id)
+        if live is not None:
+            live.set_model(self.app.config.llm_config(model_name))
+        self.refresh_chat_panels(chat_id)
+
+    # ------------------------------------------------------------------
     #  Session model
     # ------------------------------------------------------------------
 
@@ -484,6 +540,7 @@ class SessionController(QObject):
             state.allow_count = chat.get("allow_count", 0)
             state.ask_count = chat.get("ask_count", 0)
             state.block_count = chat.get("block_count", 0)
+            state.model_name = chat.get("model_name") or self.app.config.llm_model_name
         grouped: dict[str, list[str]] = {name: [] for name in sessions}
         for chat in enriched:
             session_name = chat.get("session")
@@ -556,7 +613,7 @@ class SessionController(QObject):
 
     def _panel_runtime(
         self, chat_id: str
-    ) -> tuple[bool, bool, str, int, int, bool, int, int, int, int]:
+    ) -> tuple[bool, bool, str, int, int, bool, int, int, int, int, str]:
         """Return the runtime display tuple for a chat.
 
         Args:
@@ -564,10 +621,11 @@ class SessionController(QObject):
 
         Returns:
             ``(busy, approval_visible, approval_text, input_tokens, output_tokens,
-            loading, primary_count, allow_count, ask_count, block_count)``.
+            loading, primary_count, allow_count, ask_count, block_count,
+            model_name)``.
         """
         if not chat_id:
-            return (False, False, "", 0, 0, False, 0, 0, 0, 0)
+            return (False, False, "", 0, 0, False, 0, 0, 0, 0, "")
         state = self._states.get(chat_id)
         busy = bool(state and state.is_busy)
         approval_visible = bool(state and state.pending_tool_info)
@@ -584,6 +642,9 @@ class SessionController(QObject):
         allow_count = state.allow_count if state else 0
         ask_count = state.ask_count if state else 0
         block_count = state.block_count if state else 0
+        model_name = (
+            state.model_name if state and state.model_name else self.app.config.llm_model_name
+        )
         return (
             busy,
             approval_visible,
@@ -595,6 +656,7 @@ class SessionController(QObject):
             allow_count,
             ask_count,
             block_count,
+            model_name,
         )
 
     def _save_layout(self) -> None:
@@ -677,6 +739,7 @@ class SessionController(QObject):
             "created_at": stored.get("created_at", ""),
             "updated_at": stored.get("updated_at", ""),
             "message_count": stored.get("message_count", 0),
+            "model_name": stored.get("model_name") or self.app.config.llm_model_name,
             "title": self._derive_chat_title(stored),
             "status": self._derive_chat_status(chat_id, stored, states),
             **counts,
@@ -772,6 +835,7 @@ class SessionController(QObject):
                 "created_at": now,
                 "updated_at": now,
                 "message_count": 0,
+                "model_name": self.app.config.llm_model_name,
             },
         )
 
@@ -900,13 +964,12 @@ class SessionController(QObject):
             The newly created chat from ``chat_manager``.
         """
         tools_cfg = stored.get("skills_config", {}).get("tools", {})
+        model_name = stored.get("model_name") or self.app.config.llm_model_name
+        if model_name not in self.app.config.llm_models:
+            model_name = self.app.config.llm_model_name
         return chat_manager.create_chat(
             chat_id=chat_id,
-            model={
-                "model_name": self.app.config.llm_model_name,
-                "api_key": self.app.config.llm_api_key,
-                "api_base": self.app.config.llm_api_base,
-            },
+            model=self.app.config.llm_config(model_name),
             primary_skill_contents=self.app.skill_manager.load_skill_contents(primary),
             secondary_skill_contents=self.app.skill_manager.load_skill_contents(secondary),
             tool_functions=self.app.skill_manager.load_tool_functions(primary),

@@ -17,6 +17,7 @@ objects; QML reads them through `session.panelAt(index)`.
   - `busy`, `approvalVisible`, `approvalText`, `loading` — per-chat runtime.
   - `inputTokens`, `outputTokens` — live token accounting.
   - `primaryCount`, `allowCount`, `askCount`, `blockCount` — config summary.
+  - `modelName` — LLM model selected for the active chat.
 - `set_panel(...)` and `set_runtime(...)` mutators used by `SessionController`.
 
 ## Signals
@@ -38,6 +39,7 @@ objects; QML reads them through `session.panelAt(index)`.
 | `inputTokens` / `outputTokens` | `int` | Context / cumulative output tokens |
 | `loading` | `bool` | Switch-rebuild overlay showing |
 | `primaryCount` / `allowCount` / `askCount` / `blockCount` | `int` | Skill/tool counts for the active chat |
+| `modelName` | `str` | LLM model name for the active chat |
 
 ## Steps / Flow
 
@@ -54,4 +56,4 @@ objects; QML reads them through `session.panelAt(index)`.
 |---|---|---|---|---|
 | `def __init__(self, index: int, parent: QObject \| None = None) -> None` | panel index; parent | `None` | init fields + `ChatTabModel` | — |
 | `def set_panel(self, active_chat_id, chat_model, tabs, tabs_active_id, states) -> None` | active chat, model, tab summaries, active tab id, states | `None` | store active chat/model → `tab_model.set_chats(...)` → emit `changed` | Resets tab model |
-| `def set_runtime(self, busy, approval_visible, approval_text, input_tokens, output_tokens, loading, primary_count, allow_count, ask_count, block_count) -> None` | 10 runtime values | `None` | store all → emit `changed` | — |
+| `def set_runtime(self, busy, approval_visible, approval_text, input_tokens, output_tokens, loading, primary_count, allow_count, ask_count, block_count, model_name) -> None` | 11 runtime values | `None` | store all → emit `changed` | — |

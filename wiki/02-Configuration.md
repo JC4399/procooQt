@@ -34,7 +34,7 @@ llm:
   - model_name: "qwen3.8-27b"
     api_key: "ollama"
     api_base: "http://localhost:3333/v1"
-    enable: true
+    default: true
 ```
 
 `config/config.yaml` is gitignored; `config/config_template.yaml` is committed
@@ -73,10 +73,12 @@ to disable the token limit.
 
 ### LLM (`llm`)
 
-A non-empty list of model entries. Exactly one entry must have `enable: true`;
-that entry is the active model and must provide `model_name`, `api_key`, and
-`api_base`. `auth.api_keys` is present in the file but is not currently exposed
-by an accessor.
+A non-empty list of model entries. Exactly one entry must have `default: true`;
+that entry is the default model for new chats and must provide `model_name`,
+`api_key`, and `api_base`. Every entry's `model_name` is offered in the per-chat
+model selector (the `SkillDock` dropdown), and `llm_config(model_name)` resolves
+any entry on demand. `auth.api_keys` is present in the file but is not currently
+exposed by an accessor.
 
 ## Loading flow
 
@@ -84,11 +86,11 @@ by an accessor.
 2. `_load_file` resolves `config_dir/config.yaml`, falling back to the
    project-root `config/config.yaml`; raise `ConfigError` if neither exists.
 3. `yaml.safe_load` into `self._data`.
-4. `_enabled_llm` validates: `llm` is a non-empty list, and exactly one entry
-   has `enable: true` (zero or more than one raises `ConfigError`).
+4. `_default_llm` validates: `llm` is a non-empty list, and exactly one entry
+   has `default: true` (zero or more than one raises `ConfigError`).
 5. Accessors lazily pull nested values via `_get` (required) or
    `_get_optional` (with defaults); `_get_llm_key` fetches a required key from
-   the enabled entry.
+   the default entry and `llm_config(model_name)` from any named entry.
 
 ## Startup wiring (`src/app.py`)
 

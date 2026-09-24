@@ -19,9 +19,11 @@ split/move, persistence, and hydration. Every panel exposes a
 - `panelCount` / `panelAt(index)` — the workspace panels for
   `SplitWorkspace.qml`; each panel is a `ChatPanelModel`.
 - `activeSessionName` — the selected session.
+- `modelNames` — configured LLM model names for the per-chat model selector.
 - `state()` registry of `ChatState` objects, one per chat.
 - Session slots: create/switch/delete session.
 - Chat slots: new chat in panel, activate tab, move, split, delete.
+- Model slots: `modelNameFor(chat_id)`, `_handle_model_changed(chat_id, name)`.
 - Layout engine: `_reconcile_panels`, `_sync_panels`, `_save_layout`.
 - Persistence (`_create_stored_chat`, `_save_current_chat_for`,
   `_chat_save_snapshot`, `_build_context_snapshot`) and hydration
@@ -40,6 +42,7 @@ split/move, persistence, and hydration. Every panel exposes a
 | `chat_switch_started` | `str` | A chat switch was requested — emitted **before** hydration so the loading overlay can paint |
 | `toast_requested` | `str, str` | Message + toast level (`TOAST_ERROR` / `TOAST_WARNING`) |
 | `new_session_requested` | — | Ask QML to open the new-session dialog |
+| `models_changed` | — | Notifies the `modelNames` property |
 
 ## Properties
 
@@ -48,6 +51,7 @@ split/move, persistence, and hydration. Every panel exposes a
 | `panelCount` | `int` | `panels_changed` | Number of visible panels |
 | `sessionMenuModel` | `SessionMenuModel` | `sessions_changed` | Session rows for the title-bar selector |
 | `activeSessionName` | `str` | `active_session_name_changed` | Active session name (or `""`) |
+| `modelNames` | `list` | `models_changed` | Configured LLM model names (model selector) |
 
 ## `ChatStatus`
 
@@ -129,6 +133,16 @@ was active, fall back to `Default` and rebuild.
 Set `active_chat_id`, emit `chat_switch_started`, then off-thread load +
 hydrate (when needed) and emit `active_chat_changed`.
 
+### Model selection (`_handle_model_changed`)
+
+`SkillDock.qml` binds its model dropdown to `session.modelNames` and
+`session.modelNameFor(chatId)`. Selecting a model calls
+`_handle_model_changed(chat_id, name)`, which validates the name, writes it to
+the chat's `ChatState` and stored record, swaps the live `Agent` model via
+`Agent.set_model`, and refreshes the panel (the `ChatPanelModel.modelName`
+surfaced by `ConfigTokenBar`). New chats store the config default; unmarked
+chats fall back to it.
+
 ## Function Reference
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
@@ -150,10 +164,12 @@ hydrate (when needed) and emit `active_chat_changed`.
 | `@Slot(str) def _handle_switch_session(self, name)` | name | `None` | set active → refresh → reconcile → sync → open | Rebuilds all panels |
 | `@Slot(str) def _handle_delete_session(self, name)` | name | `None` | delete session + chats → forget → fallback Default → rebuild | `ValueError` → toast |
 | `@Slot(str, result=str) def statusColor(self, status)` | status | Hex color | `_STATUS_COLORS.get(status, COLOR_CHAT_EMPTY)` | — |
+| `@Slot(str, result=str) def modelNameFor(self, chat_id)` | chat | Model name | `state.model_name` or the config default (in-memory) | May create a `ChatState` |
+| `@Slot(str, str) def _handle_model_changed(self, chat_id, model_name)` | chat, model | `None` | validate against `llm_models` → set `state.model_name` → persist → `Agent.set_model` if live → refresh panel | Writes store; toasts on unknown model |
 | `@Slot(str) def refresh_chat_panels(self, chat_id)` | chat | `None` | update the panel showing that chat's runtime values | Updates a `ChatPanelModel` |
 | `def _reconcile_panels(self, name)` | session | `None` | stored layout vs session chats → `_panels` | Saves layout |
 | `def _sync_panels(self)` | — | `None` | push layout + runtime into `ChatPanelModel`s; set visible chats | Emits `panels_changed`/`tabs_changed` |
-| `def _panel_runtime(self, chat_id)` | chat | 10-tuple | busy/approval/tokens/loading + primary/allow/ask/block counts | Reads `ChatState` |
+| `def _panel_runtime(self, chat_id)` | chat | 11-tuple | busy/approval/tokens/loading + primary/allow/ask/block counts + model name | Reads `ChatState` |
 | `def _save_layout(self)` | — | `None` | write `{splits:[{chat_ids, active_chat_id}]}` to the store | Writes store |
 | `def _open_chat(self, chat_id)` | chat | `None` | set active → emit `chat_switch_started` → spawn `_open_chat_async` | Emits signals |
 | `async def _open_chat_async(self, chat_id)` | chat | `None` | off-thread load → hydrate if needed → emit `active_chat_changed` | Hydration may toast |
@@ -164,17 +180,17 @@ hydrate (when needed) and emit `active_chat_changed`.
 | `def _forget_chat(self, chat_id)` | chat | `None` | pop state, cancel pending, remove live agent | Cancels task |
 | `def _refresh_model(self)` | — | `None` | `_collect_summaries()` → `_apply_summaries()` | Emits `sessions_changed` |
 | `def _collect_summaries(self) -> tuple[list[dict], list[str]]` | — | `(enriched, sessions)` | snapshot `_states` → `load_all_chats()` (one parse/file) → `_enrich_chat` → `list_sessions()` | Thread-safe |
-| `def _apply_summaries(self, enriched, sessions)` | summaries; session names | `None` | seed chat counts → group by session → set menu model → emit → `_sync_panels` | GUI thread only |
-| `def _enrich_chat(self, stored, states) -> dict` | stored chat; states snapshot | Summary + `title`/`status` + counts | derive title/status/counts from loaded data | No extra disk read |
+| `def _apply_summaries(self, enriched, sessions)` | summaries; session names | `None` | seed chat counts + model name → group by session → set menu model → emit → `_sync_panels` | GUI thread only |
+| `def _enrich_chat(self, stored, states) -> dict` | stored chat; states snapshot | Summary + `title`/`status`/`model_name` + counts | derive title/status/counts/model from loaded data | No extra disk read |
 | `@staticmethod def _derive_chat_title(sess) -> str` | stored chat | Title | first user message (30 chars) else id[:15] | — |
 | `def _derive_chat_status(self, cid, stored, states) -> str` | id, stored, states | `ChatStatus` | busy → `WAITING`/`RUNNING`; else `EMPTY`/`FINISHED` | — |
 | `@staticmethod def _build_context_snapshot(chat) -> dict` | live chat | Snapshot | `sys_prompt`, `_pending_sys_message`, skills, `_tools`, `_tool_config` | — |
-| `def _create_stored_chat(self, chat_id)` | id | `None` | empty record with `session`/`skills_config`/`messages` → save | Writes store |
+| `def _create_stored_chat(self, chat_id)` | id | `None` | empty record with `session`/`skills_config`/`messages`/`model_name` → save | Writes store |
 | `def _chat_save_snapshot(self, chat_id)` | id | `(messages, snapshot)` or `None` | capture live messages/context on the GUI thread | — |
 | `def _save_current_chat_for(self, chat_id, snapshot=None)` | id; optional snapshot | `None` | replace `messages`/`message_count`/`context_snapshot` → `save_chat` (atomic) | Writes store |
 | `def _generate_unique_chat_id(self) -> str` | — | Unique id | timestamp base, suffixed while colliding | — |
 | `async def _hydrate_chat(self, chat_id, stored=None)` | id; optional stored | Live chat or `None` | existing → off-thread load → off-thread `_create_manager_chat` → `refresh_estimated` → snapshot save | `ChatError` path logs + toasts |
-| `def _create_manager_chat(self, chat_id, stored, primary, secondary)` | id, stored, skill paths | New chat | `chat_manager.create_chat` with model/skills/tools/`chat_limits`/initial messages | Synchronous; run via `to_thread` |
+| `def _create_manager_chat(self, chat_id, stored, primary, secondary)` | id, stored, skill paths | New chat | resolve `stored.model_name` (fallback default) → `chat_manager.create_chat` with model/skills/tools/`chat_limits`/initial messages | Synchronous; run via `to_thread` |
 | `def _cancel_pending_operations(self, state, chat_id)` | state, id | `None` | deny pending tool → set `approval_event` → cancel `active_task` | Schedules `deny_tool` |
 | `def _spawn(self, coro)` | coroutine | `None` | `asyncio.ensure_future` → track → discard on done | Fire-and-forget |
 | `def _emit_validation_issues(self)` | — | `None` | group warnings/errors from `skill_manager` → toast | Emits `toast_requested` |

@@ -53,6 +53,7 @@ never holds a QML object.
 | `true_output_cum` | `int` | Cumulative true output token count |
 | `primary_count` | `int` | Primary skills selected for this chat |
 | `allow_count` / `ask_count` / `block_count` | `int` | Tool counts per mode |
+| `model_name` | `str` | LLM model selected for this chat (empty = config default) |
 | `rendered_item_keys` | `list[str]` | Content hashes of the last rendered chat items |
 | `tool_call_indices` | `list[int]` | Row indices of rendered tool-call cards |
 | `last_rendered_thinking_text` | `str` | Last thinking text pushed to the model |

@@ -29,9 +29,13 @@ run.
   "created_at": "...",
   "updated_at": "...",
   "message_count": 0,
+  "model_name": "qwen3.8-27b",
   "context_snapshot": {...}
 }
 ```
+
+`model_name` records the LLM selected for the chat; when absent the config
+default is used.
 
 ## `sessions.json` shape
 

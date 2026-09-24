@@ -12,7 +12,9 @@ properties. Raises `ConfigError` on missing keys (fail-fast at startup).
 - Parsed `self._data` dict from `config.yaml`.
 - Properties: `skills_dir`, `storage_dir`, `chat_max_mb`,
   `chat_max_bytes`, `chat_max_tokens`, `agent_system_prompt`,
-  `agent_summary_prompt`, `llm_model_name`, `llm_api_key`, `llm_api_base`.
+  `agent_summary_prompt`, `llm_models`, `llm_model_name`, `llm_api_key`,
+  `llm_api_base`.
+- Named-model lookup `llm_config(model_name)`.
 - `ConfigError` with `brief` + `detail` on missing/invalid config.
 
 See also: [Configuration overview](../02-Configuration.md).
@@ -26,7 +28,7 @@ See also: [Configuration overview](../02-Configuration.md).
 | Signature | `def __init__(self, config_dir: str = "./config") -> None` |
 | Inputs | `config_dir` (`str`) — directory containing `config.yaml`. |
 | Output | `None` |
-| Flow | store dir → `_load_file()` → `_enabled_llm()`. |
+| Flow | store dir → `_load_file()` → `_default_llm()`. |
 
 ### `ConfigManager._load_file`
 
@@ -54,13 +56,22 @@ See also: [Configuration overview](../02-Configuration.md).
 | Inputs | `*keys` — nested key path; `default` — value returned when the path is absent. |
 | Output | value at the nested path, or `default`. |
 
-### `ConfigManager._enabled_llm`
+### `ConfigManager._default_llm`
 
 | | |
 |---|---|
-| Signature | `def _enabled_llm(self) -> dict` |
-| Output | the single enabled LLM entry dict. |
-| Raises | `ConfigError` if `llm` is missing/empty/not a list, no entry enabled, or >1 enabled. |
+| Signature | `def _default_llm(self) -> dict` |
+| Output | the single `default: true` LLM entry dict. |
+| Raises | `ConfigError` if `llm` is missing/empty/not a list, no entry default, or >1 default. |
+
+### `ConfigManager.llm_config`
+
+| | |
+|---|---|
+| Signature | `def llm_config(self, model_name: str) -> dict` |
+| Inputs | `model_name` (`str`) — the entry to look up. |
+| Output | `{"model_name", "api_key", "api_base"}` for the matching entry. |
+| Raises | `ConfigError` if no entry matches, or the entry is missing a required key. |
 
 ### `ConfigManager._get_llm_key`
 
@@ -68,8 +79,8 @@ See also: [Configuration overview](../02-Configuration.md).
 |---|---|
 | Signature | `def _get_llm_key(self, key: str) -> str` |
 | Inputs | `key` (`str`) — entry key to fetch. |
-| Output | value of `key` in the enabled LLM entry. |
-| Raises | `ConfigError` if key missing from the enabled entry. |
+| Output | value of `key` in the default LLM entry. |
+| Raises | `ConfigError` if key missing from the default entry. |
 
 ### Properties
 
@@ -82,6 +93,7 @@ See also: [Configuration overview](../02-Configuration.md).
 | `chat_max_tokens` | `int` | `_get_optional("limits", "max_chat_tokens", default=150000)` |
 | `agent_system_prompt` | `str` | `_get_optional("agent", "system_prompt", default=...)` |
 | `agent_summary_prompt` | `str` | `_get_optional("agent", "summary_prompt", default=...)` |
-| `llm_model_name` | `str` | enabled LLM `model_name` |
-| `llm_api_key` | `str` | enabled LLM `api_key` |
-| `llm_api_base` | `str` | enabled LLM `api_base` |
+| `llm_models` | `list[str]` | `model_name` of every `llm` entry |
+| `llm_model_name` | `str` | default LLM `model_name` |
+| `llm_api_key` | `str` | default LLM `api_key` |
+| `llm_api_base` | `str` | default LLM `api_base` |
