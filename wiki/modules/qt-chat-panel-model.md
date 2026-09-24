@@ -15,7 +15,7 @@ objects; QML reads them through `session.panelAt(index)`.
   - `panelIndex` (constant) — position in the workspace.
   - `activeChatId`, `chatModel`, `tabModel` — the panel's chat and tabs.
   - `busy`, `approvalVisible`, `approvalText`, `loading` — per-chat runtime.
-  - `inputTokens`, `outputTokens` — live token accounting.
+  - `inputTokens`, `outputTokens` — live true token accounting (no estimate).
   - `primaryCount`, `allowCount`, `askCount`, `blockCount` — config summary.
   - `modelName` — LLM model selected for the active chat.
 - `set_panel(...)` and `set_runtime(...)` mutators used by `SessionController`.

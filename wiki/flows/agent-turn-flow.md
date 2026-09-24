@@ -62,7 +62,8 @@ _resolve_tool_calls ───────────┘
 3. **tool_result** — appended to `state.tool_results`; `_swap_pending_result_card`
    replaces the pending card in place.
 4. **token_usage** — `state.true_input_tokens` / `state.true_output_cum`
-   update; the panel's `ConfigTokenBar` (via `ChatPanelModel`) refreshes.
+   update (true API counts only, no estimate); the panel's `ConfigTokenBar`
+   (via `ChatPanelModel`) refreshes. The counts persist across turns.
 5. **done / error** — break out of the loop.
 6. `finally: _finalize_turn` — rebuild the chat display, save the chat,
    reset per-turn tracking, and update the Send/Stop buttons.
