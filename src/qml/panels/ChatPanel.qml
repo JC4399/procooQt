@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Window
 
 import "../components"
 import "../cards"
@@ -325,7 +324,7 @@ Rectangle {
 
                 KnightRiderSpinner {
                     anchors.centerIn: parent
-                    running: loadingOverlay.visible && Window.active
+                    running: loadingOverlay.visible
                     baseColor: Theme.colors.accentCyan
                     cells: 10
                 }

@@ -466,7 +466,7 @@ class ChatController(QObject):
         """Return the active chat's context (input) token count.
 
         Returns:
-            True input tokens when known, otherwise the estimate.
+            The true input token count reported by ``token_usage``, or 0.
         """
         return self._input_tokens
 

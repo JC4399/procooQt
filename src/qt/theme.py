@@ -50,6 +50,8 @@ COLOR_MD_LIST_MARKER = "#d19a66"
 COLOR_MD_LIST_NUMBER = COLOR_MD_LINK
 COLOR_MD_QUOTE = "#5c6370"
 COLOR_MD_RULE = COLOR_MD_QUOTE
+# Glyph colour for LaTeX math, rendered to an in-memory PNG by ``qt.latex``.
+COLOR_MD_MATH = COLOR_MD_TEXT
 
 # ------------------------------------------------------------------
 # Border colors
@@ -225,10 +227,13 @@ ICON_SIZE_LARGE = 18
 
 # Font sizes are point sizes. ``FONT_SIZE_BASE`` is the single size used by all
 # non-markdown UI text; ``FONT_SIZE_MARKDOWN`` applies only to chat markdown bodies.
+# ``FONT_SIZE_LATEX`` is the point size LaTeX math is rasterised at; it is larger
+# than the body text because math glyphs read small at the body size.
 FONT_SIZE_GUTTER = 12
 FONT_SIZE_TREE = 12
 FONT_SIZE_BASE = 12
 FONT_SIZE_MARKDOWN = 12
+FONT_SIZE_LATEX = 14
 
 #: CSS ``line-height`` for chat card bodies (plain text and markdown), as a
 #: percentage of the font size.

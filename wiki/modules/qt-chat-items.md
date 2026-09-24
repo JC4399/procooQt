@@ -45,9 +45,9 @@ mirrors the same 8 px default. Pending variants keep
 the same header and set `isPending`; `CardBase` shows a `KnightRiderSpinner`
 (`src/qml/components/KnightRiderSpinner.qml`) only while pending with no body
 yet, so a streaming thinking/response card renders its growing body instead of
-the spinner. Spinners run only while the window is active
-(`running: visible && Window.active`), and the tab status-dot blink does the
-same, so an unfocused window does not repaint continuously. `CardBase` also exposes `headerVisible` (default `true`); the
+the spinner. Spinners keep sweeping whenever they are visible (`running: visible`);
+they are not gated on window focus, and the tab status-dot blink
+(`model.is_blinking`) likewise keeps pulsing in an unfocused window. `CardBase` also exposes `headerVisible` (default `true`); the
 headerless `WaitingCard.qml` sets it `false` so the pre-response placeholder is
 just a grey scanner. The waiting item is emitted (keyed `w:pending`) at the end
 of the render plan while a generation is busy but the current assistant turn has
@@ -141,7 +141,8 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
    dominant cost.
 2. **Response** — `render_markdown` returns sanitized, inline-styled HTML for a
    QML `TextEdit.RichText` (terminal-style colours, CSS bordered tables,
-   clickable links; see [`qt-markdown`](qt-markdown.md)). During streaming the
+   clickable links, in-memory LaTeX math images; see
+   [`qt-markdown`](qt-markdown.md) and [`qt-latex`](qt-latex.md)). During streaming the
    controller uses [`IncrementalMarkdown`](qt-markdown.md#incremental-streaming-renderer-incrementalmarkdown),
    which re-renders only the trailing block.
 3. **Tool call** — `_to_yaml_string` serializes `{name, mode, arguments}` and

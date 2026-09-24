@@ -19,8 +19,8 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
   split-drop, resize handle, inputs).
 - Sizing/font constants (`BUTTON_RADIUS`, `CARD_RADIUS`, `STATUS_DOT_RADIUS`,
   `CONTROL_INDICATOR_SIZE`, `CONTROL_INDICATOR_RADIUS`, `CONTROL_DOT_SIZE`,
-  `FONT_MONO`, `FONT_SIZE_BASE`, `FONT_SIZE_MARKDOWN`, `LINE_HEIGHT_BODY`,
-  `BUTTON_WIDTH_*`, `WHEEL_SCROLL_STEP`, `TITLE_BAR_*`, …).
+  `FONT_MONO`, `FONT_SIZE_BASE`, `FONT_SIZE_MARKDOWN`, `FONT_SIZE_LATEX`,
+  `LINE_HEIGHT_BODY`, `BUTTON_WIDTH_*`, `WHEEL_SCROLL_STEP`, `TITLE_BAR_*`, …).
 - Markdown palette constants (`COLOR_MD_*`) consumed by
   [`qt.markdown`](qt-markdown.md); only `COLOR_MD_TEXT` is registered for QML.
 - `COLORS: dict[str, str]` — camelCase color-name registry.
@@ -46,7 +46,7 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
 | Chips | `COLOR_CHIP_{PRIMARY,SECONDARY,ALLOW,ASK,BLOCK}_{BG,FG}` + `COLOR_CHIP_{PRIMARY,ALLOW,ASK,BLOCK}_FG_MUTED` for the config/token readout |
 | Drag / split | `COLOR_DRAG_FEEDBACK_BG/BORDER`, `COLOR_DRAG_ICON`, `COLOR_SPLIT_DROP_FILL/BORDER` |
 | Tool modes | `COLOR_TOOL_MODE_{ALLOW,ASK,BLOCK,DEFAULT}_{BG,FG}` |
-| Markdown | `COLOR_MD_TEXT` (#eeeeee), `_HEADING`, `_BOLD`, `_ITALIC`, `_CODE`, `_LINK`, `_LIST_MARKER`, `_LIST_NUMBER`, `_QUOTE`, `_RULE` |
+| Markdown | `COLOR_MD_TEXT` (#eeeeee), `_HEADING`, `_BOLD`, `_ITALIC`, `_CODE`, `_LINK`, `_LIST_MARKER`, `_LIST_NUMBER`, `_QUOTE`, `_RULE`, `_MATH` |
 | Inputs | `INPUT_BORDER_COLOR`, `INPUT_FOCUSED_BORDER_COLOR`, `INPUT_FILL_COLOR`, `INPUT_CURSOR_COLOR`, `INPUT_TEXT_COLOR` |
 | Frameless title bar | `TITLE_BAR_HEIGHT` (32), `TITLE_BAR_LOGO_SIZE` (20), `TITLE_BAR_BUTTON_WIDTH` (46) |
 
@@ -69,7 +69,9 @@ METRICS["fontSizeMarkdown"]   # 12
 
 Font metrics are **point** sizes (QML uses `font.pointSize`). Every non-markdown
 text element uses `fontSizeBase` (12 pt); `fontSizeMarkdown` (12 pt) applies only
-to chat markdown bodies rendered by `CardBase.qml`. `LINE_HEIGHT_BODY` (`125%`)
+to chat markdown bodies rendered by `CardBase.qml`. `FONT_SIZE_LATEX` (14 pt) is
+a Python-only constant consumed by [`qt.latex`](qt-latex.md); it is not registered
+in `METRICS`. `LINE_HEIGHT_BODY` (`125%`)
 is the CSS line height applied to every chat card body — plain-text `<pre>`
 blocks and markdown paragraphs/lists/code. The `fontSizeGutter`,
 `fontSizeTree`, `fontSizeBody`, `fontSizeLabelSmall` and `fontSizeTitle*` entries

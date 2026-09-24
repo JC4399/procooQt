@@ -52,8 +52,8 @@ never holds a QML object.
 | `init_banner_displayed` | `bool` | Whether the initial context banner was shown |
 | `context_snapshot` | `dict \| None` | Cached context snapshot so live rebuilds never re-read the chat file |
 | `item_cache` | `dict[str, dict[int, object]]` | Rendered chat items keyed by identity (content-hash) key; lets a rebuild reuse every unchanged message |
-| `true_input_tokens` | `int` | Latest true input token count from `token_usage`; persisted across turns |
-| `true_output_cum` | `int` | Cumulative true output token count for the current run; persisted across turns |
+| `true_input_tokens` | `int` | Latest true input token count from `token_usage`; persisted across turns and restored from storage on hydration |
+| `true_output_cum` | `int` | Cumulative true output token count for the current run; persisted across turns and restored from storage on hydration |
 | `primary_count` | `int` | Primary skills selected for this chat |
 | `allow_count` / `ask_count` / `block_count` | `int` | Tool counts per mode |
 | `model_name` | `str` | LLM model selected for this chat (empty = config default) |

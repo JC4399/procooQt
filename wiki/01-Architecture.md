@@ -107,6 +107,15 @@ events consumed by `ChatController._consume_events`:
 | `done` | `{chat_id}` | end of turn |
 | `error` | `{brief, detail, category}` | failures |
 
+### Math rendering
+Response bodies are Markdown rendered by [`qt-markdown`](modules/qt-markdown.md);
+dollar-delimited LaTeX (`$…$`, `$$…$$`) is rasterised **in memory** by
+[`qt-latex`](modules/qt-latex.md) and inlined as `data:` URI `<img>` tags. No
+image files or cache directories exist: the LaTeX source lives in
+`chat.messages`, and because `ChatListModel` is a derived render plan, the math
+is re-rasterised whenever the plan is rebuilt. Math therefore survives restarts
+without any persisted or pruned artefacts.
+
 ### Skill paths
 Skills are identified by their relative path from `skills_dir` (e.g.
 `"coding/python"`). A **primary** skill's full instructions + tools are

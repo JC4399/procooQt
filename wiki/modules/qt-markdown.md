@@ -12,8 +12,10 @@ concealed, every element gets an explicit colour from the
 [`qt.theme`](qt-theme.md) markdown palette, block quotes get a drawn left
 border, lists use literal monospace markers with hanging indents, and tables are
 rendered as CSS tables with collapsed borders. `markdown-it-py` supplies the CommonMark
-grammar (plus tables, strikethrough, task lists, and footnotes); `pygments`
-highlights fenced code blocks. Because the source is model output, the fragment
+grammar (plus tables, strikethrough, task lists, footnotes, and dollar-delimited
+LaTeX math); `pygments` highlights fenced code blocks. Math spans are rasterised
+in memory by [`qt.latex`](qt-latex.md) and inlined as `data:` URI images, so no
+temporary files are written. Because the source is model output, the fragment
 is stripped of scripts, event handlers, and unsafe URL schemes before it
 reaches QML.
 
@@ -28,8 +30,12 @@ reaches QML.
   palette, with `noclasses=True` inline colours.
 - `_build_parser()` / `_parser()` and the thread-local `_PARSER_TLS` — one
   `MarkdownIt` instance per thread (streaming renders run on worker threads).
-- Helpers `_safe_href`, `_sanitize`, `_highlight_code`; the boundary helper
-  `_is_fresh_block_line`; and on the renderer, `_cell_open` / `_CELL_STYLE`.
+- `math_inline` / `math_block` render rules — delegate to
+  [`qt.latex.render_math_fragment`](qt-latex.md) and fall back to the literal
+  source when an expression cannot be rasterised.
+- Helpers `_safe_href`, `_sanitize`, `_highlight_code`; the boundary helpers
+  `_is_fresh_block_line` / `_is_balanced_math_line`; and on the renderer,
+  `_cell_open` / `_CELL_STYLE`.
 
 ## Steps / Flow
 
@@ -67,7 +73,9 @@ run on an `asyncio.to_thread` worker. `_parser()` lazily builds and caches one
 whitespace, a list marker, or a block quote is never a boundary, because
 committing there could renumber an ordered list, merge/split a loose list, or
 detach an indented block. `_FENCE_MARKER_RE` parity prevents splitting inside a
-fenced code block.
+fenced code block, and `_is_balanced_math_line` keeps a multi-line `$$…$$`
+display equation whole (a single-line `$$…$$` is self-contained and never opens
+a fence).
 
 ### `_TerminalRenderer.render`
 
@@ -89,6 +97,7 @@ fenced code block.
 | `code_inline` | `<font color="#7fd88f">` |
 | `link_open` / `link_close` | `<a href>` + `<u><font color="#56b6c2">`; unsafe URLs suppressed (a flag stack keeps the close tag balanced) |
 | `image` | alt text (or src) as a cyan underlined link label |
+| `math_inline` | `<img>` backed by a [`qt.latex`](qt-latex.md) `data:` URI; literal `$…$` when rendering fails |
 | `html_inline` | `[x]`/`[ ]` for task-list checkboxes, otherwise dropped |
 | `html_block` | dropped |
 
@@ -102,6 +111,7 @@ fenced code block.
 | `hr` | grey rule |
 | `fence` | `<pre>` with a one-line bottom margin, grey ```` ```lang ```` fences around pygments-highlighted code |
 | `code_block` | plain `<pre>` with a one-line bottom margin |
+| `math_block` | centred `<div>` wrapping the [`qt.latex`](qt-latex.md) image; escaped `<pre>` when rendering fails |
 | `bullet_list_*` / `ordered_list_*` / `list_item_*` | literal `-`/`1.` markers, coloured and hanging-indented |
 | `table_*`, `thead/tbody/tr/th/td` | CSS `<table border="1">` with `border-color`, a one-line bottom margin; collapsed grey grid; alignment from markdown column hints |
 
@@ -163,8 +173,16 @@ rendering through a real `QQuickView`:
 | `highlight` | `_highlight_code` | pygments hook for fenced code |
 | `renderer_cls` | `_TerminalRenderer` | Terminal-style token rendering |
 | `enable(["table", "strikethrough"])` | — | GFM tables and `~~strike~~` |
+| `dollarmath_plugin` | — | `$…$` inline / `$$…$$` display LaTeX math |
 | `tasklists_plugin(enabled=True)` | — | `- [ ]` / `- [x]` lists |
 | `footnote_plugin` | — | `[^1]` references and definitions |
+
+`dollarmath_plugin` installs its own `math_inline`/`math_block` render rules on
+the renderer *instance* (via `MarkdownIt.add_render_rule`), which shadow the
+`_TerminalRenderer` methods of the same name. `_build_parser` therefore
+re-registers `_TerminalRenderer.math_inline` / `math_block` after applying the
+plugin, so math spans render as images rather than the plugin's literal
+`<span class="math …">` wrappers.
 
 ## Function Reference
 
@@ -180,6 +198,9 @@ rendering through a real `QQuickView`:
 | `def IncrementalMarkdown._scan(text: str) -> int` | `text` — full growing source | Commit offset or `0` | Walk only newly completed lines, tracking fence/blank state | Advances `_scan_pos`/`_fence`/`_prev_blank` |
 | `def IncrementalMarkdown.reset() -> None` | — | `None` | blank committed source/HTML and scan cursor | — |
 | `def _is_fresh_block_line(line: str) -> bool` | source line | Bool | Reject indented/list/quote lines | None; pure |
+| `def _is_balanced_math_line(line: str) -> bool` | source line | Bool | Even `$$` count, so a single-line `$$…$$` neither opens nor closes a math fence | None; pure |
+| `def math_inline(self, tokens, idx, options, env) -> str` | inline token | `qt.latex` `<img>` or literal `$…$` | `render_math_fragment(display=False)` | Rasterises on miss |
+| `def math_block(self, tokens, idx, options, env) -> str` | block token | centred `<div><img/>` or escaped `<pre>` | `render_math_fragment(display=True)` | Rasterises on miss |
 | `def _highlight_code(code: str, lang: str, _attrs: str) -> str` | `code` — raw code; `lang` — fence hint; `_attrs` — unused | Inline-styled HTML, or `""` to fall back | `get_lexer_by_name` → fallback `guess_lexer` → `highlight` | Catches `pygments.util.ClassNotFound` |
 | `def _sanitize(fragment: str) -> str` | `fragment` — rendered HTML | Sanitized HTML | Script/style → event attrs → `javascript:` URLs | None |
 | `def _safe_href(url: str) -> str` | `url` — raw link target | Safe URL or `""` | Regex scheme check | None |
@@ -205,7 +226,8 @@ rendering through a real `QQuickView`:
 | `_FORMATTER` | pygments `HtmlFormatter(nowrap=True, noclasses=True, style=_MarkdownCodeStyle)` |
 | `_PARSER_TLS` | `threading.local` holding one `MarkdownIt` per thread |
 | `_LIST_MARKER_RE` | fresh-block guard: rejects ordered/unordered list markers |
-| `_FENCE_MARKER_RE` | fenced code marker matcher for boundary fence parity |
+| `_FENCE_MARKER_RE` | fenced code / `$$` math marker matcher for boundary fence parity |
+| `_is_balanced_math_line` | even-`$$` test so single-line display math is not treated as an open fence |
 | `_CHAR_PX` | Estimated monospace cell width for list hanging indents |
 | `_BLANK_LINE_PX` | Paragraph/heading bottom margin that renders a source blank line as one empty line |
 | `_SCRIPT_STYLE_RE` | `<script>` / `<style>` block matcher |
@@ -215,6 +237,8 @@ rendering through a real `QQuickView`:
 
 ## See also
 
+- [qt-latex](qt-latex.md) — in-memory LaTeX math → `data:` URI images consumed by
+  the `math_inline` / `math_block` rules.
 - [qt-theme](qt-theme.md) — the `COLOR_MD_*` palette and `FONT_SIZE_MARKDOWN`.
 - [qt-yaml-highlight](qt-yaml-highlight.md) — the sibling tokenizer for tool-call
   argument YAML.

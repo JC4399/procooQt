@@ -554,7 +554,17 @@ class SessionController(QObject):
         self.chat_ids = [s["id"] for s in enriched]
         self._enriched = {chat["id"]: chat for chat in enriched}
         for chat in enriched:
-            state = self.state(chat["id"])
+            state = self._states.get(chat["id"])
+            if state is None:
+                state = ChatState(chat["id"])
+                self._states[chat["id"]] = state
+            if (
+                state.true_input_tokens == 0
+                and state.true_output_cum == 0
+                and chat_manager.get_chat(chat["id"]) is None
+            ):
+                state.true_input_tokens = int(chat.get("true_input_tokens", 0) or 0)
+                state.true_output_cum = int(chat.get("true_output_cum", 0) or 0)
             state.primary_count = chat.get("primary_count", 0)
             state.allow_count = chat.get("allow_count", 0)
             state.ask_count = chat.get("ask_count", 0)
@@ -756,6 +766,8 @@ class SessionController(QObject):
             "model_name": stored.get("model_name") or self.app.config.llm_model_name,
             "title": self._derive_chat_title(stored),
             "status": self._derive_chat_status(chat_id, stored, states),
+            "true_input_tokens": int(stored.get("true_input_tokens", 0) or 0),
+            "true_output_cum": int(stored.get("true_output_cum", 0) or 0),
             **counts,
         }
 
@@ -850,6 +862,8 @@ class SessionController(QObject):
                 "updated_at": now,
                 "message_count": 0,
                 "model_name": self.app.config.llm_model_name,
+                "true_input_tokens": 0,
+                "true_output_cum": 0,
             },
         )
 
@@ -895,6 +909,10 @@ class SessionController(QObject):
             stored["messages"] = messages
             stored["message_count"] = len(messages)
             stored["context_snapshot"] = context_snapshot
+            state = self._states.get(chat_id)
+            if state is not None:
+                stored["true_input_tokens"] = state.true_input_tokens
+                stored["true_output_cum"] = state.true_output_cum
             self.app.chat_store.save_chat(chat_id, stored)
 
     def _generate_unique_chat_id(self) -> str:
@@ -954,6 +972,10 @@ class SessionController(QObject):
             return None
 
         await session.refresh_estimated()
+        state = self._states.get(chat_id)
+        if state is not None and state.true_input_tokens == 0 and state.true_output_cum == 0:
+            state.true_input_tokens = int(stored.get("true_input_tokens", 0) or 0)
+            state.true_output_cum = int(stored.get("true_output_cum", 0) or 0)
         if not stored.get("context_snapshot"):
             stored["context_snapshot"] = self._build_context_snapshot(session)
             await asyncio.to_thread(self.app.chat_store.save_chat, chat_id, stored)

@@ -128,6 +128,9 @@ was active, fall back to `Default` and rebuild.
 4. On failure wrap in `ChatError` (log `detail`, toast `brief`).
 5. `await chat.refresh_estimated()` (offloaded); backfill and save
    `context_snapshot` off-thread if absent.
+6. Restore persisted `true_input_tokens` / `true_output_cum` onto the chat's
+   `ChatState` when it has no live true counts yet, so the token bar shows the
+   last known values after a restart.
 
 ### Open (`_open_chat` / `_open_chat_async`)
 
@@ -182,16 +185,16 @@ chats fall back to it.
 | `def _refresh_model(self)` | — | `None` | `_collect_summaries()` → `_apply_summaries()` | Emits `sessions_changed` |
 | `async def refresh_model_async(self)` | — | `None` | snapshot `_states` → off-thread `load_all_chats`/`_enrich_chat`/`list_sessions` → `_apply_summaries` on GUI thread | Used by the chat controller's debounced streaming refresh |
 | `def _collect_summaries(self) -> tuple[list[dict], list[str]]` | — | `(enriched, sessions)` | snapshot `_states` → `load_all_chats()` (one parse/file) → `_enrich_chat` → `list_sessions()` | Thread-safe |
-| `def _apply_summaries(self, enriched, sessions)` | summaries; session names | `None` | seed chat counts + model name → group by session → set menu model → emit → `_sync_panels` | GUI thread only |
-| `def _enrich_chat(self, stored, states) -> dict` | stored chat; states snapshot | Summary + `title`/`status`/`model_name` + counts | derive title/status/counts/model from loaded data | No extra disk read |
+| `def _apply_summaries(self, enriched, sessions)` | summaries; session names | `None` | seed chat counts + model name + persisted true token counts → group by session → set menu model → emit → `_sync_panels` | GUI thread only |
+| `def _enrich_chat(self, stored, states) -> dict` | stored chat; states snapshot | Summary + `title`/`status`/`model_name` + counts + `true_input_tokens`/`true_output_cum` | derive title/status/counts/model/tokens from loaded data | No extra disk read |
 | `@staticmethod def _derive_chat_title(sess) -> str` | stored chat | Title | first user message (30 chars) else id[:15] | — |
 | `def _derive_chat_status(self, cid, stored, states) -> str` | id, stored, states | `ChatStatus` | busy → `WAITING`/`RUNNING`; else `EMPTY`/`FINISHED` | — |
 | `@staticmethod def _build_context_snapshot(chat) -> dict` | live chat | Snapshot | `sys_prompt`, `_pending_sys_message`, skills, `_tools`, `_tool_config` | — |
-| `def _create_stored_chat(self, chat_id)` | id | `None` | empty record with `session`/`skills_config`/`messages`/`model_name` → save | Writes store |
+| `def _create_stored_chat(self, chat_id)` | id | `None` | empty record with `session`/`skills_config`/`messages`/`model_name`/`true_input_tokens`/`true_output_cum` → save | Writes store |
 | `def _chat_save_snapshot(self, chat_id)` | id | `(messages, snapshot)` or `None` | capture live messages/context on the GUI thread | — |
-| `def _save_current_chat_for(self, chat_id, snapshot=None)` | id; optional snapshot | `None` | replace `messages`/`message_count`/`context_snapshot` → `save_chat` (atomic) | Writes store |
+| `def _save_current_chat_for(self, chat_id, snapshot=None)` | id; optional snapshot | `None` | replace `messages`/`message_count`/`context_snapshot` + persisted true token counts → `save_chat` (atomic) | Writes store |
 | `def _generate_unique_chat_id(self) -> str` | — | Unique id | timestamp base, suffixed while colliding | — |
-| `async def _hydrate_chat(self, chat_id, stored=None)` | id; optional stored | Live chat or `None` | existing → off-thread load → off-thread `_create_manager_chat` → `refresh_estimated` → snapshot save | `ChatError` path logs + toasts |
+| `async def _hydrate_chat(self, chat_id, stored=None)` | id; optional stored | Live chat or `None` | existing → off-thread load → off-thread `_create_manager_chat` → `refresh_estimated` → restore persisted token counts → snapshot save | `ChatError` path logs + toasts |
 | `def _create_manager_chat(self, chat_id, stored, primary, secondary)` | id, stored, skill paths | New chat | resolve `stored.model_name` (fallback default) → `chat_manager.create_chat` with model/skills/tools/`chat_limits`/initial messages | Synchronous; run via `to_thread` |
 | `def _cancel_pending_operations(self, state, chat_id)` | state, id | `None` | deny pending tool → set `approval_event` → cancel `active_task` | Schedules `deny_tool` |
 | `def _spawn(self, coro)` | coroutine | `None` | `asyncio.ensure_future` → track → discard on done | Fire-and-forget |

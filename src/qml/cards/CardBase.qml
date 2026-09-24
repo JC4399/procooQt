@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Window
 
 import "../components"
 
@@ -193,7 +192,7 @@ Rectangle {
                 KnightRiderSpinner {
                     Layout.alignment: Qt.AlignHCenter
                     visible: card.isPending && !card.hasBody
-                    running: visible && Window.active
+                    running: visible
                     baseColor: card.accentColor
                 }
 

@@ -30,12 +30,16 @@ run.
   "updated_at": "...",
   "message_count": 0,
   "model_name": "qwen3.8-27b",
+  "true_input_tokens": 0,
+  "true_output_cum": 0,
   "context_snapshot": {...}
 }
 ```
 
 `model_name` records the LLM selected for the chat; when absent the config
-default is used.
+default is used. `true_input_tokens` / `true_output_cum` cache the last true API
+token counts so the token bar survives a restart; they are written by
+`SessionController._save_current_chat_for` and restored on hydration.
 
 ## `sessions.json` shape
 

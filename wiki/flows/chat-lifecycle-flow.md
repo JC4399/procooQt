@@ -33,8 +33,8 @@ every visible chat (`set_visible_chats`). Each panel's values reach QML through 
 1. `_emit_validation_issues()` surfaces skill ERROR/WARNING toasts.
 2. `ensure_default_session()` creates `Default` when no session exists.
 3. `_refresh_model()` → `_collect_summaries` (one disk parse per chat) →
-   `_apply_summaries` (seed per-chat counts, group chats by session, update the
-   session menu, `_sync_panels`).
+   `_apply_summaries` (seed per-chat counts and persisted true token counts,
+   group chats by session, update the session menu, `_sync_panels`).
 4. `_reconcile_panels(name)` reads the stored layout, keeps only chats that still
    exist, appends chats missing from the layout to the first panel, drops empty
    panels (min 1), and saves.
@@ -47,8 +47,8 @@ every visible chat (`set_visible_chats`). Each panel's values reach QML through 
 
 1. `_generate_unique_chat_id` — timestamp id, suffixed on collision.
 2. `_create_stored_chat` → `ChatStore.save_chat` with `session` = the active
-   session, empty `messages` / `skills_config`, and `model_name` = the config
-   default.
+   session, empty `messages` / `skills_config`, `model_name` = the config
+   default, and `true_input_tokens` / `true_output_cum` = `0`.
 3. Append the id to that panel's tabs and set it active; refresh + save layout;
    `_open_chat`.
 4. The skill dock later loads/persists real selections via the
@@ -84,7 +84,9 @@ transcript in batches behind the opaque loading overlay
    Agent construction and skill/AST loading therefore never block the GUI thread
    or the loading scanner.
 4. `await chat.refresh_estimated()` (offloaded); backfill `context_snapshot`
-   and save off-thread if it was absent.
+   and save off-thread if it was absent, then restore persisted
+   `true_input_tokens` / `true_output_cum` onto the `ChatState` when it has no
+   live true counts (so the token bar survives a restart).
 
 ## Select model (`SkillDock` dropdown → `session._handle_model_changed`)
 
@@ -102,7 +104,9 @@ transcript in batches behind the opaque loading overlay
    (captured on the GUI thread); otherwise capture one from the live chat.
 2. `stored["messages"] = messages`; `message_count`.
 3. `stored["context_snapshot"] = context_snapshot`.
-4. `save_chat` (atomic temp-file write).
+4. Copy the chat's `true_input_tokens` / `true_output_cum` from its `ChatState`
+   (last known true API counts).
+5. `save_chat` (atomic temp-file write).
 
 `_build_context_snapshot` captures `system_prompt`, `pending_additions`,
 `primary_skills`, `secondary_skills`, `tools`, and `tool_config`.

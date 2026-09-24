@@ -1,11 +1,14 @@
 """Terminal-style Markdown rendering for chat cards.
 
-Renders CommonMark (plus tables, strikethrough, task lists, and footnotes) to
-inline-styled HTML for QML ``TextEdit.RichText``. The output mimics a TUI markdown
-pager: syntax marks are concealed, each element gets an explicit color, block
-quotes get a drawn left border, lists use literal monospace markers, and tables are
-rendered as CSS tables with collapsed borders. Fenced code blocks are highlighted by
-``pygments`` using :class:`_MarkdownCodeStyle`.
+Renders CommonMark (plus tables, strikethrough, task lists, footnotes, and
+dollar-delimited LaTeX math) to inline-styled HTML for QML ``TextEdit.RichText``.
+The output mimics a TUI markdown pager: syntax marks are concealed, each element
+gets an explicit color, block quotes get a drawn left border, lists use literal
+monospace markers, and tables are rendered as CSS tables with collapsed borders.
+Fenced code blocks are highlighted by ``pygments`` using
+:class:`_MarkdownCodeStyle`. Math spans are rasterised in memory by
+:func:`~src.qt.latex.render_math_fragment` and inlined as ``data:`` URI images,
+so no temporary files are created.
 
 Because the source is untrusted LLM output, the fragment is sanitized:
 ``<script>``/``<style>`` blocks, ``on*`` event attributes, and unsafe URL schemes are
@@ -24,6 +27,7 @@ from markdown_it.common.utils import escapeHtml
 from markdown_it.renderer import RendererHTML
 from markdown_it.token import Token
 from markdown_it.utils import EnvType, OptionsDict
+from mdit_py_plugins.dollarmath import dollarmath_plugin
 from mdit_py_plugins.footnote import footnote_plugin
 from mdit_py_plugins.tasklists import tasklists_plugin
 from pygments import highlight
@@ -33,6 +37,7 @@ from pygments.style import Style
 from pygments.token import Comment, Keyword, Name, Number, Operator, Punctuation, String, Text
 from pygments.util import ClassNotFound
 
+from .latex import render_math_fragment
 from .theme import (
     COLOR_MD_BOLD,
     COLOR_MD_CODE,
@@ -394,6 +399,25 @@ class _TerminalRenderer(RendererHTML):
             f'<u><font color="{COLOR_MD_LINK}">{label_html}</font></u></a>'
         )
 
+    def math_inline(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Render an inline LaTeX span as an in-memory PNG.
+
+        Args:
+            tokens: Inline tokens.
+            idx: Index of the math token.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            An ``<img>`` backed by a ``data:`` URI, falling back to the literal
+            ``$…$`` source when the expression cannot be rendered.
+        """
+        content = tokens[idx].content
+        fragment = render_math_fragment(content, display=False)
+        return fragment or escapeHtml(f"${content}$")
+
     def html_inline(
         self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
     ) -> str:
@@ -580,6 +604,35 @@ class _TerminalRenderer(RendererHTML):
             f'<pre style="white-space:pre-wrap;margin:0 0 {_BLANK_LINE_PX}px 0;'
             f"font-family:{FONT_MONO};"
             f'line-height:{LINE_HEIGHT_BODY}">{body}</pre>\n'
+        )
+
+    def math_block(
+        self, tokens: Sequence[Token], idx: int, options: OptionsDict, env: EnvType
+    ) -> str:
+        """Render a display LaTeX equation as a centred in-memory PNG.
+
+        Args:
+            tokens: Block tokens.
+            idx: Index of the math token.
+            options: Parser options.
+            env: Parser environment.
+
+        Returns:
+            A centred ``<div>`` wrapping the ``<img>``, or an escaped ``<pre>``
+            block when the expression cannot be rendered.
+        """
+        content = tokens[idx].content
+        fragment = render_math_fragment(content, display=True)
+        if not fragment:
+            body = escapeHtml(content).rstrip("\n")
+            return (
+                f'<pre style="white-space:pre-wrap;margin:0 0 {_BLANK_LINE_PX}px 0;'
+                f'font-family:{FONT_MONO};line-height:{LINE_HEIGHT_BODY}">'
+                f"{body}</pre>\n"
+            )
+        return (
+            f'<div style="text-align:center;margin:0 0 {_BLANK_LINE_PX}px 0;'
+            f'line-height:{LINE_HEIGHT_BODY}">{fragment}</div>\n'
         )
 
     # ------------------------------------------------------------------
@@ -862,12 +915,20 @@ def _build_parser() -> MarkdownIt:
 
     Returns:
         A parser with terminal rendering, tables, strikethrough, task lists,
-        and footnotes enabled.
+        footnotes, and dollar-delimited math enabled.
     """
     parser = MarkdownIt(
         "commonmark", {"highlight": _highlight_code}, renderer_cls=_TerminalRenderer
     )
     parser.enable(["table", "strikethrough"])
+    parser.use(dollarmath_plugin)
+    # dollarmath installs its own `math_*` render rules on the renderer instance,
+    # which shadow the _TerminalRenderer methods; re-register ours so math spans
+    # render as in-memory images rather than the plugin's literal `<span>`s.
+    parser.add_render_rule("math_inline", _TerminalRenderer.math_inline)
+    parser.add_render_rule("math_inline_double", _TerminalRenderer.math_inline)
+    parser.add_render_rule("math_block", _TerminalRenderer.math_block)
+    parser.add_render_rule("math_block_label", _TerminalRenderer.math_block)
     parser.use(tasklists_plugin, enabled=True)
     parser.use(footnote_plugin)
     return parser
@@ -911,7 +972,22 @@ def render_markdown(text: str) -> str:
 # ------------------------------------------------------------------
 
 _LIST_MARKER_RE = re.compile(r"^\s{0,3}(?:[-*+]|\d{1,9}[.)])(?:\s|$)")
-_FENCE_MARKER_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+_FENCE_MARKER_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,}|\$\$)")
+
+
+def _is_balanced_math_line(line: str) -> bool:
+    """Return whether a ``$$`` line is self-contained.
+
+    Used by the incremental scanner so a single-line ``$$…$$`` equation neither
+    opens nor closes a math fence, while a lone ``$$`` delimiter toggles one.
+
+    Args:
+        line: A single source line without its terminator.
+
+    Returns:
+        ``True`` when the line contains an even number of ``$$`` delimiters.
+    """
+    return line.count("$$") % 2 == 0
 
 
 def _is_fresh_block_line(line: str) -> bool:
@@ -1012,11 +1088,13 @@ class IncrementalMarkdown:
             line = text[pos:nl]
             stripped = line.strip()
             marker = _FENCE_MARKER_RE.match(line)
+            is_math = marker is not None and marker.group(1).startswith("$")
+            balanced_math = is_math and _is_balanced_math_line(line)
             if fence is not None:
-                if marker and marker.group(1)[0] == fence:
+                if marker and marker.group(1)[0] == fence and not balanced_math:
                     fence = None
                 prev_blank = False
-            elif marker:
+            elif marker and not balanced_math:
                 fence = marker.group(1)[0]
                 prev_blank = False
             elif prev_blank and stripped and pos >= committed_len and _is_fresh_block_line(line):
