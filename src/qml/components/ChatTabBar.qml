@@ -15,8 +15,11 @@ Rectangle {
     // The ChatPanelModel's tab model.
     property var tabModel: null
 
-    // Chat id queued for deletion, shown by the confirmation dialog.
+    // Chat id queued for deletion, shown by the confirmation popup.
     property string pendingDeleteChatId: ""
+    // Anchor (bar-local coordinates) for the delete confirmation popup.
+    property real pendingDeleteX: 0
+    property real pendingDeleteY: 0
 
     signal newChatRequested()
     signal tabClicked(string chatId)
@@ -201,7 +204,8 @@ Rectangle {
                                 Text {
                                     anchors.centerIn: parent
                                     text: "\u00d7"
-                                    color: Theme.colors.textSecondary
+                                    color: closeArea.containsMouse ? Theme.colors.textPrimary
+                                                                   : Theme.colors.textSecondary
                                     font.family: Theme.fontMono
                                     font.pointSize: Theme.metrics.fontSizeBase
                                 }
@@ -212,7 +216,11 @@ Rectangle {
                                     hoverEnabled: true
                                     onClicked: {
                                         bar.pendingDeleteChatId = model.chat_id
-                                        deleteChatDialog.open()
+                                        var anchor = closeArea.mapToItem(
+                                            bar, closeArea.width / 2, closeArea.height)
+                                        bar.pendingDeleteX = anchor.x
+                                        bar.pendingDeleteY = anchor.y
+                                        deleteChatPopup.open()
                                     }
                                 }
                             }
@@ -227,13 +235,16 @@ Rectangle {
     //  Delete chat confirmation
     // ------------------------------------------------------------------
 
-    Dialog {
-        id: deleteChatDialog
-        anchors.centerIn: Overlay.overlay
-        modal: true
-        focus: true
-        width: 340
+    Popup {
+        id: deleteChatPopup
+        readonly property int popupWidth: 340
+        width: popupWidth
+        x: Math.max(0, Math.min(bar.width - popupWidth, bar.pendingDeleteX - popupWidth))
+        y: bar.pendingDeleteY + 2
         padding: 12
+        focus: true
+        modal: false
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         background: Rectangle {
             color: Theme.colors.surfaceBg
             border.color: Theme.colors.borderDefault
@@ -256,7 +267,7 @@ Rectangle {
                 Item { Layout.fillWidth: true }
                 FlatDialogButton {
                     text: qsTr("Cancel")
-                    onClicked: deleteChatDialog.close()
+                    onClicked: deleteChatPopup.close()
                 }
                 FlatDialogButton {
                     text: qsTr("Delete")
@@ -264,7 +275,7 @@ Rectangle {
                     labelColor: Theme.colors.buttonPrimaryFg
                     onClicked: {
                         session._handle_delete_chat(bar.pendingDeleteChatId)
-                        deleteChatDialog.close()
+                        deleteChatPopup.close()
                     }
                 }
             }

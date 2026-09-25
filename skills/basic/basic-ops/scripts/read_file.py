@@ -128,11 +128,11 @@ async def _pdf_text_extract(file_path: str) -> str:
         return f"Not a file: {file_path}"
 
     try:
-        import fitz
+        import pymupdf
     except ImportError:
         return "PyMuPDF is not installed. Install it with: pip install PyMuPDF"
 
-    doc = fitz.open(file_path)
+    doc = pymupdf.open(str(file_path))
     try:
         parts: list[str] = []
         for page in doc:  # type: ignore[union-attr]
@@ -554,22 +554,22 @@ def _crop_rect(bbox, width: int, height: int) -> tuple[int, int, int, int]:
 
 
 def _img_to_b64(img) -> str:
-    """Encode a PIL image as a base64 PNG string.
+    """Encode a PIL image as a base64 WebP string.
 
     Args:
         img: A PIL Image.
 
     Returns:
-        Base64-encoded PNG string.
+        Base64-encoded WebP string.
     """
     img = img.convert("RGB")
     buf = BytesIO()
-    img.save(buf, format="PNG")
+    img.save(buf, format="WEBP", quality=85)
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
 def _pix_to_png(pix, bbox=None) -> tuple[str, int, int]:
-    """Render a pymupdf pixmap to a base64 PNG, optionally cropping.
+    """Render a pymupdf pixmap to a base64 WebP, optionally cropping.
 
     The result is clamped to MAX_DIM x MAX_DIM.
 
@@ -578,7 +578,7 @@ def _pix_to_png(pix, bbox=None) -> tuple[str, int, int]:
         bbox: Optional normalized ``[x0, y0, x1, y1]`` crop region.
 
     Returns:
-        Tuple of ``(base64_png, width, height)``.
+        Tuple of ``(base64_webp, width, height)``.
 
     Raises:
         ValueError: If the bbox is invalid.
@@ -841,7 +841,7 @@ async def _pdf_image(
     bbox=None,
     target: str | None = None,
 ) -> str:
-    """Render PDF pages to PNG images and return via the ``_media`` marker.
+    """Render PDF pages to WebP images and return via the ``_media`` marker.
 
     Effort selected by ``submode``: ``full`` (default), ``thumbnail``,
     ``cropping``, or ``test-resolution``.
@@ -1191,7 +1191,7 @@ async def _ocr_images(images_b64: list[str]) -> str:
     """POST base64 images to the OCR server and return markdown.
 
     Args:
-        images_b64: List of base64-encoded PNG strings.
+        images_b64: List of base64-encoded WebP strings.
 
     Returns:
         Markdown text from the server, or an error string.
@@ -1313,7 +1313,7 @@ def _get_thumbnail_grid_layout(num_pages: int) -> tuple[int, int]:
 
 
 def _create_thumbnail_page(pix, page_num: int) -> bytes:
-    """Render a single PDF page pixmap as a 500x500 thumbnail PNG.
+    """Render a single PDF page pixmap as a 500x500 thumbnail WebP.
 
     The page image is scaled so its longer side is THUMBNAIL_SIZE px,
     keeping the original aspect ratio, then pasted centered onto a white
@@ -1324,7 +1324,7 @@ def _create_thumbnail_page(pix, page_num: int) -> bytes:
         page_num: Actual page number to label (1-indexed from PDF).
 
     Returns:
-        PNG bytes of the 500x500 thumbnail.
+        WebP bytes of the 500x500 thumbnail.
     """
     from PIL import Image, ImageDraw, ImageFont
 
@@ -1355,7 +1355,7 @@ def _create_thumbnail_page(pix, page_num: int) -> bytes:
     )
 
     buf = BytesIO()
-    canvas.save(buf, format="PNG")
+    canvas.save(buf, format="WEBP", quality=85)
     return buf.getvalue()
 
 
@@ -1369,7 +1369,7 @@ def _render_thumbnail_worker(args: tuple[str, int]) -> bytes:
         args: Tuple of (pdf_path, page_num).
 
     Returns:
-        PNG bytes of the 500x500 thumbnail.
+        WebP bytes of the 500x500 thumbnail.
     """
     import pymupdf
 
@@ -1387,15 +1387,15 @@ def _combine_thumbnails(
     cols: int,
     rows: int,
 ) -> bytes:
-    """Assemble thumbnail PNGs into a single grid image.
+    """Assemble thumbnail WebPs into a single grid image.
 
     Args:
-        thumb_pngs: List of 500x500 thumbnail PNG bytes (in page order).
+        thumb_pngs: List of 500x500 thumbnail WebP bytes (in page order).
         cols: Number of columns in the grid.
         rows: Number of rows in the grid.
 
     Returns:
-        PNG bytes of the combined grid image.
+        WebP bytes of the combined grid image.
     """
     from PIL import Image
 
@@ -1410,7 +1410,7 @@ def _combine_thumbnails(
         combined.paste(thumb, (col * THUMBNAIL_SIZE, row * THUMBNAIL_SIZE))
 
     buf = BytesIO()
-    combined.save(buf, format="PNG")
+    combined.save(buf, format="WEBP", quality=85)
     return buf.getvalue()
 
 
