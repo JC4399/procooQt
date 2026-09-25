@@ -47,11 +47,15 @@ every visible chat (`set_visible_chats`). Each panel's values reach QML through 
 
 1. `_generate_unique_chat_id` — timestamp id, suffixed on collision.
 2. `_create_stored_chat` → `ChatStore.save_chat` with `session` = the active
-   session, empty `messages` / `skills_config`, `model_name` = the config
-   default, and `true_input_tokens` / `true_output_cum` = `0`.
+   session, empty `messages`, and `true_input_tokens` / `true_output_cum` = `0`.
+   The new record **inherits the panel's current chat's** `skills_config` and
+   `model_name`, so a fresh chat continues the last working skill/tool setup and
+   model; when no source chat exists these fall back to an empty config and the
+   config default model.
 3. Append the id to that panel's tabs and set it active; refresh + save layout;
    `_open_chat`.
-4. The skill dock later loads/persists real selections via the
+4. The skill dock loads the inherited selections through `active_chat_changed` →
+   `_load_config_into_sidebar`; later edits persist via the
    [config sync flow](config-sync-flow.md).
 
 ## Activate a tab (`ChatTabBar` click → `session._handle_panel_activate`)

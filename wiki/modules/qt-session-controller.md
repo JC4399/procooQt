@@ -95,8 +95,11 @@ each tab's dot.
 
 ### New chat (`_handle_new_chat(panel_index)`)
 
-Unique id → `_create_stored_chat` → append to that panel's tabs + set active →
-refresh/save → `_open_chat`.
+Capture the panel's current active chat as the inheritance source → unique id →
+`_create_stored_chat(chat_id, source_chat_id)` (copies the source's
+`skills_config` and `model_name`; empty config / config-default model when there
+is no source) → append to that panel's tabs + set active → refresh/save →
+`_open_chat`.
 
 ### Split / move (`_handle_split`, `_handle_move_chat`)
 
@@ -158,7 +161,7 @@ chats fall back to it.
 | `@Property(str, notify=active_session_name_changed) def activeSessionName(self) -> str` | — | Active session name | `active_session_name or ""` | — |
 | `def state(self, chat_id: str) -> ChatState` | `chat_id` | The chat's state | create-on-demand into `_states` | Inserts a new `ChatState` |
 | `@Slot() def start(self) -> None` | — | `None` | ensure Default → refresh → reconcile → sync → open panels | Toasts; emits activation |
-| `@Slot(int) def _handle_new_chat(self, panel_index: int)` | panel index | `None` | unique id → store → append tab → refresh/save → open | Writes store; emits signals |
+| `@Slot(int) def _handle_new_chat(self, panel_index: int)` | panel index | `None` | capture source chat → unique id → store (inheriting config/model) → append tab → refresh/save → open | Writes store; emits signals |
 | `@Slot(int, str) def _handle_panel_activate(self, panel_index, chat_id)` | panel index, chat | `None` | set panel active → save → sync → open | Emits activation |
 | `@Slot(str, int) def _handle_move_chat(self, chat_id, target_index)` | chat, panel | `None` | remove chat → append to target → finalize → open | Mutates layout; saves |
 | `@Slot(str, int, str) def _handle_split(self, chat_id, target_index, side)` | chat, panel, `"left"`/`"right"` | `None` | remove chat → insert new panel adjacent to target → finalize → open | Max 4; saves |
@@ -190,7 +193,7 @@ chats fall back to it.
 | `@staticmethod def _derive_chat_title(sess) -> str` | stored chat | Title | first user message (30 chars) else id[:15] | — |
 | `def _derive_chat_status(self, cid, stored, states) -> str` | id, stored, states | `ChatStatus` | busy → `WAITING`/`RUNNING`; else `EMPTY`/`FINISHED` | — |
 | `@staticmethod def _build_context_snapshot(chat) -> dict` | live chat | Snapshot | `sys_prompt`, `_pending_sys_message`, skills, `_tools`, `_tool_config` | — |
-| `def _create_stored_chat(self, chat_id)` | id | `None` | empty record with `session`/`skills_config`/`messages`/`model_name`/`true_input_tokens`/`true_output_cum` → save | Writes store |
+| `def _create_stored_chat(self, chat_id, source_chat_id="")` | id; optional source chat | `None` | new record with `session`/`messages`/`true_input_tokens`/`true_output_cum`; `skills_config`/`model_name` copied from `source_chat_id` else empty config / config default → save | Writes store |
 | `def _chat_save_snapshot(self, chat_id)` | id | `(messages, snapshot)` or `None` | capture live messages/context on the GUI thread | — |
 | `def _save_current_chat_for(self, chat_id, snapshot=None)` | id; optional snapshot | `None` | replace `messages`/`message_count`/`context_snapshot` + persisted true token counts → `save_chat` (atomic) | Writes store |
 | `def _generate_unique_chat_id(self) -> str` | — | Unique id | timestamp base, suffixed while colliding | — |

@@ -222,13 +222,17 @@ class SessionController(QObject):
     def _handle_new_chat(self, panel_index: int) -> None:
         """Create a new chat and open it as a tab in a panel.
 
+        The new chat inherits the panel's current chat's skill/tool config and
+        model, so a fresh chat continues the last working setup.
+
         Args:
             panel_index: The panel to add the chat to.
         """
         if not (0 <= panel_index < len(self._panels)):
             panel_index = 0
+        source_chat_id = self._panels[panel_index]["active_chat_id"]
         chat_id = self._generate_unique_chat_id()
-        self._create_stored_chat(chat_id)
+        self._create_stored_chat(chat_id, source_chat_id=source_chat_id)
         self._panels[panel_index]["chat_ids"].append(chat_id)
         self._panels[panel_index]["active_chat_id"] = chat_id
         self._refresh_model()
@@ -844,24 +848,36 @@ class SessionController(QObject):
     #  Persistence
     # ------------------------------------------------------------------
 
-    def _create_stored_chat(self, chat_id: str) -> None:
+    def _create_stored_chat(self, chat_id: str, source_chat_id: str = "") -> None:
         """Write a new empty chat record to the store.
+
+        When ``source_chat_id`` refers to an existing chat, its skill/tool config
+        and model are carried over so the new chat starts from the last working
+        setup. Otherwise the config is empty and the model is the config default.
 
         Args:
             chat_id: The chat id to create.
+            source_chat_id: Optional chat whose config/model to inherit.
         """
+        source = self.app.chat_store.load_chat(source_chat_id) if source_chat_id else None
+        skills_config = (source or {}).get("skills_config") or {
+            "primary": [],
+            "secondary": [],
+            "tools": {},
+        }
+        model_name = (source or {}).get("model_name") or self.app.config.llm_model_name
         now = time.strftime("%Y-%m-%d %H:%M:%S")
         self.app.chat_store.save_chat(
             chat_id,
             {
                 "id": chat_id,
-                "skills_config": {"primary": [], "secondary": [], "tools": {}},
+                "skills_config": skills_config,
                 "messages": [],
                 "session": self.active_session_name or DEFAULT_SESSION_NAME,
                 "created_at": now,
                 "updated_at": now,
                 "message_count": 0,
-                "model_name": self.app.config.llm_model_name,
+                "model_name": model_name,
                 "true_input_tokens": 0,
                 "true_output_cum": 0,
             },

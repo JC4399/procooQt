@@ -6,8 +6,10 @@ A skill lets a future agent do a task you know, without you supervising it. The
 agent is competent but knows nothing about your task until the skill tells it. A
 well-built skill closes that gap: it gives the agent the purpose, the
 deliverable, the methodology, and the detail it needs, each in the right place, so
-it works autonomously and delivers what you want. Alignment, not completeness, is
-the point.
+it can carry the work to completion and deliver what you want. Alignment, not
+completeness, is the point: what belongs in the skill is what the agent cannot
+derive on its own — your definition of done, your preferences, and where it must
+ask rather than guess.
 
 ## Deliverable
 
@@ -26,6 +28,8 @@ Author the three parts in order, then test.
 
 1. Align. Confirm what the skill should do, when it should trigger, and what its
    output looks like. Ask for edge cases, example files, and success criteria.
+   Ask, too, where a future agent must come back to you instead of guessing: the
+   judgments only you can make are part of the skill.
 2. Write the briefing (`SKILL.md`): the purpose, the deliverable, and the
    methodology. If you cannot state these clearly, you do not understand the task
    well enough to automate it.
@@ -57,10 +61,14 @@ The file starts with YAML frontmatter. Fill it in as follows:
   or wants to display company data, even if they do not say 'dashboard'."
 - **compatibility** — required tools or dependencies (optional, rarely needed).
 
+The description value is a YAML plain scalar: never put `": "` (colon + space)
+inside it, or the frontmatter fails to parse. Use a dash, or quote the value.
+
 The body then contains:
 
 - **Purpose** — why the task exists and what it achieves.
-- **Deliverable** — the exact output, in the form the user can use.
+- **Deliverable** — the exact output, in the form the user can use, and the
+  checks that define when it is done.
 - **Methodology** — how to approach the work, as an ordered loop.
 - **References** — a brief list pointing to the reference files, so the agent knows
   where to find the detail when it needs it.
@@ -80,7 +88,7 @@ live.
 
 A skill that stores and searches a body of records — document text, letters,
 sections of documents — keeps its records database in this folder too. Initialise
-it with the `vector-db` skill's `init_db` tool and read and write it with
+it with the `basic-ops` skill's `init_db` tool and read and write it with
 `access_db`; the caller chooses the file name (e.g.
 `references/uch_letter_record.db`).
 
@@ -115,4 +123,9 @@ Before shipping the skill, confirm:
   the trigger in the user's words.
 - The References section lists the reference files and points to them.
 - Steps and tests live in `references/`, not in SKILL.md.
+- The skill carries what a future agent cannot derive on its own: the user's
+  definition of done, their preferences, and where the agent must ask instead of
+  guess.
 - Each tool is callable on its own and returns clean output.
+- The skill loads through the app's `SkillManager` (`src/skill/manager.py`) with
+  no validation errors — this is what catches malformed frontmatter.
