@@ -332,6 +332,7 @@ class ChatController(QObject):
         _models: dict[str, ChatListModel]
         _tasks: set[asyncio.Task[Any]]
         _visible_chat_ids: set[str]
+        _extra_visible_chats: set[str]
         active_chat_id: str | None
         _approval_visible: bool
         _approval_text: str
@@ -363,6 +364,7 @@ class ChatController(QObject):
         self._models = {}
         self._tasks = set()
         self._visible_chat_ids = set()
+        self._extra_visible_chats = set()
         self.active_chat_id = None
         self._approval_visible = False
         self._approval_text = ""
@@ -382,6 +384,7 @@ class ChatController(QObject):
         """Build the per-chat chat models."""
         self._models = {}
         self._visible_chat_ids = set()
+        self._extra_visible_chats = set()
         self.active_chat_id = None
 
     # ------------------------------------------------------------------
@@ -399,16 +402,37 @@ class ChatController(QObject):
         """
         self._visible_chat_ids = set(chat_ids)
 
+    def add_visible_chat(self, chat_id: str) -> None:
+        """Mark a chat as always visible outside the workspace panels.
+
+        Used by the editor chat, whose model is rendered beside the editor
+        rather than in a panel, so streaming is still painted on screen.
+
+        Args:
+            chat_id: The chat id to keep visible.
+        """
+        if chat_id:
+            self._extra_visible_chats.add(chat_id)
+
+    def remove_visible_chat(self, chat_id: str) -> None:
+        """Stop treating a chat as always visible.
+
+        Args:
+            chat_id: The chat id to drop.
+        """
+        self._extra_visible_chats.discard(chat_id)
+
     def _is_visible(self, chat_id: str) -> bool:
-        """Return whether a chat is currently shown in a panel.
+        """Return whether a chat is currently shown.
 
         Args:
             chat_id: The chat id to test.
 
         Returns:
-            ``True`` if the chat is visible.
+            ``True`` if the chat is in a visible panel or registered as an
+            always-visible extra chat.
         """
-        return chat_id in self._visible_chat_ids
+        return chat_id in self._visible_chat_ids or chat_id in self._extra_visible_chats
 
     # ------------------------------------------------------------------
     #  Properties

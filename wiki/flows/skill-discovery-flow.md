@@ -1,16 +1,18 @@
 # Skill discovery flow
 
-How the `skills/` directory becomes skills, tools, and OpenAI tool schemas.
+How the `capabilities/skills/` directory becomes skills, tools, and OpenAI tool schemas.
 
 Related: [`skill-manager`](../modules/skill-manager.md), [`skill-models`](../modules/skill-models.md), [`qt-skill-controller`](../modules/qt-skill-controller.md).
 
-The library lives at `../skills` (resolved against the procooQt project root);
-only `_presets/` is written by this app.
+The library lives at `capabilities/skills/` (resolved against the procooQt
+project root; `skills_dir` is derived from `capabilities_dir`); only `_presets/`
+is written by this app. Sibling automations live under `capabilities/automations/`
+(see [automation-run-flow](automation-run-flow.md)).
 
 ## Directory layout
 
 ```
-skills/
+capabilities/skills/
   <group>/
     <skill>/            # SKILL.md => a skill
       SKILL.md          # frontmatter: name, description; body: instructions

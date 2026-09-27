@@ -7,6 +7,7 @@
 │  src/app.py — ProcooApp (wiring) + main()                                    │
 │    config = ConfigManager   skill_manager = SkillManager                     │
 │    chat_store = ChatStore   preset_store = PresetStore                       │
+│    automation_manager = AutomationManager  notification_manager = ...        │
 │                                                                              │
 │    QApplication → QQuickStyle "Basic" → register font →                      │
 │    qasync.QEventLoop(app) → asyncio.set_event_loop(loop) →                   │
@@ -21,18 +22,24 @@
 │    ChatController     → ChatListModel per chat, streaming, approval          │
 │    SkillController    → SkillTreeModel, ToolModeModel, presets, watcher      │
 │    EditorController   → FileTreeModel, CodeHighlighter                       │
+│    EditorChatController → full chat beside the editor (via ChatController)   │
+│    AutomationController → AutomationListModel + scheduler + event server     │
+│    NotificationController → notification model, badges, history              │
 │    Theme (context property)      ErrorNotifier (toasts context property)     │
 └──────────────┬───────────────────────────────────────────────────────────────┘
                │ QML context props: ui, backend, Theme, toasts,
                │                    session, chat, skill, editor
 ┌──────────────▼───────────────────────────────────────────────────────────────┐
 │  QML view layer (view-only; src/qml/)                                        │
-│    Main.qml — ApplicationWindow: TitleBar + SplitWorkspace                    │
+│    Main.qml — ApplicationWindow: TitleBar (content tabs) + content stack      │
 │    components/ TitleBar · SessionSelector · ChatTabBar · SkillDock ·          │
-│                ConfigTokenBar · ApprovalBar · PresetBar · ToastHost · …      │
-│    panels/     SplitWorkspace · ChatPanel · EditorPanel                       │
+│                ConfigTokenBar · ApprovalBar · PresetBar · ToastHost ·         │
+│                FlatButton · …                                                 │
+│    panels/     SplitWorkspace · ChatPanel · EditorPanel · EditorChatPanel ·   │
+│                AutomationPanel · NotificationPanel                            │
 │    cards/      User · Thinking · Response · ToolCall · ToolResult ·          │
-│                ContextBanner · CardBase                                       │
+│                ContextBanner · CardBase · AutomationCard · NotificationCard   │
+│    windows/    EditorWindow · NotificationHistoryWindow                       │
 └──────────────┬───────────────────────────────────────────────────────────────┘
                │ binds model roles / calls @Slot methods
 ┌──────────────▼───────────────────────────────────────────────────────────────┐
@@ -50,6 +57,13 @@
 │  src/skill/     SkillManager (discovery + AST schemas + watchdog)            │
 │                 PresetStore (JSON presets) · models (Pydantic)               │
 ├──────────────────────────────────────────────────────────────────────────────┤
+│  src/automation/ AutomationManager (discovery + state)                       │
+│                 AutomationRunner/AutomationContext (headless agent bridge)   │
+│                 AutomationScheduler (croniter) · AutomationEventServer       │
+│                 (aiohttp)                                                    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│  src/notification/ NotificationManager/Store (storage/notifications.json)    │
+├──────────────────────────────────────────────────────────────────────────────┤
 │  src/config/    ConfigManager (YAML, LLM validation)                         │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │  src/util/      error/types · log/formatter · tokens/counter+tracker         │
@@ -65,7 +79,9 @@
 | Config | Load `config.yaml`, validate LLM | `src/config/manager.py` |
 | Chat runtime | ReAct agent loop, LLM client, persistence | `src/chat/` |
 | Skills | Discovery, loading, AST schema inference, presets, watcher | `src/skill/` |
-| UI controllers | Composition orchestrator + 4 controllers + models | `src/qt/` |
+| Automations | `AUTOMATION.py` discovery, cron scheduling, HTTP event dispatch, headless-agent runs | `src/automation/` |
+| Notifications | Run-result storage, unread counts, history | `src/notification/` |
+| UI controllers | Composition orchestrator + controllers + models | `src/qt/` |
 | QML view | View-only panels, components, cards | `src/qml/` |
 | Utilities | Errors, logging, token counting, venv | `src/util/` |
 
@@ -116,11 +132,45 @@ image files or cache directories exist: the LaTeX source lives in
 is re-rasterised whenever the plan is rebuilt. Math therefore survives restarts
 without any persisted or pruned artefacts.
 
+### Capabilities directory
+
+The shared library lives under `capabilities/`, which holds two subsystems:
+
+- `capabilities/skills/` — the skill library (see below).
+- `capabilities/automations/` — automation scripts (see below).
+
+`ConfigManager.capabilities_dir` is the root; `skills_dir` and `automations_dir`
+are derived from it (or overridden explicitly). The
+[editor controller](modules/qt-editor-controller.md) file tree is rooted at the
+capabilities directory so it can open skill scripts and automation files.
+
 ### Skill paths
+
 Skills are identified by their relative path from `skills_dir` (e.g.
 `"coding/python"`). A **primary** skill's full instructions + tools are
 loaded into the system prompt; a **secondary** skill contributes only a
 description for on-demand discovery. See [`skill-manager`](modules/skill-manager.md).
+
+### Automations
+
+An automation is a directory containing `AUTOMATION.py` (YAML frontmatter +
+`async def run(ctx)`) under `capabilities/automations/`. It runs either on a cron
+`schedule` or on an `event` posted to the local HTTP server. `run(ctx)` receives
+an `AutomationContext` whose `ask()` drives a temporary headless `Agent` (the
+same ReAct loop as chat), so automations can use the LLM. Results are
+`success` / `info` / `error`. See
+[`automation-manager`](modules/automation-manager.md) and
+[`automation-run-flow`](flows/automation-run-flow.md).
+
+### Notifications
+
+Every automation result becomes a notification: success → grey **log**, info →
+amber **info**, error → red **error**. Logs are marked read when the notification
+page opens; info/error require **Confirm** (errors also offer **Debug** which
+opens the source file). History and read flags persist in
+`storage/notifications.json`. See
+[`notification`](modules/notification.md) and
+[`notification-lifecycle-flow`](flows/notification-lifecycle-flow.md).
 
 ### Tool modes
 Each tool maps to a permission mode:

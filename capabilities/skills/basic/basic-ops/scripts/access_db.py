@@ -406,7 +406,9 @@ async def run(
         if mode == "add":
             return json.dumps(await _add(db_path, content, tags, source), ensure_ascii=False)
         if mode == "search":
-            return json.dumps(await _search(db_path, query, top_k, submode, min_score), ensure_ascii=False)
+            return json.dumps(
+                await _search(db_path, query, top_k, submode, min_score), ensure_ascii=False
+            )
         if mode == "modify":
             return json.dumps(await _modify(db_path, note_id, content, tags), ensure_ascii=False)
         if mode == "delete":
@@ -419,4 +421,5 @@ async def run(
 if __name__ == "__main__":
     args = json.loads(sys.stdin.read())
     result = asyncio.run(run(**{k: v for k, v in args.items() if v is not None}))
+    sys.stdout.reconfigure(encoding="utf-8")
     print(result)

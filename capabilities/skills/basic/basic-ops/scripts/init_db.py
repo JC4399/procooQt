@@ -49,4 +49,5 @@ async def run(db_path: str) -> str:
 if __name__ == "__main__":
     args = json.loads(sys.stdin.read())
     result = asyncio.run(run(**args))
+    sys.stdout.reconfigure(encoding="utf-8")
     print(result)

@@ -19,12 +19,22 @@ ApplicationWindow {
     color: Theme.colors.pageBg
     flags: Qt.Window | Qt.FramelessWindowHint
 
+    // Active central content view: "chat", "automation", or "notification".
+    property string activeContent: "chat"
+
     TitleBar {
         id: titleBar
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         title: root.title
+        activeContent: root.activeContent
+        logCount: notification.logCount
+        infoCount: notification.infoCount
+        errorCount: notification.errorCount
+        onContentSelected: function (content) {
+            root.activeContent = content
+        }
     }
 
     SplitWorkspace {
@@ -33,14 +43,51 @@ ApplicationWindow {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
+        visible: root.activeContent === "chat"
         onOpenEditorRequested: {
             editorWindow.show()
             editorWindow.requestActivate()
         }
     }
 
+    AutomationPanel {
+        anchors.top: titleBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        visible: root.activeContent === "automation"
+    }
+
+    NotificationPanel {
+        id: notificationPanel
+        anchors.top: titleBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        visible: root.activeContent === "notification"
+        onViewHistoryRequested: {
+            notification._handle_view_history()
+            historyWindow.show()
+            historyWindow.requestActivate()
+        }
+    }
+
     EditorWindow {
         id: editorWindow
+    }
+
+    // Opening a file from outside the workspace (e.g. notification Debug)
+    // requests the editor window to be shown.
+    Connections {
+        target: editor
+        function onEditor_open_requested() {
+            editorWindow.show()
+            editorWindow.requestActivate()
+        }
+    }
+
+    NotificationHistoryWindow {
+        id: historyWindow
     }
 
     ToastHost {

@@ -16,7 +16,7 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
 - Module-level color constants grouped by UI region (backgrounds, text,
   accents, borders, buttons, bubbles, approval, context banner, chat border,
   toasts, chat status, cards, chips, tool-mode badges, toast, drag feedback,
-  split-drop, resize handle, inputs).
+  split-drop, resize handle, inputs, automation/notification).
 - Sizing/font constants (`BUTTON_RADIUS`, `CARD_RADIUS`, `STATUS_DOT_RADIUS`,
   `CONTROL_INDICATOR_SIZE`, `CONTROL_INDICATOR_RADIUS`, `CONTROL_DOT_SIZE`,
   `FONT_MONO`, `FONT_SIZE_BASE`, `FONT_SIZE_MARKDOWN`, `FONT_SIZE_LATEX`,
@@ -46,6 +46,7 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
 | Chips | `COLOR_CHIP_{PRIMARY,SECONDARY,ALLOW,ASK,BLOCK}_{BG,FG}` + `COLOR_CHIP_{PRIMARY,ALLOW,ASK,BLOCK}_FG_MUTED` for the config/token readout |
 | Drag / split | `COLOR_DRAG_FEEDBACK_BG/BORDER`, `COLOR_DRAG_ICON`, `COLOR_SPLIT_DROP_FILL/BORDER` |
 | Tool modes | `COLOR_TOOL_MODE_{ALLOW,ASK,BLOCK,DEFAULT}_{BG,FG}` |
+| Automation / notification | `COLOR_NOTIFICATION_{LOG,INFO,ERROR}_BORDER` (grey/amber/red), `COLOR_NOTIFICATION_BG`, `COLOR_BADGE_{LOG,INFO,ERROR}_BG`, `COLOR_BADGE_FG`, `COLOR_CONTENT_TAB_ACTIVE` |
 | Markdown | `COLOR_MD_TEXT` (#eeeeee), `_HEADING`, `_BOLD`, `_ITALIC`, `_CODE`, `_LINK`, `_LIST_MARKER`, `_LIST_NUMBER`, `_QUOTE`, `_RULE`, `_MATH` |
 | Inputs | `INPUT_BORDER_COLOR`, `INPUT_FOCUSED_BORDER_COLOR`, `INPUT_FILL_COLOR`, `INPUT_CURSOR_COLOR`, `INPUT_TEXT_COLOR` |
 | Frameless title bar | `TITLE_BAR_HEIGHT` (32), `TITLE_BAR_LOGO_SIZE` (20), `TITLE_BAR_BUTTON_WIDTH` (46) |

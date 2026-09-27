@@ -158,6 +158,23 @@ COLOR_TOOL_MODE_DEFAULT_BG = COLOR_ELEVATED_BG
 COLOR_TOOL_MODE_DEFAULT_FG = COLOR_TEXT_SECONDARY
 
 # ------------------------------------------------------------------
+# Automation / notification
+# ------------------------------------------------------------------
+#: Notification cards keep the page background and signal their nature through
+#: the outer border: grey for success logs, amber for info, red for errors.
+COLOR_NOTIFICATION_LOG_BORDER = COLOR_TEXT_SECONDARY
+COLOR_NOTIFICATION_INFO_BORDER = COLOR_ACCENT_AMBER
+COLOR_NOTIFICATION_ERROR_BORDER = COLOR_ACCENT_RED
+COLOR_NOTIFICATION_BG = COLOR_PAGE_BG
+#: Unread badge colours for the title-bar bell (grey / amber / red).
+COLOR_BADGE_LOG_BG = COLOR_TEXT_SECONDARY
+COLOR_BADGE_INFO_BG = COLOR_ACCENT_AMBER
+COLOR_BADGE_ERROR_BG = COLOR_ACCENT_RED
+COLOR_BADGE_FG = COLOR_PAGE_BG
+#: Active content tab (Chat / Automation / Notification) underline.
+COLOR_CONTENT_TAB_ACTIVE = COLOR_ACCENT_CYAN
+
+# ------------------------------------------------------------------
 # Toast overlay
 # ------------------------------------------------------------------
 COLOR_TOAST_TEXT = COLOR_TEXT_PRIMARY
@@ -326,6 +343,15 @@ COLORS: dict[str, str] = {
     "toolModeBlockFg": COLOR_TOOL_MODE_BLOCK_FG,
     "toolModeDefaultBg": COLOR_TOOL_MODE_DEFAULT_BG,
     "toolModeDefaultFg": COLOR_TOOL_MODE_DEFAULT_FG,
+    "notificationLogBorder": COLOR_NOTIFICATION_LOG_BORDER,
+    "notificationInfoBorder": COLOR_NOTIFICATION_INFO_BORDER,
+    "notificationErrorBorder": COLOR_NOTIFICATION_ERROR_BORDER,
+    "notificationBg": COLOR_NOTIFICATION_BG,
+    "badgeLogBg": COLOR_BADGE_LOG_BG,
+    "badgeInfoBg": COLOR_BADGE_INFO_BG,
+    "badgeErrorBg": COLOR_BADGE_ERROR_BG,
+    "badgeFg": COLOR_BADGE_FG,
+    "contentTabActive": COLOR_CONTENT_TAB_ACTIVE,
     "toastText": COLOR_TOAST_TEXT,
     "toastShadow": COLOR_TOAST_SHADOW,
     "dragFeedbackBg": COLOR_DRAG_FEEDBACK_BG,

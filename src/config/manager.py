@@ -29,7 +29,7 @@ class ConfigManager:
             )
         import yaml
 
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             self._data = yaml.safe_load(f) or {}
 
     def _get(self, *keys: str) -> Any:
@@ -55,14 +55,58 @@ class ConfigManager:
         return current
 
     @property
+    def capabilities_dir(self) -> str:
+        """Path to the root capabilities directory (holding ``skills/`` and ``automations/``)."""
+        return str(self._get_optional("paths", "capabilities_dir", default="./capabilities"))
+
+    @property
     def skills_dir(self) -> str:
-        """Path to the skills directory."""
-        return self._get("paths", "skills_dir")
+        """Path to the skills directory.
+
+        An explicit ``paths.skills_dir`` overrides the default derived from
+        :attr:`capabilities_dir`; otherwise ``<capabilities_dir>/skills`` is used.
+        """
+        explicit = self._get_optional("paths", "skills_dir")
+        if explicit:
+            return str(explicit)
+        return str(Path(self.capabilities_dir) / "skills")
+
+    @property
+    def automations_dir(self) -> str:
+        """Path to the automations directory.
+
+        An explicit ``paths.automations_dir`` overrides the default derived from
+        :attr:`capabilities_dir`; otherwise ``<capabilities_dir>/automations`` is used.
+        """
+        explicit = self._get_optional("paths", "automations_dir")
+        if explicit:
+            return str(explicit)
+        return str(Path(self.capabilities_dir) / "automations")
 
     @property
     def storage_dir(self) -> str:
         """Path to the storage directory."""
         return self._get("paths", "storage_dir")
+
+    # ------------------------------------------------------------------
+    #  Event server
+    # ------------------------------------------------------------------
+
+    @property
+    def server_host(self) -> str:
+        """Host the event HTTP server binds to (defaults to localhost)."""
+        return str(self._get_optional("server", "host", default="127.0.0.1"))
+
+    @property
+    def server_port(self) -> int:
+        """Port the event HTTP server listens on."""
+        return int(self._get_optional("server", "port", default=12840))
+
+    @property
+    def api_keys(self) -> list[str]:
+        """API keys accepted by the event server (empty disables authentication)."""
+        keys = self._get_optional("auth", "api_keys", default=[]) or []
+        return [str(key) for key in keys]
 
     # ------------------------------------------------------------------
     #  Chat limits

@@ -150,11 +150,13 @@ async def _delete(file_path: str, use_trash: bool) -> str:
                 continue
 
         # Fallback: try Windows ctypes SHFileOperation API
-        import ctypes, platform
+        import ctypes
+        import platform
+
         if platform.system() == "Windows":
             try:
-                FO_DELETE = 0x0003
-                FOF_ALLOWUNDO = 0x0040
+                FO_DELETE = 0x0003  # noqa: N806 - Windows API constant name
+                FOF_ALLOWUNDO = 0x0040  # noqa: N806 - Windows API constant name
 
                 class FILEOP(ctypes.Structure):
                     _fields_ = [
@@ -184,8 +186,10 @@ async def _delete(file_path: str, use_trash: bool) -> str:
                 pass
 
         return (
-            "No trash command found (tried: recycle, trash, gio, gvfs-trash, kioclient5, kioclient).\n"
-            "Set use_trash=false for permanent deletion, or install 'recycle' (Windows) / 'trash-cli' (Linux/macOS)."
+            "No trash command found (tried: recycle, trash, gio, gvfs-trash, "
+            "kioclient5, kioclient).\n"
+            "Set use_trash=false for permanent deletion, or install 'recycle' "
+            "(Windows) / 'trash-cli' (Linux/macOS)."
         )
 
     target.unlink()
@@ -236,4 +240,5 @@ async def run(
 if __name__ == "__main__":
     args = json.loads(sys.stdin.read())
     result = asyncio.run(run(**{k: v for k, v in args.items() if v is not None}))
+    sys.stdout.reconfigure(encoding="utf-8")
     print(result)

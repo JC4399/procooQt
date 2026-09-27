@@ -43,7 +43,7 @@ class ChatStore:
         data["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
         path = self.chats_dir / f"{chat_id}.json"
         tmp = path.parent / (path.name + ".tmp")
-        with open(tmp, "w") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, default=str)
         tmp.replace(path)
 
@@ -59,7 +59,7 @@ class ChatStore:
         path = self.chats_dir / f"{chat_id}.json"
         if not path.exists():
             return None
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
 
     def load_all_chats(self) -> list[dict]:
@@ -75,7 +75,7 @@ class ChatStore:
         chats = []
         for f in sorted(self.chats_dir.glob("*.json"), key=lambda p: p.name, reverse=True):
             try:
-                with open(f) as fh:
+                with open(f, encoding="utf-8") as fh:
                     data = json.load(fh)
             except Exception as e:
                 logger.error("Corrupt chat file %s: %s", f.name, e)
@@ -134,14 +134,14 @@ class ChatStore:
         if not self._sessions_path.exists():
             return []
         try:
-            with open(self._sessions_path) as f:
+            with open(self._sessions_path, encoding="utf-8") as f:
                 data = json.load(f)
             return data.get("sessions", [])
         except Exception:
             return []
 
     def _save_sessions(self, sessions: list[dict]) -> None:
-        with open(self._sessions_path, "w") as f:
+        with open(self._sessions_path, "w", encoding="utf-8") as f:
             json.dump({"sessions": sessions}, f, indent=2)
 
     def list_sessions(self) -> list[str]:
@@ -216,7 +216,7 @@ class ChatStore:
 
         affected = []
         for fpath in self.chats_dir.glob("*.json"):
-            with open(fpath) as fh:
+            with open(fpath, encoding="utf-8") as fh:
                 data = json.load(fh)
             if data.get("session") == name:
                 fpath.unlink()
@@ -227,9 +227,9 @@ class ChatStore:
         path = self.chats_dir / f"{chat_id}.json"
         if not path.exists():
             raise ValueError(f"Chat '{chat_id}' not found.")
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         data["session"] = session_name
         data["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, default=str)

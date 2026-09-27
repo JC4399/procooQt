@@ -3,12 +3,13 @@
 Sources: `src/qt/models/base.py`, `src/qt/models/chat_tab_model.py`,
 `src/qt/models/session_menu_model.py`, `src/qt/models/chat_list_model.py`,
 `src/qt/models/skill_tree_model.py`, `src/qt/models/tool_mode_model.py`,
-`src/qt/models/file_tree_model.py`
+`src/qt/models/file_tree_model.py`, `src/qt/models/automation_list_model.py`,
+`src/qt/models/notification_list_model.py`
 
 ## Purpose
 
 A thin, reusable `QAbstractListModel` base over role-keyed dictionaries, plus
-five concrete models that drive the QML `ListView`s. Concrete models declare
+concrete models that drive the QML `ListView`s. Concrete models declare
 their roles as an `IntEnum` in [qt-qt-roles](qt-qt-roles.md) and store each row
 as a plain `dict[int, Any]` keyed by role id. This keeps the Python side free of
 Qt item classes while still giving QML typed role access, and lets the models
@@ -34,6 +35,8 @@ stream token.
 - `SkillTreeModel` — flattened skill/folder tree with selection state.
 - `ToolModeModel` — per-tool permission rows grouped by skill.
 - `FileTreeModel` — flattened file/folder tree for `EditorPanel.qml`.
+- `AutomationListModel` — automation cards for `AutomationPanel.qml`.
+- `NotificationListModel` — notification cards for the notification page and history.
 
 > The per-panel `ChatPanelModel` (`src/qt/chat_panel_model.py`) is a plain
 > `QObject` view model, not a `ListModel`; see
@@ -189,6 +192,30 @@ a short extension label (`"py"`, `"md"`, …) or the folder marker `"dir"`.
 | `FILE_ICON` | `"file"` — fallback for unknown extensions |
 | `_EXT_TO_LABEL` | extension → short label (`.py` → `"py"`, `.yaml` → `"yaml"`, …) |
 | `_SKIPPED_NAMES` | `{"__pycache__"}` |
+
+### `AutomationListModel`
+
+Automation cards, filtered by a fuzzy subsequence match over name, description,
+event, and schedule. `SCHEDULE_TEXT` is the cron expression, or
+`"Event driven (<event>)"` for event automations.
+
+| Signature | Inputs | Output | Flow / Side effects |
+|---|---|---|---|
+| `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `AutomationRole` |
+| `def set_automations(self, automations: list[AutomationInfo], search: str = "") -> None` | automations; fuzzy filter | `None` | filter → build rows → `set_items`; full reset |
+| `fuzzy_match(query, text) module fn -> bool` | query; text | subsequence match | case-insensitive ordered scan |
+
+### `NotificationListModel`
+
+Notification cards for the notification page (`set_notifications`, full reset) and
+history paging (`append_notifications`).
+
+| Signature | Inputs | Output | Flow / Side effects |
+|---|---|---|---|
+| `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `NotificationRole` |
+| `def set_notifications(self, items: list[NotificationItem]) -> None` | items | `None` | build rows+keys → `set_items` |
+| `def append_notifications(self, items: list[NotificationItem]) -> None` | items | `None` | `append_items` (one insert batch) |
+| `row(item) static -> Item` | notification | role dict | id/kind/task/message/log/timestamp/read/path |
 
 ## See also
 

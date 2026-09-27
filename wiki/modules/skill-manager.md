@@ -4,9 +4,10 @@ Source: `procooQt/src/skill/manager.py`
 
 ## Purpose
 
-Discovers, loads, and manages skills and their tools. Scans a `skills/`
-directory for `SKILL.md` files, validates them, infers tool schemas from
-Python scripts via AST, and watches the directory for live changes.
+Discovers, loads, and manages skills and their tools. Scans a skills directory
+(the app passes `capabilities/skills/`) for `SKILL.md` files, validates them,
+infers tool schemas from Python scripts via AST, and watches the directory for
+live changes.
 
 ## Deliverables
 
@@ -23,7 +24,7 @@ Python scripts via AST, and watches the directory for live changes.
 ## Skill directory format
 
 ```
-skills/
+capabilities/skills/
   <group>/
     <skill>/          # contains SKILL.md -> a skill
       SKILL.md        # YAML frontmatter: name, description; body = instructions

@@ -20,6 +20,8 @@ the sidebar refresh is debounced and offloaded.
 - Per-chat `ChatListModel` cache; the active chat is exposed to a panel through
   [`ChatPanelModel`](qt-chat-panel-model.md), not directly.
 - `set_visible_chats(ids)` — the set of chats currently shown in a panel.
+- `add_visible_chat(chat_id)` / `remove_visible_chat(chat_id)` — chats rendered
+  outside a panel (the editor chat), so streaming is still painted.
 - Per-chat action slots (`_handle_send_for`, `_handle_stop_for`,
   `_handle_regenerate_for`, `_handle_approve_for`, `_handle_deny_for`) plus
   focused-chat wrappers.
@@ -197,9 +199,11 @@ the per-card `tk` estimate, which is independent of the token bar.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def build(self) -> None` | — | `None` | reset `_models`, `_visible_chat_ids`, `active_chat_id` | — |
+| `def build(self) -> None` | — | `None` | reset `_models`, `_visible_chat_ids`, `_extra_visible_chats`, `active_chat_id` | — |
 | `def set_visible_chats(self, chat_ids: set[str]) -> None` | visible chat ids | `None` | store `_visible_chat_ids` | Gates rendering |
-| `def _is_visible(self, chat_id: str) -> bool` | chat id | Bool | `chat_id in _visible_chat_ids` | — |
+| `def add_visible_chat(self, chat_id: str) -> None` | chat id | `None` | add to `_extra_visible_chats` | Keeps a non-panel chat (editor chat) visible |
+| `def remove_visible_chat(self, chat_id: str) -> None` | chat id | `None` | discard from `_extra_visible_chats` | — |
+| `def _is_visible(self, chat_id: str) -> bool` | chat id | Bool | `chat_id in _visible_chat_ids or _extra_visible_chats` | — |
 | `@Property(QObject, notify=active_model_changed) def activeModel(self)` | — | Focused model or `None` | `_models.get(active_chat_id)` | Legacy |
 | `def model_for(self, chat_id: str) -> ChatListModel` | chat id | Chat model | create on demand | Inserts into `_models` |
 | `def _refresh_sidebar(self) -> None` | — | `None` | set dirty flag → start `_refresh_sidebar_loop` if idle | Debounced; no blocking I/O |

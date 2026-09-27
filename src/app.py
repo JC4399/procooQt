@@ -15,8 +15,10 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
 import qasync
 
+from .automation.manager import AutomationManager
 from .chat.store import ChatStore
 from .config.manager import ConfigManager
+from .notification.manager import NotificationManager
 from .qt.ui import ProcooQtUI
 from .skill.manager import SkillManager
 from .skill.preset import PresetStore
@@ -36,6 +38,8 @@ class ProcooApp:
         skill_manager: The ``SkillManager`` for discovering and loading skills.
         chat_store: The ``ChatStore`` for persisting chat data.
         preset_store: The ``PresetStore`` for skill/tool preset configurations.
+        automation_manager: The ``AutomationManager`` for automation discovery/state.
+        notification_manager: The ``NotificationManager`` for run-result history.
     """
 
     def __init__(self, config_dir: str = "./config") -> None:
@@ -46,9 +50,15 @@ class ProcooApp:
         """
         self.config = ConfigManager(config_dir)
         skills_dir = self._resolve(self.config.skills_dir)
+        storage_dir = self._resolve(self.config.storage_dir)
+        self.capabilities_dir = self._resolve(self.config.capabilities_dir)
         self.skill_manager = SkillManager(skills_dir)
-        self.chat_store = ChatStore(self._resolve(self.config.storage_dir))
+        self.chat_store = ChatStore(storage_dir)
         self.preset_store = PresetStore(str(Path(skills_dir) / "_presets"))
+        self.automation_manager = AutomationManager(
+            self._resolve(self.config.automations_dir), storage_dir
+        )
+        self.notification_manager = NotificationManager(storage_dir)
 
     # ------------------------------------------------------------------
     #  Private

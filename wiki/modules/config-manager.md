@@ -10,7 +10,8 @@ properties. Raises `ConfigError` on missing keys (fail-fast at startup).
 ## Deliverables
 
 - Parsed `self._data` dict from `config.yaml`.
-- Properties: `skills_dir`, `storage_dir`, `chat_max_mb`,
+- Properties: `capabilities_dir`, `skills_dir`, `automations_dir`,
+  `storage_dir`, `server_host`, `server_port`, `api_keys`, `chat_max_mb`,
   `chat_max_bytes`, `chat_max_tokens`, `agent_system_prompt`,
   `agent_summary_prompt`, `llm_models`, `llm_model_name`, `llm_api_key`,
   `llm_api_base`.
@@ -86,8 +87,13 @@ See also: [Configuration overview](../02-Configuration.md).
 
 | Property | Returns | Notes |
 |---|---|---|
-| `skills_dir` | `str` | `_get("paths", "skills_dir")` |
+| `capabilities_dir` | `str` | `_get_optional("paths", "capabilities_dir", default="./capabilities")` |
+| `skills_dir` | `str` | explicit `paths.skills_dir` or `<capabilities_dir>/skills` |
+| `automations_dir` | `str` | explicit `paths.automations_dir` or `<capabilities_dir>/automations` |
 | `storage_dir` | `str` | `_get("paths", "storage_dir")` |
+| `server_host` | `str` | `_get_optional("server", "host", default="127.0.0.1")` |
+| `server_port` | `int` | `_get_optional("server", "port", default=12840)` |
+| `api_keys` | `list[str]` | `_get_optional("auth", "api_keys", default=[])` |
 | `chat_max_mb` | `int` | `_get_optional("limits", "max_chat_mb", default=70)` |
 | `chat_max_bytes` | `int` | `chat_max_mb * 1024 * 1024` |
 | `chat_max_tokens` | `int` | `_get_optional("limits", "max_chat_tokens", default=150000)` |

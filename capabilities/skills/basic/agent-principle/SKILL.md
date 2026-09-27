@@ -5,9 +5,10 @@ description: >
   approach any task through four stages — align on the purpose, deliverable,
   method, and checks; work autonomously to completion; verify the work meets the
   purpose; and learn from every session. Also defines the anatomy of a skill and
-  how its lessons are written back. Use whenever establishing how the agent should
-  behave while completing work, how skills are structured, or how session lessons
-  are written back, even if the user does not name this skill.
+  of an automation, and how their lessons are written back. Use whenever
+  establishing how the agent should behave while completing work, how skills or
+  automations are structured and authored, or how session lessons are written
+  back, even if the user does not name this skill.
 ---
 
 # Agent Principle
@@ -236,4 +237,8 @@ and reads their output, rather than improvising the work again.
 - `references/creating-script.md` — authoring a tool script. Read it when the work
   is to write a script under `scripts/`; it states the contract a script must
   follow for the app to discover and call it.
+- `references/creating-automation.md` — authoring an automation. Read it when the
+  work is to run a task without a chat, on a schedule or on an external event; it
+  covers the `capabilities/automations/` folder, the `AUTOMATION.py` frontmatter,
+  the `run(ctx)` contract and LLM bridge, and how a run's result reaches the user.
 

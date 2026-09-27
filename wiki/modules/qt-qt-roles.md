@@ -12,7 +12,7 @@ enum into the `{role id: bytes}` mapping Qt expects.
 ## Deliverables
 
 - `ChatTabRole`, `SessionMenuRole`, `ChatRole`, `SkillRole`, `ToolRole`,
-  `FileRole` — role enums.
+  `FileRole`, `AutomationRole`, `NotificationRole` — role enums.
 - `role_names(enum_cls) -> dict[int, bytes]` — role-name builder.
 
 ## How roles are used
@@ -93,11 +93,37 @@ enum into the `{role id: bytes}` mapping Qt expects.
 
 | Member | Value | Meaning |
 |---|---|---|
-| `PATH` | 1 | Path relative to the skills root |
+| `PATH` | 1 | Path relative to the capabilities root |
 | `NAME` | 2 | Display name |
 | `DEPTH` | 3 | Nesting depth for indentation |
 | `IS_FOLDER` | 4 | `True` for a directory row |
 | `ICON` | 5 | Extension label or `"dir"` marker |
+
+### `AutomationRole` — `AutomationListModel`
+
+| Member | Value | Meaning |
+|---|---|---|
+| `PATH` | 1 | Automation path relative to the automations root |
+| `NAME` | 2 | Display name |
+| `DESCRIPTION` | 3 | Description |
+| `ACTIVATION` | 4 | `scheduled` / `event` |
+| `SCHEDULE_TEXT` | 5 | Cron expression, or `Event driven (<event>)` |
+| `ENABLED` | 6 | Enable toggle state |
+| `LAST_RUN` | 7 | Last-run timestamp |
+| `EVENT` | 8 | Event name (event automations) |
+
+### `NotificationRole` — `NotificationListModel`
+
+| Member | Value | Meaning |
+|---|---|---|
+| `ID` | 1 | Notification id (Confirm/Debug) |
+| `KIND` | 2 | `log` / `info` / `error` (card colour) |
+| `TASK` | 3 | Source automation name |
+| `MESSAGE` | 4 | Result message |
+| `LOG` | 5 | Detailed run log |
+| `TIMESTAMP` | 6 | Completion time |
+| `READ` | 7 | Read flag |
+| `PATH` | 8 | Source automation path (Debug target) |
 
 ## Function Reference
 

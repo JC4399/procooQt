@@ -56,3 +56,9 @@ class ChatError(ProcooError):
     """Raised when a chat operation fails."""
 
     category = "chat"
+
+
+class AutomationError(ProcooError):
+    """Raised when an automation cannot be loaded, run, or reports a failure."""
+
+    category = "automation"

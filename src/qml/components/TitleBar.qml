@@ -12,6 +12,15 @@ Rectangle {
     property string title: ""
     property url logoSource: Qt.resolvedUrl("../../../assets/logos/logo.png")
 
+    // Active central content view: "chat", "automation", or "notification".
+    property string activeContent: "chat"
+    // Unread notification counts shown as badges next to the bell.
+    property int logCount: 0
+    property int infoCount: 0
+    property int errorCount: 0
+
+    signal contentSelected(string content)
+
     readonly property var window: Window.window
 
     implicitHeight: Theme.metrics.titleBarHeight
@@ -53,6 +62,150 @@ Rectangle {
         source: titleBar.logoSource
         fillMode: Image.PreserveAspectFit
         smooth: true
+    }
+
+    // ------------------------------------------------------------------
+    //  Content tabs: Chat | Automation | (bell + unread badges)
+    // ------------------------------------------------------------------
+    Row {
+        id: contentTabs
+        anchors.left: logo.right
+        anchors.leftMargin: 14
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 2
+
+        component ContentTab: Rectangle {
+            id: tab
+
+            property string label: ""
+            property string content: ""
+
+            readonly property bool active: titleBar.activeContent === tab.content
+
+            implicitWidth: tabText.implicitWidth + 22
+            implicitHeight: 22
+            color: tabArea.containsMouse || tab.active ? Theme.colors.hoverBg : "transparent"
+            radius: 0
+
+            Text {
+                id: tabText
+                anchors.centerIn: parent
+                text: tab.label
+                color: tab.active ? Theme.colors.textPrimary : Theme.colors.textSecondary
+                font.family: Theme.fontMono
+                font.pointSize: Theme.metrics.fontSizeBase
+                font.bold: tab.active
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 2
+                color: tab.active ? Theme.colors.contentTabActive : "transparent"
+            }
+
+            MouseArea {
+                id: tabArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: titleBar.contentSelected(tab.content)
+            }
+        }
+
+        component UnreadBadge: Rectangle {
+            id: badge
+
+            property int count: 0
+            property color bgColor: Theme.colors.badgeLogBg
+
+            visible: count > 0
+            implicitWidth: Math.max(14, badgeText.implicitWidth + 8)
+            implicitHeight: 14
+            radius: height / 2
+            color: badge.bgColor
+
+            Text {
+                id: badgeText
+                anchors.centerIn: parent
+                text: badge.count > 99 ? "99+" : badge.count
+                color: Theme.colors.badgeFg
+                font.family: Theme.fontMono
+                font.pointSize: Theme.metrics.fontSizeBase - 2
+                font.bold: true
+            }
+        }
+
+        ContentTab {
+            label: qsTr("Chat")
+            content: "chat"
+        }
+
+        ContentTab {
+            label: qsTr("Automation")
+            content: "automation"
+        }
+
+        Rectangle {
+            id: bell
+
+            readonly property bool active: titleBar.activeContent === "notification"
+
+            implicitWidth: bellRow.implicitWidth + 20
+            implicitHeight: 22
+            color: bellArea.containsMouse || bell.active ? Theme.colors.hoverBg : "transparent"
+            radius: 0
+
+            Row {
+                id: bellRow
+                anchors.centerIn: parent
+                spacing: 4
+
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Notification")
+                    color: bell.active ? Theme.colors.textPrimary : Theme.colors.textSecondary
+                    font.family: Theme.fontMono
+                    font.pointSize: Theme.metrics.fontSizeBase
+                    font.bold: bell.active
+                }
+
+                UnreadBadge {
+                    anchors.verticalCenter: parent.verticalCenter
+                    count: titleBar.logCount
+                    bgColor: Theme.colors.badgeLogBg
+                }
+
+                UnreadBadge {
+                    anchors.verticalCenter: parent.verticalCenter
+                    count: titleBar.infoCount
+                    bgColor: Theme.colors.badgeInfoBg
+                }
+
+                UnreadBadge {
+                    anchors.verticalCenter: parent.verticalCenter
+                    count: titleBar.errorCount
+                    bgColor: Theme.colors.badgeErrorBg
+                }
+            }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: 2
+                color: bell.active ? Theme.colors.contentTabActive : "transparent"
+            }
+
+            MouseArea {
+                id: bellArea
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: titleBar.contentSelected("notification")
+            }
+        }
     }
 
     SessionSelector {

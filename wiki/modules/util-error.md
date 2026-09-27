@@ -11,8 +11,9 @@ the terminal). If only one is supplied, the other defaults to it, so
 
 ## Deliverables
 
-- `ProcooError` base class + four subclasses (`ConfigError`, `AgentError`,
-  `ToolError`, `ChatError`), each tagged with a `category` string.
+- `ProcooError` base class + five subclasses (`ConfigError`, `AgentError`,
+  `ToolError`, `ChatError`, `AutomationError`), each tagged with a `category`
+  string.
 - Instances that carry `.brief`, `.detail`, and `.category` attributes.
 
 ## Function Reference
@@ -41,3 +42,4 @@ the terminal). If only one is supplied, the other defaults to it, so
 | `AgentError` | `"agent"` | the LLM agent fails during generation |
 | `ToolError` | `"tool"` | a tool cannot be loaded/executed |
 | `ChatError` | `"chat"` | a chat operation fails |
+| `AutomationError` | `"automation"` | an automation cannot be loaded/run, or its headless agent reports an error |

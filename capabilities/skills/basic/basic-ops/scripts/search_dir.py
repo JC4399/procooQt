@@ -595,6 +595,7 @@ if __name__ == "__main__":
             sys.exit(1)
         kwargs = {k: v for k, v in args.items() if v is not None}
         result = asyncio.run(run(**kwargs))
+        sys.stdout.reconfigure(encoding="utf-8")
         print(result)
     except TypeError as e:
         print(json.dumps({"error": f"Unexpected input arguments: {e}"}))

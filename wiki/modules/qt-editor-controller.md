@@ -6,9 +6,12 @@ Source: `src/qt/editor_controller.py`
 
 Drives the separate code editor window (`src/qml/windows/EditorWindow.qml`, which
 hosts `EditorPanel.qml`): a read-only code editor backed by a QML `TextArea`, a
-collapsible file tree rooted at the skills directory (left of the code pane), and
-Edit/Save/Cancel/Reload actions. It also attaches a `QSyntaxHighlighter` to the
-`TextArea`'s text document.
+collapsible file tree rooted at the **capabilities directory** (left of the code
+pane), and Edit/Save/Cancel/Reload actions. It also attaches a
+`QSyntaxHighlighter` to the `TextArea`'s text document. The window's right side
+hosts the full [editor chat panel](qt-editor-chat-controller.md)
+(`EditorChatPanel.qml`), a real chat driven by
+[`ChatController`](qt-chat-controller.md).
 
 While the window is showing, the skill watcher keeps the tree and the open file
 in sync with disk. A deleted or externally modified open file raises
@@ -21,13 +24,13 @@ through the conflict slots. File reads and writes are offloaded with
 - `FileTreeModel` (`editor.file_model`) — flattened file/folder rows.
 - `EditorController` (`QObject`) with signals, `Q_PROPERTY` accessors, and `@Slot`
   handlers for file clicks, folder toggles, edit/save/cancel/reload, the skill
-  watcher, window visibility, and conflict resolution.
+  watcher, window visibility, conflict resolution, and opening an automation.
 - Visibility-gated watcher reconciliation (`_refresh_from_watcher`,
   `_reload_open_file_if_changed`) plus the `file_conflict` prompt contract.
 - `attachHighlighter` bridge to `src/qt/highlighter.py`.
 - `detect_language` + the `_EXT_TO_LANGUAGE` extension map.
 - `src/qml/windows/EditorWindow.qml` + `src/qml/panels/EditorPanel.qml` (file tree
-  left of the code pane, themed conflict dialog).
+  left of the code pane, chat pane right, themed conflict dialog).
 
 ## Signals & properties
 
@@ -38,6 +41,7 @@ through the conflict slots. File reads and writes are offloaded with
 | `edit_mode_changed` | `bool` | Edit mode toggled; notifies `editing`. |
 | `file_conflict` | `str, str` | `(kind, path)` — the open file was deleted (`"deleted"`) or changed on disk (`"modified"`); QML prompts to keep the buffer or take the on-disk state. |
 | `toast_requested` | `str, str` | A message + toast level (`TOAST_INFO` / `TOAST_WARNING` / `TOAST_ERROR`). |
+| `editor_open_requested` | — | An external action (notification Debug, automation Edit) asked to show the editor window; `Main.qml` shows + activates it. |
 
 | Property | Type | Notify | Meaning |
 |---|---|---|---|
@@ -57,7 +61,7 @@ through the conflict slots. File reads and writes are offloaded with
 
 ### Start (`start`)
 
-`_refresh_file_tree()` re-walks `skill_manager.skills_dir` and emits.
+`_refresh_file_tree()` re-walks `app.capabilities_dir` and emits.
 
 ### Watcher reconciliation (visibility-gated)
 
@@ -66,7 +70,7 @@ through the conflict slots. File reads and writes are offloaded with
    thread to the GUI thread).
 2. The slot is a no-op while `_active` (editor window showing) is `False`; the
    editor leaves the stale open file alone until it is visible again.
-3. `_refresh_from_watcher` `await asyncio.to_thread(_file_model.rebuild, skills_dir)`,
+3. `_refresh_from_watcher` `await asyncio.to_thread(_file_model.rebuild, capabilities_dir)`,
    emits `file_tree_changed` (`ListModel.set_items` resets the view), then calls
    `_reload_open_file_if_changed`.
 4. `_handle_window_visibility(visible)` updates `_active`; when it turns on it
@@ -97,7 +101,7 @@ Both clear the pending conflict via `_clear_conflict`.
 ### Open file (`_handle_file_click` → `_open_file_in_editor` → `_load_file_into_editor`)
 
 1. Folders toggle expansion via `_handle_folder_toggle`; files resolve to an
-   absolute path under `skill_manager.skills_dir`.
+   absolute path under `app.capabilities_dir`.
 2. `_open_file_in_editor` refuses while `editing` (warning toast), else spawns
    `_load_file_into_editor`.
 3. `_load_file_into_editor` `await asyncio.to_thread(_read_file)` (content +
@@ -124,11 +128,14 @@ files mid-edit is blocked in the controller (`_open_file_in_editor` warning).
 ### Editor window (QML)
 
 `src/qml/windows/EditorWindow.qml` is a hidden `Window` created by `Main.qml` and
-shown by the "Open Editor" button in `SkillDock.qml`; it reports visibility via
-`editor._handle_window_visibility(visible)`. `EditorPanel.qml` places the file
-tree pane to the left of the code pane and renders `file_conflict` as a themed
-modal `Dialog` (mono font, `fontSizeBase` = 12, square surfaces) whose buttons
-call `_handle_conflict_keep` / `_handle_conflict_discard`.
+shown by the "Open Editor" button in `SkillDock.qml` (or when
+`editor_open_requested` fires); it reports visibility via
+`editor._handle_window_visibility(visible)`. `EditorPanel.qml` is a `SplitView`
+placing the file tree pane on the left, the code pane in the middle, and the
+[editor chat panel](qt-editor-chat-controller.md) on the right, and renders
+`file_conflict` as a themed modal `Dialog` (mono font, `fontSizeBase` = 12,
+square surfaces) whose buttons call `_handle_conflict_keep` /
+`_handle_conflict_discard`.
 
 ### Highlighter bridge (`attachHighlighter`)
 
@@ -163,8 +170,9 @@ call `_handle_conflict_keep` / `_handle_conflict_discard`.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `_handle_file_click(path: str, is_folder: bool) -> None` | `path` relative to skills root; `is_folder` | `None` | Folder → toggle; file → `_open_file_in_editor(absolute)` | Schedules file load / emits tree change |
+| `_handle_file_click(path: str, is_folder: bool) -> None` | `path` relative to capabilities root; `is_folder` | `None` | Folder → toggle; file → `_open_file_in_editor(absolute)` | Schedules file load / emits tree change |
 | `_handle_folder_toggle(path: str, expanded: bool) -> None` | `path`; `expanded` | `None` | `_file_model.set_folder_expanded`; emit | Emits `file_tree_changed` |
+| `_handle_open_automation(path: str) -> None` @Slot(str) | `path` relative to automations root | `None` | Emit `editor_open_requested`; `_open_file_in_editor(capabilities/automations/<path>/AUTOMATION.py)` | Emits `editor_open_requested`; schedules a load |
 
 ### Slots: edit / save / cancel / reload
 
@@ -203,7 +211,7 @@ call `_handle_conflict_keep` / `_handle_conflict_discard`.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `_refresh_from_watcher() async -> None` | — | `None` | `await asyncio.to_thread(_file_model.rebuild, skills_dir)`; emit; reconcile open file | Emits `file_tree_changed`; logs failure |
+| `_refresh_from_watcher() async -> None` | — | `None` | `await asyncio.to_thread(_file_model.rebuild, capabilities_dir)`; emit; reconcile open file | Emits `file_tree_changed`; logs failure |
 | `_reload_open_file_if_changed() async -> None` | — | `None` | Skip with no file / pending conflict; stat + read; prompt `"deleted"` / `"modified"`; equal content records mtime | Emits `file_conflict` |
 | `_open_conflict(kind: str, path: str, mtime: float) -> None` | kind/path/mtime | `None` | Store conflict state; emit | Emits `file_conflict`; logs a warning |
 | `_clear_conflict() -> None` | — | `None` | Reset `_conflict_path` / `_conflict_kind` / `_conflict_mtime` | None |
@@ -213,7 +221,7 @@ call `_handle_conflict_keep` / `_handle_conflict_discard`.
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
 | `_set_editing(editing: bool) -> None` | `editing` | `None` | No-op if unchanged; store + emit | Emits `edit_mode_changed` |
-| `_refresh_file_tree() -> None` | — | `None` | `_file_model.rebuild(skill_manager.skills_dir)`; emit | Emits `file_tree_changed` |
+| `_refresh_file_tree() -> None` | — | `None` | `_file_model.rebuild(app.capabilities_dir)`; emit | Emits `file_tree_changed` |
 
 ### Task & file helpers
 

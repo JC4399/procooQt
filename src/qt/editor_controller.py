@@ -91,6 +91,7 @@ class EditorController(QObject):
     edit_mode_changed = Signal(bool)
     file_conflict = Signal(str, str)
     toast_requested = Signal(str, str)
+    editor_open_requested = Signal()
 
     if TYPE_CHECKING:
         # Attributes provided by ui.py orchestrator
@@ -252,7 +253,7 @@ class EditorController(QObject):
     async def _refresh_from_watcher(self) -> None:
         """Rebuild the file tree off-loop, then reconcile the open file."""
         try:
-            await asyncio.to_thread(self._file_model.rebuild, self.app.skill_manager.skills_dir)
+            await asyncio.to_thread(self._file_model.rebuild, self.app.capabilities_dir)
         except Exception as error:
             logger.error("Editor tree refresh failed: %s", error)
             return
@@ -364,7 +365,22 @@ class EditorController(QObject):
             expanded = not self._file_model.is_folder_expanded(path)
             self._handle_folder_toggle(path, expanded)
             return
-        self._open_file_in_editor(str(Path(self.app.skill_manager.skills_dir) / path))
+        self._open_file_in_editor(str(Path(self.app.capabilities_dir) / path))
+
+    # ------------------------------------------------------------------
+    #  Slot: Open automation
+    # ------------------------------------------------------------------
+
+    @Slot(str)
+    def _handle_open_automation(self, path: str) -> None:
+        """Open an automation's ``AUTOMATION.py`` and request the editor window.
+
+        Args:
+            path: Automation path relative to the automations directory.
+        """
+        target = Path(self.app.automation_manager.automations_dir) / path / "AUTOMATION.py"
+        self.editor_open_requested.emit()
+        self._open_file_in_editor(str(target))
 
     # ------------------------------------------------------------------
     #  Slot: Folder toggle
@@ -564,8 +580,8 @@ class EditorController(QObject):
     # ------------------------------------------------------------------
 
     def _refresh_file_tree(self) -> None:
-        """Rebuild the file tree from the skills directory."""
-        self._file_model.rebuild(self.app.skill_manager.skills_dir)
+        """Rebuild the file tree from the capabilities directory."""
+        self._file_model.rebuild(self.app.capabilities_dir)
         self.file_tree_changed.emit()
 
     # ------------------------------------------------------------------

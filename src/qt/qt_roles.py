@@ -82,6 +82,32 @@ class FileRole(IntEnum):
     ICON = 5
 
 
+class AutomationRole(IntEnum):
+    """Roles for :class:`~src.qt.models.automation_list_model.AutomationListModel`."""
+
+    PATH = 1
+    NAME = 2
+    DESCRIPTION = 3
+    ACTIVATION = 4
+    SCHEDULE_TEXT = 5
+    ENABLED = 6
+    LAST_RUN = 7
+    EVENT = 8
+
+
+class NotificationRole(IntEnum):
+    """Roles for :class:`~src.qt.models.notification_list_model.NotificationListModel`."""
+
+    ID = 1
+    KIND = 2
+    TASK = 3
+    MESSAGE = 4
+    LOG = 5
+    TIMESTAMP = 6
+    READ = 7
+    PATH = 8
+
+
 def role_names(enum_cls: type[IntEnum]) -> dict[int, bytes]:
     """Build the ``roleNames`` mapping for a role enum.
 

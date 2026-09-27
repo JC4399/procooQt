@@ -41,7 +41,7 @@ class PresetStore:
         path = self.presets_dir / f"{name}.json"
         if not path.exists():
             return None
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
 
     # ------------------------------------------------------------------
@@ -57,7 +57,7 @@ class PresetStore:
         """
         config["name"] = name
         path = self.presets_dir / f"{name}.json"
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2, default=str)
 
     def delete_preset(self, name: str) -> None:

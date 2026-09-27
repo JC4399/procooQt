@@ -12,13 +12,18 @@ Full function reference: [`modules/config-manager`](modules/config-manager.md).
 ## Config schema (`config/config.yaml`)
 
 ```yaml
+server:
+  host: "127.0.0.1"          # event server bind (localhost by default)
+  port: 12840
+
 paths:
   # Relative to the procooQt project root (resolved against _PROJECT_ROOT in app.py).
-  skills_dir: "../skills"
-  storage_dir: "./storage"   # sessions.json + chats/
+  capabilities_dir: "../capabilities"   # holds skills/ and automations/
+  # skills_dir / automations_dir are derived from capabilities_dir but can be overridden.
+  storage_dir: "./storage"   # sessions.json + chats/ + automations.json + notifications.json
 
 auth:
-  api_keys: []               # not yet read by ConfigManager
+  api_keys: []               # event-server API keys (empty disables auth)
 
 limits:
   max_chat_mb: 70            # 0 disables the byte-size limit
@@ -48,13 +53,25 @@ any relative path absolute against `_PROJECT_ROOT` = the `procooQt/` directory
 
 | Config value | Resolves to |
 |---|---|
-| `skills_dir: "../skills"` | `<repo-root>/skills` |
+| `capabilities_dir: "../capabilities"` | `<repo-root>/capabilities` |
+| `skills_dir` (derived) | `<capabilities_dir>/skills` |
+| `automations_dir` (derived) | `<capabilities_dir>/automations` |
 | `storage_dir: "./storage"` | `<procooQt>/storage` |
 
-Absolute paths are used as-is. The resolved `skills_dir` also seeds the
-`_presets/` subdirectory used by `PresetStore`. `ChatStore` uses
+Absolute paths are used as-is. An explicit `paths.skills_dir` or
+`paths.automations_dir` overrides the derived value. The resolved `skills_dir`
+also seeds the `_presets/` subdirectory used by `PresetStore`. `ChatStore` uses
 `storage/sessions.json` for session records/layout and `storage/chats/` for
-chat files.
+chat files; `AutomationManager` uses `storage/automations.json` and
+`NotificationManager` uses `storage/notifications.json`.
+
+### Event server (`server`) and `auth`
+
+`server.host` / `server.port` configure the automation event HTTP server
+([`automation-server`](modules/automation-server.md)); it binds `127.0.0.1` by
+default. `auth.api_keys` is a list of accepted keys; when non-empty, requests to
+`POST /event/{name}` must present a matching `Authorization: Bearer <key>` or
+`X-Api-Key` header. An empty list disables authentication.
 
 ### Chat limits (`limits`)
 
@@ -77,8 +94,8 @@ A non-empty list of model entries. Exactly one entry must have `default: true`;
 that entry is the default model for new chats and must provide `model_name`,
 `api_key`, and `api_base`. Every entry's `model_name` is offered in the per-chat
 model selector (the `SkillDock` dropdown), and `llm_config(model_name)` resolves
-any entry on demand. `auth.api_keys` is present in the file but is not currently
-exposed by an accessor.
+any entry on demand. `auth.api_keys` is exposed by `ConfigManager.api_keys` and
+used by the event server (see above).
 
 ## Loading flow
 
@@ -98,8 +115,9 @@ exposed by an accessor.
 backend = ProcooApp(str(_PROJECT_ROOT / "config"))
 ```
 
-`ProcooApp.__init__` builds `ConfigManager`, resolves `skills_dir`, and then
-constructs `SkillManager`, `ChatStore`, and `PresetStore` from the config.
+`ProcooApp.__init__` builds `ConfigManager`, resolves `capabilities_dir` /
+`skills_dir` / `storage_dir`, and then constructs `SkillManager`, `ChatStore`,
+`PresetStore`, `AutomationManager`, and `NotificationManager` from the config.
 `main()` logs the active `api_base` and `model`, and if construction raises
 `ProcooError` it logs the critical detail and exits.
 
@@ -107,4 +125,5 @@ Once the QML engine has loaded, `ProcooQtUI.start()` runs the controller
 startup that depends on config: `SessionController.start()` emits validation
 toasts, ensures a `Default` session exists, and rebuilds/opens the workspace
 panels; `SkillController.start()` begins watching the skills directory;
-`EditorController.start()` builds the file tree.
+`EditorController.start()` builds the file tree; `AutomationController.start()`
+starts the automation watcher, the cron scheduler, and the event server.

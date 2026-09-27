@@ -18,6 +18,8 @@ dependencies = [
     "python-frontmatter>=1.1.0",
     "pyyaml>=6.0",
     "pydantic>=2.0",
+    # Cron schedule parsing for automations
+    "croniter>=2.0",
     # Markdown / code rendering for chat cards and the editor
     "markdown-it-py>=3.0",
     "mdit-py-plugins>=0.4",
@@ -41,6 +43,8 @@ packages = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+# AUTOMATION.py files begin with YAML frontmatter, so they are not valid Python.
+extend-exclude = ["**/AUTOMATION.py"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -73,3 +77,7 @@ dev = [
     "ruff>=0.16.8",
     "ty>=0.0.82",
 ]
+
+[tool.ty.src]
+# AUTOMATION.py files begin with YAML frontmatter, so they are not valid Python.
+exclude = ["**/AUTOMATION.py"]

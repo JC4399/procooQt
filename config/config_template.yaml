@@ -1,11 +1,20 @@
+server:
+  # HTTP event server for event-driven automations. Bind localhost by default.
+  host: "127.0.0.1"
+  port: 12840
+
 paths:
   # Relative to the procooQt project root (resolved against _PROJECT_ROOT in app.py).
-  # The skills library at ../skills.
-  skills_dir: "../skills"
+  # Root capabilities library containing skills/ and automations/.
+  capabilities_dir: "../capabilities"
+  # Optional overrides for the two capability subdirectories.
+  # skills_dir: "../capabilities/skills"
+  # automations_dir: "../capabilities/automations"
   # Chat and session storage.
   storage_dir: "./storage"
 
 auth:
+  # API keys accepted by the event server (Authorization: Bearer <key> or X-Api-Key).
   api_keys: []
 
 limits:

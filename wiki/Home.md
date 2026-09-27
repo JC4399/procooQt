@@ -10,7 +10,7 @@ Python controllers and list models on a single `qasync` event loop.
 
 ## What the app does
 
-- **Skill discovery** — recursively scans a `skills/` directory for
+- **Skill discovery** — recursively scans a `capabilities/skills/` directory for
   `SKILL.md` files and auto-infers tool schemas from Python scripts via AST.
 - **Sessions & chats** — a *session* groups chats and remembers its split
   layout; each *chat* is a conversation persisted as JSON. The title bar holds a
@@ -23,8 +23,14 @@ Python controllers and list models on a single `qasync` event loop.
   rendered live as cards with token counts.
 - **Automatic summarization** — when a chat exceeds a configured size or token
   limit, the agent summarizes the history and starts a new chat from it.
-- **Presets & editor** — save/load skill+tool config presets, and a
-  syntax-highlighted code editor with a file tree.
+- **Automations** — `capabilities/automations/<name>/AUTOMATION.py` scripts run
+  on a cron schedule or on an external HTTP event; they may call the LLM through
+  the app's agent loop.
+- **Notifications** — run results appear as log/info/error cards with unread
+  badges, Confirm/Debug actions, and a searchable history.
+- **Presets & editor** — save/load skill+tool config presets, a
+  syntax-highlighted code editor with a file tree, and a chat panel to edit
+  files with the agent.
 
 ## Feature highlights
 
@@ -37,6 +43,10 @@ Python controllers and list models on a single `qasync` event loop.
 | Live incremental chat model (`QAbstractListModel`) | [`qt-chat-controller`](modules/qt-chat-controller.md) |
 | Automatic chat summarization on size/token limit | [`qt-chat-controller`](modules/qt-chat-controller.md) |
 | Skill discovery + AST schema inference | [`skill-manager`](modules/skill-manager.md) |
+| Automation discovery + scheduling + event server | [`automation-manager`](modules/automation-manager.md) · [`automation-scheduler`](modules/automation-scheduler.md) · [`automation-server`](modules/automation-server.md) |
+| Automation execution + headless agent bridge | [`automation-runner`](modules/automation-runner.md) |
+| Notifications + unread badges + history | [`notification`](modules/notification.md) · [`qt-notification-controller`](modules/qt-notification-controller.md) |
+| Editor chat panel | [`qt-editor-chat-controller`](modules/qt-editor-chat-controller.md) |
 | Preset store | [`skill-preset`](modules/skill-preset.md) |
 | Code editor + `QSyntaxHighlighter` | [`qt-editor-controller`](modules/qt-editor-controller.md) |
 | Selectable markdown rendering | [`qt-markdown`](modules/qt-markdown.md) |
@@ -47,8 +57,9 @@ Python controllers and list models on a single `qasync` event loop.
 ```
 src/app.py            # entry point (qasync loop + QML bootstrap)
 config/config.yaml    # paths and LLM settings (no server section)
-../skills/            # shared skill library (SKILL.md + scripts/)
-storage/              # sessions.json + chats/<chat_id>.json
+../capabilities/skills/       # shared skill library (SKILL.md + scripts/)
+../capabilities/automations/  # automation scripts (AUTOMATION.py)
+storage/              # sessions.json + chats/ + automations.json + notifications.json
 ```
 
 Run from `procooQt/`:
@@ -58,8 +69,9 @@ uv run python -m src.app
 ```
 
 or double-click `start_procoo_qt.bat` (activates `.venv` and runs the same
-module). `skills_dir` points at the shared `../skills` library; `storage_dir`
-points at `procooQt/storage/`.
+module). `capabilities_dir` points at the shared `../capabilities` library;
+`skills_dir`/`automations_dir` are derived from it; `storage_dir` points at
+`procooQt/storage/`.
 
 ## Documentation map
 
@@ -75,6 +87,9 @@ points at `procooQt/storage/`.
 - [Chat lifecycle flow](flows/chat-lifecycle-flow.md)
 - [Config sync flow](flows/config-sync-flow.md)
 - [Skill discovery flow](flows/skill-discovery-flow.md)
+- [Automation run flow](flows/automation-run-flow.md)
+- [Event server flow](flows/event-server-flow.md)
+- [Notification lifecycle flow](flows/notification-lifecycle-flow.md)
 
 ### Module reference
 
@@ -84,8 +99,10 @@ points at `procooQt/storage/`.
 | `src/config/` | [manager](modules/config-manager.md) |
 | `src/chat/` | [agent](modules/chat-agent.md) · [llm](modules/chat-llm.md) · [manager](modules/chat-manager.md) · [store](modules/chat-store.md) |
 | `src/skill/` | [manager](modules/skill-manager.md) · [models](modules/skill-models.md) · [preset](modules/skill-preset.md) |
+| `src/automation/` | [manager](modules/automation-manager.md) · [runner](modules/automation-runner.md) · [scheduler](modules/automation-scheduler.md) · [server](modules/automation-server.md) |
+| `src/notification/` | [models/store/manager](modules/notification.md) |
 | `src/util/` | [error](modules/util-error.md) · [log](modules/util-log.md) · [tokens](modules/util-tokens.md) · [venv](modules/util-venv.md) |
-| `src/qt/` | [ui](modules/qt-ui.md) · [theme](modules/qt-theme.md) · [chat-panel-model](modules/qt-chat-panel-model.md) · [chat-state](modules/qt-chat-state.md) · [session-controller](modules/qt-session-controller.md) · [chat-controller](modules/qt-chat-controller.md) · [chat-items](modules/qt-chat-items.md) · [context-banner](modules/qt-context-banner.md) · [skill-controller](modules/qt-skill-controller.md) · [editor-controller](modules/qt-editor-controller.md) · [markdown](modules/qt-markdown.md) · [latex](modules/qt-latex.md) · [yaml-highlight](modules/qt-yaml-highlight.md) · [highlighter](modules/qt-highlighter.md) · [error-handler](modules/qt-error-handler.md) · [models](modules/qt-models.md) · [qt-roles](modules/qt-qt-roles.md) |
+| `src/qt/` | [ui](modules/qt-ui.md) · [theme](modules/qt-theme.md) · [chat-panel-model](modules/qt-chat-panel-model.md) · [chat-state](modules/qt-chat-state.md) · [session-controller](modules/qt-session-controller.md) · [chat-controller](modules/qt-chat-controller.md) · [chat-items](modules/qt-chat-items.md) · [context-banner](modules/qt-context-banner.md) · [skill-controller](modules/qt-skill-controller.md) · [editor-controller](modules/qt-editor-controller.md) · [editor-chat-controller](modules/qt-editor-chat-controller.md) · [automation-controller](modules/qt-automation-controller.md) · [notification-controller](modules/qt-notification-controller.md) · [markdown](modules/qt-markdown.md) · [latex](modules/qt-latex.md) · [yaml-highlight](modules/qt-yaml-highlight.md) · [highlighter](modules/qt-highlighter.md) · [error-handler](modules/qt-error-handler.md) · [models](modules/qt-models.md) · [qt-roles](modules/qt-qt-roles.md) |
 
 ## Conventions used in this wiki
 
