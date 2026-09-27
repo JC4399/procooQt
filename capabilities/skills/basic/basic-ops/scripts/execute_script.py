@@ -189,7 +189,7 @@ async def run(
     mode: str,
     code: str = "",
     command: str = "",
-    timeout: int = 30,
+    timeout: int = 600,
 ) -> str:
     """Execute Python code or a shell command.
 
@@ -197,7 +197,7 @@ async def run(
         mode: Execution mode — "python" or "shell".
         code: (python) Python source code to execute.
         command: (shell) Shell command string to run.
-        timeout: Maximum execution time in seconds. Defaults to 30.
+        timeout: Maximum execution time in seconds. Defaults to 600 (10 minutes).
     """
     try:
         if mode == "python":
