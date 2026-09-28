@@ -24,7 +24,8 @@ approval bar.
 - `chat_model` (the `ChatController` `ChatListModel`), plus `busy`,
   `inputTokens`, `outputTokens`, `modelName`, config-count properties, and
   `approvalVisible` / `approvalText`.
-- Slots `_handle_send`, `_handle_stop`, `_handle_regenerate`, `_handle_clear`.
+- Slots `_handle_send`, `_handle_stop`, `_handle_regenerate`,
+  `_handle_delete_turn`, `_handle_regenerate_from`, `_handle_clear`.
 - File-context injection (`_file_context`), refreshed whenever the open file or
   its content changes.
 - `state_changed` signal (from `chat.chat_state_changed` / `token_counts_changed`).
@@ -70,6 +71,8 @@ so QML re-reads the properties from the chat's `ChatState`.
 | `async def _send(self, message) -> None` | message | `None` | hydrate → inject context → `chat._handle_send_for` | Launches generation |
 | `@Slot() def _handle_stop(self) -> None` | — | `None` | `chat._handle_stop_for` | — |
 | `@Slot() def _handle_regenerate(self) -> None` | — | `None` | `chat._handle_regenerate_for` | — |
+| `@Slot(int) def _handle_delete_turn(self, msg_index) -> None` | source message index | `None` | `chat._handle_delete_turn_for(chat_id, msg_index)` | Removes the turn |
+| `@Slot(int) def _handle_regenerate_from(self, msg_index) -> None` | source user index | `None` | `chat._handle_regenerate_from_for(chat_id, msg_index)` | Truncates + regenerates |
 | `@Slot() def _handle_clear(self) -> None` | — | `None` | stop; drop agent; reset record/model | Rewrites chat file |
 | `@Slot(str) def _handle_state_changed(self, chat_id) -> None` | chat id | `None` | refresh if it is the editor chat | Emits `state_changed` |
 | `_ensure_chat_record()` / `_active_skill_config()` | — | — / dict | create/refresh record; active skills forced allow | — |

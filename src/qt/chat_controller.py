@@ -295,6 +295,37 @@ def _count_trailing_tool_results(messages: list[dict], after_idx: int) -> int:
     return count
 
 
+def _round_bounds(messages: list[dict], msg_index: int) -> tuple[int, int]:
+    """Return the ``[start, end)`` range of the turn containing *msg_index*.
+
+    A turn starts at a user message (extended back over immediately-preceding
+    injected system messages) and ends just before the next user message, so
+    deleting a turn removes its prompt, assistant reply, tool calls, and tool
+    results as one coherent, LLM-valid unit. A card before any user message is
+    treated as a leading fragment starting at index ``0``.
+
+    Args:
+        messages: The full message list.
+        msg_index: Index of the message the clicked card was built from.
+
+    Returns:
+        The half-open ``(start, end)`` range to remove.
+    """
+    start = 0
+    for i in range(msg_index, -1, -1):
+        if messages[i].get("role") == "user":
+            start = i
+            break
+    while start > 0 and messages[start - 1].get("role") == "system":
+        start -= 1
+    end = len(messages)
+    for j in range(msg_index + 1, len(messages)):
+        if messages[j].get("role") == "user":
+            end = j
+            break
+    return start, end
+
+
 def _accumulate_tokens(text: str, previous: str, current: int) -> int:
     """Accumulate a token estimate for streamed text.
 
@@ -619,6 +650,26 @@ class ChatController(QObject):
             chat_id: The chat to regenerate.
         """
         self._spawn(self._regenerate(chat_id))
+
+    @Slot(str, int)
+    def _handle_delete_turn_for(self, chat_id: str, msg_index: int) -> None:
+        """Delete the turn containing a chat card from history.
+
+        Args:
+            chat_id: The chat whose card was clicked.
+            msg_index: Index of the source message in ``chat.messages``.
+        """
+        self._delete_turn(chat_id, msg_index)
+
+    @Slot(str, int)
+    def _handle_regenerate_from_for(self, chat_id: str, msg_index: int) -> None:
+        """Regenerate starting from a specific user card.
+
+        Args:
+            chat_id: The chat whose card was clicked.
+            msg_index: Index of the source user message in ``chat.messages``.
+        """
+        self._spawn(self._regenerate_from(chat_id, msg_index))
 
     @Slot()
     def _handle_approve(self) -> None:
@@ -1015,6 +1066,97 @@ class ChatController(QObject):
         stored["message_count"] = len(messages)
         self.app.chat_store.save_chat(chat_id, stored)
 
+    def _delete_turn(self, chat_id: str, msg_index: int) -> None:
+        """Delete the turn containing a card and rebuild the chat.
+
+        The whole turn is removed (prompt, assistant reply, tool calls, and tool
+        results) so the remaining history stays valid for the LLM. Messages
+        before and after the turn are untouched.
+
+        Args:
+            chat_id: The chat whose card was clicked.
+            msg_index: Index of the source message in ``chat.messages``.
+        """
+        if not chat_id or msg_index < 0:
+            return
+        state = self.session.state(chat_id)
+        if state.is_busy:
+            self.toast_requested.emit("Please wait for the current response.", TOAST_ERROR)
+            return
+        self._skip_staged_build()
+        live = chat_manager.get_chat(chat_id)
+        if live is not None:
+            messages = live.messages
+            if not 0 <= msg_index < len(messages):
+                return
+            start, end = _round_bounds(messages, msg_index)
+            del messages[start:end]
+            live._current_assistant_msg = None
+            state.item_cache.clear()
+            self.session._save_current_chat_for(
+                chat_id, (list(messages), self.session._build_context_snapshot(live))
+            )
+        else:
+            stored = self.app.chat_store.load_chat(chat_id)
+            messages = list((stored or {}).get("messages", []))
+            if not 0 <= msg_index < len(messages):
+                return
+            start, end = _round_bounds(messages, msg_index)
+            del messages[start:end]
+            if stored:
+                stored["messages"] = messages
+                stored["message_count"] = len(messages)
+                self.app.chat_store.save_chat(chat_id, stored)
+            state.item_cache.clear()
+        logger.info("Deleted turn [%d:%d] from chat '%s'", start, end, chat_id)
+        self._rebuild_chat_display(chat_id)
+        self._refresh_sidebar()
+
+    async def _regenerate_from(self, chat_id: str, msg_index: int) -> None:
+        """Trim history to before a user message and regenerate from it.
+
+        Everything from the clicked user message onward is discarded, then that
+        message is re-sent through the normal generation path. Messages before
+        the target are untouched.
+
+        Args:
+            chat_id: The chat to regenerate.
+            msg_index: Index of the user message to re-send.
+        """
+        if not chat_id:
+            self.toast_requested.emit("Please create or select a chat first.", TOAST_ERROR)
+            return
+        state = self.session.state(chat_id)
+        if state.is_busy:
+            self.toast_requested.emit("Please wait for the current response.", TOAST_ERROR)
+            return
+        live = chat_manager.get_chat(chat_id)
+        if live is not None:
+            messages = list(live.messages)
+        else:
+            stored = self.app.chat_store.load_chat(chat_id)
+            messages = list((stored or {}).get("messages", []))
+        if not 0 <= msg_index < len(messages):
+            return
+        if messages[msg_index].get("role") != "user":
+            self.toast_requested.emit("Can only regenerate from a user message.", TOAST_ERROR)
+            return
+        text = normalize_content(messages[msg_index].get("content", ""))
+        keep = messages[:msg_index]
+        stored = self.app.chat_store.load_chat(chat_id)
+        if stored:
+            stored["messages"] = keep
+            stored["message_count"] = len(keep)
+            self.app.chat_store.save_chat(chat_id, stored)
+        chat_manager.remove_chat(chat_id)
+        state.context_banners_data = [
+            banner for banner in state.context_banners_data if not banner.get("is_delta")
+        ]
+        state.item_cache.clear()
+        logger.info("Regenerating chat '%s' from message %d", chat_id, msg_index)
+        self._rebuild_chat_display(chat_id)
+        self._launch_generation(chat_id, text)
+
     # ------------------------------------------------------------------
     #  Approval
     # ------------------------------------------------------------------
@@ -1311,9 +1453,9 @@ class ChatController(QObject):
                 if isinstance(content, list):
                     content = _extract_text_from_multimodal(content)
                 builder.emit(
-                    "u:" + _content_hash(msg.get("content", "")) + suffix,
-                    lambda content=content, collapsed=collapsed: build_user_item(
-                        content, collapsed=collapsed
+                    f"u:{i}:" + _content_hash(msg.get("content", "")) + suffix,
+                    lambda content=content, collapsed=collapsed, i=i: build_user_item(
+                        content, collapsed=collapsed, msg_index=i
                     ),
                 )
             elif role == "assistant":
@@ -1322,9 +1464,15 @@ class ChatController(QObject):
                 content = msg.get("content", "")
                 name = msg.get("name", "")
                 builder.emit(
-                    "tr:" + name + ":" + _content_hash(content) + suffix,
-                    lambda name=name, content=content, collapsed=collapsed: build_tool_result_item(
-                        name, content, token_count=count_tokens(content), collapsed=collapsed
+                    f"tr:{i}:" + name + ":" + _content_hash(content) + suffix,
+                    lambda name=name, content=content, collapsed=collapsed, i=i: (
+                        build_tool_result_item(
+                            name,
+                            content,
+                            token_count=count_tokens(content),
+                            collapsed=collapsed,
+                            msg_index=i,
+                        )
                     ),
                 )
         if _is_waiting_for_assistant(state, messages):
@@ -1358,17 +1506,17 @@ class ChatController(QObject):
         if d["thinking_text"]:
             text = d["thinking_text"]
             builder.emit(
-                "t:" + _content_hash(text) + suffix,
-                lambda text=text, collapsed=collapsed: build_thinking_item(
-                    text, token_count=count_tokens(text), collapsed=collapsed
+                f"t:{idx}:" + _content_hash(text) + suffix,
+                lambda text=text, collapsed=collapsed, idx=idx: build_thinking_item(
+                    text, token_count=count_tokens(text), collapsed=collapsed, msg_index=idx
                 ),
             )
         if d["content_text"]:
             text = d["content_text"]
             builder.emit(
-                "r:" + _content_hash(text) + suffix,
-                lambda text=text, collapsed=collapsed: build_response_item(
-                    text, token_count=count_tokens(text), collapsed=collapsed
+                f"r:{idx}:" + _content_hash(text) + suffix,
+                lambda text=text, collapsed=collapsed, idx=idx: build_response_item(
+                    text, token_count=count_tokens(text), collapsed=collapsed, msg_index=idx
                 ),
             )
         for tc in d["effective_tool_calls"]:
@@ -1376,8 +1524,8 @@ class ChatController(QObject):
             args_str = tc.get("function", {}).get("arguments", "{}")
             tc_id = tc.get("id", "")
             builder.emit(
-                "c:" + name + ":" + _content_hash(args_str) + ":" + tc_id + suffix,
-                lambda tc=tc, collapsed=collapsed: build_tool_call_item(
+                f"c:{idx}:" + name + ":" + _content_hash(args_str) + ":" + tc_id + suffix,
+                lambda tc=tc, collapsed=collapsed, idx=idx: build_tool_call_item(
                     {
                         "name": tc.get("function", {}).get("name", ""),
                         "arguments": _parse_tool_arguments(tc),
@@ -1385,6 +1533,7 @@ class ChatController(QObject):
                     },
                     token_count=count_tokens(tc.get("function", {}).get("arguments", "{}")),
                     collapsed=collapsed,
+                    msg_index=idx,
                 ),
             )
 
@@ -1412,15 +1561,17 @@ class ChatController(QObject):
             text = d["thinking_text"]
             if d["thinking_done"]:
                 builder.emit(
-                    "t:" + _content_hash(text) + ":done",
-                    lambda text=text: build_thinking_item(text, token_count=count_tokens(text)),
+                    f"t:{idx}:" + _content_hash(text) + ":done",
+                    lambda text=text, idx=idx: build_thinking_item(
+                        text, token_count=count_tokens(text), msg_index=idx
+                    ),
                     cacheable=False,
                 )
             else:
                 row = builder.emit(
-                    "t:pending",
-                    lambda text=text: build_thinking_pending_item(
-                        text, token_count=state.thinking.token_count
+                    f"t:{idx}:pending",
+                    lambda text=text, idx=idx: build_thinking_pending_item(
+                        text, token_count=state.thinking.token_count, msg_index=idx
                     ),
                     cacheable=False,
                 )
@@ -1429,15 +1580,17 @@ class ChatController(QObject):
             text = d["content_text"]
             if d["response_done"]:
                 builder.emit(
-                    "r:" + _content_hash(text) + ":done",
-                    lambda text=text: build_response_item(text, token_count=count_tokens(text)),
+                    f"r:{idx}:" + _content_hash(text) + ":done",
+                    lambda text=text, idx=idx: build_response_item(
+                        text, token_count=count_tokens(text), msg_index=idx
+                    ),
                     cacheable=False,
                 )
             else:
                 row = builder.emit(
-                    "r:pending",
-                    lambda text=text: build_response_pending_item(
-                        text, token_count=state.response.token_count
+                    f"r:{idx}:pending",
+                    lambda text=text, idx=idx: build_response_pending_item(
+                        text, token_count=state.response.token_count, msg_index=idx
                     ),
                     cacheable=False,
                 )
@@ -1449,22 +1602,25 @@ class ChatController(QObject):
             args_str = tc.get("function", {}).get("arguments", "{}")
             if tc_id in d["finalized_ids"]:
                 row = builder.emit(
-                    "c:" + name + ":" + _content_hash(args_str) + ":f",
-                    lambda tc=tc: build_tool_call_item(
+                    f"c:{idx}:" + name + ":" + _content_hash(args_str) + ":f",
+                    lambda tc=tc, idx=idx: build_tool_call_item(
                         {
                             "name": tc.get("function", {}).get("name", ""),
                             "arguments": _parse_tool_arguments(tc),
                             "mode": tc.get("_mode", "ask"),
                         },
                         token_count=count_tokens(tc.get("function", {}).get("arguments", "{}")),
+                        msg_index=idx,
                     ),
                     cacheable=False,
                 )
             else:
                 row = builder.emit(
-                    "c:p:" + name + ":" + tc_id,
-                    lambda name=name, mode=mode, args_str=args_str: build_tool_call_pending_item(
-                        name, mode, count_tokens(args_str)
+                    f"c:{idx}:p:" + name + ":" + tc_id,
+                    lambda name=name, mode=mode, args_str=args_str, idx=idx: (
+                        build_tool_call_pending_item(
+                            name, mode, count_tokens(args_str), msg_index=idx
+                        )
                     ),
                     cacheable=False,
                 )
@@ -1534,8 +1690,13 @@ class ChatController(QObject):
         if row < 0:
             self._rebuild_chat_display(chat_id)
             return
-        item = build_tool_result_item(tool_name, content, token_count=count_tokens(content))
-        model.replace_item(row, item, "tr:" + tool_name + ":" + _content_hash(content))
+        live = chat_manager.get_chat(chat_id)
+        messages = live.messages if live else []
+        msg_index = len(messages) - 1 if messages else -1
+        item = build_tool_result_item(
+            tool_name, content, token_count=count_tokens(content), msg_index=msg_index
+        )
+        model.replace_item(row, item, f"tr:{msg_index}:{tool_name}:{_content_hash(content)}")
 
     async def _update_live_assistant(self, chat_id: str, state: ChatState) -> None:
         """Live render the streaming assistant message with a short throttle.

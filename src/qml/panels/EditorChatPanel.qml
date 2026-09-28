@@ -268,6 +268,30 @@ Rectangle {
                                     value: model.collapsed
                                     when: cardLoader.item !== null
                                 }
+                                Binding {
+                                    target: cardLoader.item
+                                    property: "msgIndex"
+                                    value: model.msg_index
+                                    when: cardLoader.item !== null && model.kind !== "context_banner"
+                                }
+                                Binding {
+                                    target: cardLoader.item
+                                    property: "actionsEnabled"
+                                    value: !editorChat.busy
+                                    when: cardLoader.item !== null && model.kind !== "context_banner"
+                                }
+                            }
+
+                            Connections {
+                                target: cardLoader.item
+
+                                function onDeleteRequested(msgIndex) {
+                                    editorChat._handle_delete_turn(msgIndex)
+                                }
+
+                                function onRegenerateRequested(msgIndex) {
+                                    editorChat._handle_regenerate_from(msgIndex)
+                                }
                             }
                         }
                     }

@@ -32,7 +32,7 @@ knows the role layout, the `"{n} tk"` token format, and the collapsed/pending
 defaults. The QML side renders any item through `src/qml/cards/CardBase.qml`:
 
 ```
-header row (icon + title [+ mode badge] [+ subtitle]) ── token text ── collapse arrow
+header row (icon + title [+ mode badge] [+ subtitle]) ── reload/trash icons ── token text ── collapse arrow
   ─────────────────────────────── (divider)
 body (rich-text HTML) or KnightRiderSpinner while isPending```
 
@@ -64,7 +64,20 @@ cards, blue for thinking, amber for response). The body `TextEdit` uses
 `Theme.colors.textPrimary` otherwise, and opens clicked links with
 `Qt.openUrlExternally`. `ChatPanel.qml` binds each delegate
 from the `ChatListModel` roles (`kind`, `title`, `body_html`, `token_text`,
-`mode`, `is_pending`, `tool_name`, `sections`, `is_delta`).
+`mode`, `is_pending`, `tool_name`, `sections`, `is_delta`, `msg_index`).
+
+`CardBase` carries two header actions driven by `msgIndex` (the source message
+index, `-1` for derived cards): a delete icon on every message card (`✖`
+`U+2716`) removes the turn containing that card, and a reload icon (`⟳`
+`U+27F3`) on user cards regenerates from that message. Both are rendered by the
+shared `CardActionIcon.qml` component (`src/qml/components/`) as a monospace
+glyph with the project's hover/colour contract and emit `deleteRequested` /
+`regenerateRequested`, which the panel delegates forward to
+[`ChatController`](qt-chat-controller.md). The glyphs come from the bundled
+Sarasa Fixed TC font because the project ships no icon font or SVG icon set. The
+header's collapse `MouseArea` is declared before the row so the icons sit on top
+and consume their clicks; `actionsEnabled` (bound to the panel's busy flag) makes
+them inert while a generation runs.
 
 The collapsible body height in `CardBase.qml` is only animated when the user
 clicks the header (`bodyHost.animateBody` gates the `Behavior`); creation and
@@ -156,8 +169,8 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `make_item(kind, *, title="", body_html="", token_text="", collapsed=False, is_pending=False, mode="", tool_name="", tool_call_id="", sections="", is_delta=False) -> dict[int, object]` | `kind` — `KIND_*`; `title`/`body_html`/`token_text` — header and body; `collapsed`/`is_pending` — defaults; `mode`/`tool_name`/`tool_call_id`/`sections`/`is_delta` — tool and banner fields | role-keyed dict (`int(ChatRole.*)` → value) | Maps every argument onto its `ChatRole` key | None |
-| `_card_item(kind, *, title, body_html="", token_count=0, is_pending=False, mode="", tool_name="", tool_call_id="") -> dict[int, object]` | Card fields with a raw `token_count` | role-keyed dict | Calls `make_item` with `token_text=_token_text(token_count)` | None |
+| `make_item(kind, *, title="", body_html="", token_text="", collapsed=False, is_pending=False, mode="", tool_name="", tool_call_id="", sections="", is_delta=False, msg_index=-1) -> dict[int, object]` | `kind` — `KIND_*`; `title`/`body_html`/`token_text` — header and body; `collapsed`/`is_pending` — defaults; `mode`/`tool_name`/`tool_call_id`/`sections`/`is_delta` — tool and banner fields; `msg_index` — source message index | role-keyed dict (`int(ChatRole.*)` → value) | Maps every argument onto its `ChatRole` key | None |
+| `_card_item(kind, *, title, body_html="", token_count=0, is_pending=False, mode="", tool_name="", tool_call_id="", collapsed=False, msg_index=-1) -> dict[int, object]` | Card fields with a raw `token_count`; `msg_index` | role-keyed dict | Calls `make_item` with `token_text=_token_text(token_count)` | None |
 | `_token_text(token_count: int) -> str` | `token_count` | `"42 tk"` | f-string format | None |
 | `_plain_body(text: str) -> str` | `text` | escaped `<pre>` block | Normalise CR/CRLF → LF, then `html.escape` into `<pre style="white-space:pre-wrap;margin:0;font-family:…;line-height:125%">` | None |
 | `thinking_body(text: str) -> str` | `text` — raw thinking | escaped `<pre>` block | Named wrapper over `_plain_body`; thinking never runs Markdown | None |
@@ -166,16 +179,16 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `build_user_item(text: str, *, collapsed=False) -> dict[int, object]` | `text`; `collapsed` | role-keyed dict | `_card_item(KIND_USER, title="User", body_html=_plain_body(text))` | None |
+| `build_user_item(text: str, *, collapsed=False, msg_index=-1) -> dict[int, object]` | `text`; `collapsed`; `msg_index` | role-keyed dict | `_card_item(KIND_USER, title="User", body_html=_plain_body(text))` | None |
 | `build_waiting_item() -> dict[int, object]` | — | role-keyed dict | `make_item(KIND_WAITING, is_pending=True)` — empty title/token/body | None |
-| `build_thinking_item(text: str, *, token_count=0, collapsed=False) -> dict[int, object]` | `text`; `token_count`; `collapsed` | role-keyed dict | Body = `thinking_body(text)` (escaped plain text), title "Thinking" | None |
-| `build_thinking_pending_item(text="", *, token_count=0) -> dict[int, object]` | `text` — partial streamed content; `token_count` | role-keyed dict | Body = `thinking_body(text)`, title "Thinking", `is_pending=True` | None |
-| `build_response_item(text: str, *, token_count=0, collapsed=False) -> dict[int, object]` | `text`; `token_count`; `collapsed` | role-keyed dict | Body = `render_markdown(text)`, title "Response" | None |
-| `build_response_pending_item(text="", *, token_count=0) -> dict[int, object]` | `text` — partial streamed content; `token_count` | role-keyed dict | Body = `render_markdown(text)`, title "Response", `is_pending=True` | None |
-| `build_tool_call_item(entry: dict, *, token_count=0, collapsed=False) -> dict[int, object]` | `entry` — `{name, mode, arguments}`; `collapsed` | role-keyed dict | `_to_yaml_string` → `highlight_yaml_html`; stores `mode` + `tool_name` | None |
-| `build_tool_call_pending_item(name: str, mode: str, token_count=0) -> dict[int, object]` | `name`; `mode`; `token_count` | role-keyed dict | `is_pending=True`, keeps `mode`/`tool_name` | None |
-| `build_tool_result_item(name: str, content: str, *, token_count=0, collapsed=False) -> dict[int, object]` | `name`; `content`; `token_count`; `collapsed` | role-keyed dict | Body = `_plain_body(content)`, stores `tool_name` | None |
-| `build_tool_result_pending_item(name: str, tool_call_id="", token_count=0) -> dict[int, object]` | `name`; `tool_call_id`; `token_count` | role-keyed dict | `is_pending=True`, stores `tool_call_id` for later swap | None |
+| `build_thinking_item(text: str, *, token_count=0, collapsed=False, msg_index=-1) -> dict[int, object]` | `text`; `token_count`; `collapsed`; `msg_index` | role-keyed dict | Body = `thinking_body(text)` (escaped plain text), title "Thinking" | None |
+| `build_thinking_pending_item(text="", *, token_count=0, msg_index=-1) -> dict[int, object]` | `text` — partial streamed content; `token_count`; `msg_index` | role-keyed dict | Body = `thinking_body(text)`, title "Thinking", `is_pending=True` | None |
+| `build_response_item(text: str, *, token_count=0, collapsed=False, msg_index=-1) -> dict[int, object]` | `text`; `token_count`; `collapsed`; `msg_index` | role-keyed dict | Body = `render_markdown(text)`, title "Response" | None |
+| `build_response_pending_item(text="", *, token_count=0, msg_index=-1) -> dict[int, object]` | `text` — partial streamed content; `token_count`; `msg_index` | role-keyed dict | Body = `render_markdown(text)`, title "Response", `is_pending=True` | None |
+| `build_tool_call_item(entry: dict, *, token_count=0, collapsed=False, msg_index=-1) -> dict[int, object]` | `entry` — `{name, mode, arguments}`; `collapsed`; `msg_index` | role-keyed dict | `_to_yaml_string` → `highlight_yaml_html`; stores `mode` + `tool_name` | None |
+| `build_tool_call_pending_item(name: str, mode: str, token_count=0, msg_index=-1) -> dict[int, object]` | `name`; `mode`; `token_count`; `msg_index` | role-keyed dict | `is_pending=True`, keeps `mode`/`tool_name` | None |
+| `build_tool_result_item(name: str, content: str, *, token_count=0, collapsed=False, msg_index=-1) -> dict[int, object]` | `name`; `content`; `token_count`; `collapsed`; `msg_index` | role-keyed dict | Body = `_plain_body(content)`, stores `tool_name` | None |
+| `build_tool_result_pending_item(name: str, tool_call_id="", token_count=0) -> dict[int, object]` | `name`; `tool_call_id`; `token_count` | role-keyed dict | `is_pending=True`, stores `tool_call_id` for later swap; no `msg_index` (result message not yet created) | None |
 
 ### Tool-argument parsing and YAML formatting
 

@@ -26,6 +26,14 @@ Rectangle {
     // (used by the headerless waiting placeholder).
     property bool headerVisible: true
     property string iconGlyph: ""
+    // Index of the source message in chat.messages, bound from the model. Drives
+    // the delete/regenerate card actions; -1 means no message (derived cards).
+    property int msgIndex: -1
+    // False while the chat is generating, so the card actions are inert.
+    property bool actionsEnabled: true
+
+    signal deleteRequested(int msgIndex)
+    signal regenerateRequested(int msgIndex)
     // Vertical breathing room applied by the ChatPanel delegate outside the card
     // border; UserCard overrides both to 24 px.
     property int padTop: 8
@@ -72,6 +80,17 @@ Rectangle {
             visible: card.headerVisible
             implicitHeight: headerRow.implicitHeight + 8
             color: "transparent"
+
+            // Declared before the row so the icons (declared later) sit on top
+            // and consume their clicks; clicks on plain header text fall through.
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    bodyHost.animateBody = true
+                    card.bodyCollapsed = !card.bodyCollapsed
+                }
+            }
 
             RowLayout {
                 id: headerRow
@@ -125,6 +144,22 @@ Rectangle {
 
                 Item { Layout.fillWidth: true }
 
+                CardActionIcon {
+                    glyph: "\u27f3"
+                    visible: card.kind === "user"
+                    enabled: card.actionsEnabled
+                    Layout.alignment: Qt.AlignVCenter
+                    onClicked: card.regenerateRequested(card.msgIndex)
+                }
+
+                CardActionIcon {
+                    glyph: "\u2716"
+                    visible: card.msgIndex >= 0
+                    enabled: card.actionsEnabled
+                    Layout.alignment: Qt.AlignVCenter
+                    onClicked: card.deleteRequested(card.msgIndex)
+                }
+
                 Text {
                     visible: card.tokenText !== ""
                     text: card.tokenText
@@ -147,15 +182,6 @@ Rectangle {
                 anchors.bottom: parent.bottom
                 height: 1
                 color: Theme.colors.cardHeaderDivider
-            }
-
-            MouseArea {
-                anchors.fill: parent
-                cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                    bodyHost.animateBody = true
-                    card.bodyCollapsed = !card.bodyCollapsed
-                }
             }
         }
 

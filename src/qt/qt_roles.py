@@ -42,6 +42,7 @@ class ChatRole(IntEnum):
     TOOL_CALL_ID = 9
     SECTIONS = 10
     IS_DELTA = 11
+    MSG_INDEX = 12
 
 
 class SkillRole(IntEnum):

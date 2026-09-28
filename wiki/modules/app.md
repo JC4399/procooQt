@@ -20,6 +20,9 @@ QML UI on a fused `qasync` + Qt event loop.
   window, title-bar, and taskbar icon.
 - `main()` — Qt entry point that builds the `QApplication`, `qasync` event
   loop, and `QQmlApplicationEngine`, then loads `src/qml/Main.qml`.
+- Native frame installation for the frameless main window via
+  [`qt-native-frame`](qt-native-frame.md) (`native_frame.install`), restoring
+  edge resize and Aero Snap while keeping the custom QML title bar.
 
 ## Steps / Flow
 
@@ -32,7 +35,10 @@ QML UI on a fused `qasync` + Qt event loop.
 4. Create `qasync.QEventLoop(qt_app)` and `asyncio.set_event_loop(loop)`.
 5. Build `QQmlApplicationEngine()` → `ProcooQtUI(backend, engine)`; load
    `src/qml/Main.qml`; exit if the engine produced no root objects.
-6. `ui.start()`; then `loop.run_forever()`.
+6. Install the frameless-window native frame filter on the loaded root window
+   (`native_frame.install(qt_app, root_window)`), keeping the returned filter
+   referenced; see [`qt-native-frame`](qt-native-frame.md).
+7. `ui.start()`; then `loop.run_forever()`.
 
 ## Function Reference
 
@@ -91,4 +97,4 @@ QML UI on a fused `qasync` + Qt event loop.
 |---|---|
 | Signature | `def main() -> None` |
 | Output | `None` |
-| Flow | logging + AppUserModelID → backend → `QApplication` + app icon → qasync loop → QML engine + `ProcooQtUI` → load `Main.qml` → `ui.start()` → `loop.run_forever()`. |
+| Flow | logging + AppUserModelID → backend → `QApplication` + app icon → qasync loop → QML engine + `ProcooQtUI` → load `Main.qml` → `native_frame.install(qt_app, root_window)` → `ui.start()` → `loop.run_forever()`. |

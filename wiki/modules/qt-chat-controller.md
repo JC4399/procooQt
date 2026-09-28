@@ -33,6 +33,9 @@ the sidebar refresh is debounced and offloaded.
 - The `_PlanBuilder`, `_StagedBuildState` and `_RenderIndices` dataclasses.
 - Tool approval via `asyncio.Event`, stop/regenerate, and automatic chat
   compaction.
+- Per-card history editing: `_handle_delete_turn_for` removes the turn a card
+  belongs to; `_handle_regenerate_from_for` truncates from a user card and
+  regenerates.
 - `chat_state_changed(chat_id)` — emitted whenever a chat's runtime state
   changes so `SessionController.refresh_chat_panels` can update its panel.
 
@@ -126,10 +129,13 @@ re-reading the chat file), then `_build_plan` produces `(keys, items, indices)`
 in a single pass. `_PlanBuilder.emit` looks each key up in the chat state's
 `item_cache`, so only messages whose content actually changed are re-rendered;
 streaming entries are marked `cacheable=False` because their keys change each
-tick. Messages older than `_COLLAPSE_OLDER_THAN` (12) are built with
-`collapsed=True` and a `:c` key suffix, so they start collapsed in QML (their
-rich text is never laid out) and ageing a message out rebuilds it once. The plan
-does not mutate Qt models, so it is safe on a worker thread.
+tick. Every message-derived key embeds the message index (`u:{i}:…`, `t:{i}:…`,
+`r:{i}:…`, `c:{i}:…`, `tr:{i}:…`) and the item carries the matching `msg_index`
+role, so the card actions always target the right message and a matched row can
+never retain a stale index. Messages older than `_COLLAPSE_OLDER_THAN` (12) are
+built with `collapsed=True` and a `:c` key suffix, so they start collapsed in QML
+(their rich text is never laid out) and ageing a message out rebuilds it once.
+The plan does not mutate Qt models, so it is safe on a worker thread.
 
 `_rebuild_chat_display(chat_id)` applies the plan synchronously; after a panel
 switch `_rebuild_chat_display_staged(chat_id)` builds it behind the loading
@@ -180,6 +186,32 @@ call `chat.approve_tool` / `chat.deny_tool` and `set()` the event.
 - `_handle_approve_for(chat_id)` → `_approve`; `_handle_deny_for(chat_id, reason)`
   → `_deny`.
 
+### Delete turn / regenerate from a card
+
+Every rendered card carries the `msg_index` of the message it was built from (in
+the item and in its render key, so a matched row can never keep a stale index;
+`-1` for derived cards). Card actions from `CardBase.qml` route here:
+
+- `_handle_delete_turn_for(chat_id, msg_index)` → `_delete_turn` (synchronous):
+  rejects a busy chat, then resolves the live `Agent` messages (mutated in place,
+  `_current_assistant_msg` reset) or the stored messages when the chat is not
+  hydrated. `_round_bounds` returns the `[start, end)` of the turn: it walks back
+  to the nearest user message (over any immediately-preceding injected system
+  messages) and forward to the next user message, so the prompt, assistant reply,
+  tool calls, and tool results are removed together and the remaining history
+  stays LLM-valid. The truncated list is persisted (`_save_current_chat_for` for
+  a live chat, a direct store save otherwise), `state.item_cache` is cleared, and
+  the display and sidebar are rebuilt.
+- `_handle_regenerate_from_for(chat_id, msg_index)` → `_regenerate_from`
+  (async): rejects a busy chat or a non-user index, reads the message text via
+  `normalize_content`, writes `messages[:msg_index]` to the store, drops delta
+  banners, removes the live chat, clears the item cache, rebuilds, and calls
+  `_launch_generation(chat_id, text)` — discarding that user message and
+  everything after it before re-running the turn.
+
+Both actions are inert while the chat is busy (`actionsEnabled` in QML plus the
+controller guard), matching the `_handle_regenerate_for` behaviour.
+
 ### Compaction
 
 `_compact_chat(chat_id, chat)` checks `chat.check_limit_exceeded()`; toasts when
@@ -216,6 +248,8 @@ the per-card `tk` estimate, which is independent of the token bar.
 | `@Slot(str) def _handle_send(self, text)` | text | `None` | `_handle_send_for(active_chat_id, text)` | — |
 | `@Slot(str) def _handle_stop_for(self, chat_id)` | chat | `None` | `_spawn(_stop_generation(chat_id))` | — |
 | `@Slot(str) def _handle_regenerate_for(self, chat_id)` | chat | `None` | `_spawn(_regenerate(chat_id))` | — |
+| `@Slot(str, int) def _handle_delete_turn_for(self, chat_id, msg_index)` | chat, source message index | `None` | `_delete_turn(chat_id, msg_index)` | Busy guard + toast |
+| `@Slot(str, int) def _handle_regenerate_from_for(self, chat_id, msg_index)` | chat, source user index | `None` | `_spawn(_regenerate_from(chat_id, msg_index))` | Busy guard + toast |
 | `@Slot(str) def _handle_approve_for(self, chat_id)` | chat | `None` | `_spawn(_approve(chat_id))` | — |
 | `@Slot(str, str) def _handle_deny_for(self, chat_id, reason)` | chat, reason | `None` | `_spawn(_deny(chat_id, reason))` | — |
 | `@Slot(str) def _handle_chat_switch_started(self, chat_id)` | chat | `None` | `_cancel_staged_build()` → `_set_loading(chat_id, True)` | Shows the overlay at the user action |
@@ -231,6 +265,8 @@ the per-card `tk` estimate, which is independent of the token bar.
 | `async def _approve(self, chat_id)` | chat | `None` | `approve_tool` → set event → emit state | Releases approval |
 | `async def _deny(self, chat_id, reason)` | chat, reason | `None` | `deny_tool` → set event → emit state | Releases approval |
 | `async def _regenerate(self, chat_id)` | chat | `None` | find last user → trim → drop deltas → remove live → rebuild → `_launch_generation` | Error toasts |
+| `def _delete_turn(self, chat_id, msg_index)` | chat, source message index | `None` | guard busy → live/stored messages → `_round_bounds` → delete range → persist → clear cache → rebuild → refresh sidebar | Mutates messages; error toasts |
+| `async def _regenerate_from(self, chat_id, msg_index)` | chat, source user index | `None` | guard busy/non-user → read text → store `messages[:msg_index]` → drop deltas → remove live → rebuild → `_launch_generation` | Writes store; error toasts |
 | `def _find_last_user_message(self, chat_id)` | chat | Last user text | live → stored messages | — |
 | `def _trim_stored_chat(self, chat_id)` | chat | `None` | pop trailing non-user then user → save | Writes store |
 | `async def _handle_approval(self, chat_id, event, state)` | chat, tool_call event, state | `None` | set event/pending → emit → await → clear | Blocks loop |
@@ -243,7 +279,7 @@ the per-card `tk` estimate, which is independent of the token bar.
 | `def _rebuild_chat_display(self, chat_id)` | chat | `None` | skip staged → plan → indices → `diff_update` → keys → tokens | Mutates model/state |
 | `async def _rebuild_chat_display_staged(self, chat_id)` | chat | `None` | off-thread plan → indices → `_StagedBuildState` → batched inserts | Aborts on cancel/visibility change |
 | `def _skip_staged_build(self)` / `def _cancel_staged_build(self)` | — | `None` | flush / drop the staged build | — |
-| `def _build_plan(self, state, messages, snapshot)` | state, messages, snapshot | `_PlanBuilder` | banners → user/assistant/tool → trailing `w:pending`, each item memoized by key; messages older than `_COLLAPSE_OLDER_THAN` get `collapsed=True` + `:c` key suffix | Populates `state.item_cache` |
+| `def _build_plan(self, state, messages, snapshot)` | state, messages, snapshot | `_PlanBuilder` | banners → user/assistant/tool → trailing `w:pending`, each item memoized by key with its message index embedded (`u:{i}:…` etc.) and set as the `msg_index` role; messages older than `_COLLAPSE_OLDER_THAN` get `collapsed=True` + `:c` key suffix | Populates `state.item_cache` |
 | `def _build_assistant_plan(self, builder, msg, messages, idx, is_last_busy, collapsed)` | builder, message, messages, index, busy, collapsed | `None` | completed assistant: thinking/response/tool-call items | Emits cacheable items |
 | `def _build_streaming_assistant_plan(self, builder, msg, d, messages, idx)` | builder, message, decision, messages, index | `None` | busy assistant: pending/completed cards, records indices | Emits non-cacheable items |
 | `def _append_user_message(self, chat_id, text)` | chat, text | `None` | `append_item(user item, key)` | Inserts a row |
@@ -265,6 +301,7 @@ the per-card `tk` estimate, which is independent of the token bar.
 | `def _assistant_decision(msg: dict) -> dict` | assistant message | Decision dict | Thinking/response/tool-call state |
 | `def _is_waiting_for_assistant(state: ChatState, messages) -> bool` | state, messages | Bool | Busy with no assistant content yet |
 | `def _count_trailing_tool_results(messages, after_idx) -> int` | messages, index | Count | Consecutive `role == "tool"` messages |
+| `def _round_bounds(messages, msg_index) -> tuple[int, int]` | messages, source index | `(start, end)` | Half-open turn range: back to nearest user message (over preceding system messages), forward to next user message |
 | `def _accumulate_tokens(text, previous, current) -> int` | text, counted prefix, count | Updated count | Counts the appended suffix only |
 
 `_PlanBuilder` (class) accumulates keys/items/indices and owns the

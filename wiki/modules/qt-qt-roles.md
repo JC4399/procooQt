@@ -60,6 +60,7 @@ enum into the `{role id: bytes}` mapping Qt expects.
 | `TOOL_CALL_ID` | 9 | Tool-call id (links call to result) |
 | `SECTIONS` | 10 | Structured body sections |
 | `IS_DELTA` | 11 | `True` for an incremental append |
+| `MSG_INDEX` | 12 | Index of the source message in `chat.messages` (`-1` for derived cards); drives the card delete/regenerate actions |
 
 ### `SkillRole` — `SkillTreeModel`
 

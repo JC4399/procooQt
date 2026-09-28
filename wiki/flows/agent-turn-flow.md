@@ -115,6 +115,26 @@ its disk scan runs off the GUI thread via
 5. `_parse_tool_media` detects a `_media: true` JSON result → images are
    injected as a multimodal user message (`_inject_media_user_message`).
 
+## History editing (delete turn / regenerate from a card)
+
+Card headers carry two actions (`CardBase.qml`, disabled while the chat is busy)
+that edit `chat.messages` and rebuild:
+
+- **Delete turn** — the trash icon on any card routes to
+  `ChatController._handle_delete_turn_for(chat_id, msg_index)` →
+  `_delete_turn`. `_round_bounds` expands `msg_index` to the whole turn (back to
+  the nearest user message, over any injected system messages; forward to the
+  next user message), so the prompt, assistant reply, tool calls, and tool
+  results are removed together and the history stays LLM-valid. The live
+  `Agent.messages` list is mutated in place (the cached item cache is cleared,
+  `_current_assistant_msg` reset) or the stored record is rewritten when the chat
+  is not hydrated; then `_rebuild_chat_display` + `_refresh_sidebar`.
+- **Regenerate from a user card** — the reload icon routes to
+  `ChatController._handle_regenerate_from_for(chat_id, msg_index)` →
+  `_regenerate_from`: discard `messages[msg_index:]`, persist the prefix, drop
+  delta banners, drop the live chat, rebuild, then `_launch_generation` re-sends
+  that user message (the same truncate-and-relaunch path as `_regenerate`).
+
 ## Compaction handoff
 
 After `_finalize_turn`, if `chat.check_limit_exceeded()` reports a breach,

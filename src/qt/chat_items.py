@@ -50,6 +50,7 @@ def make_item(
     tool_call_id: str = "",
     sections: str = "",
     is_delta: bool = False,
+    msg_index: int = -1,
 ) -> dict[int, object]:
     """Build a chat item keyed by :class:`ChatRole`.
 
@@ -65,6 +66,9 @@ def make_item(
         tool_call_id: Tool-call id for result cards.
         sections: JSON-encoded section list for context banners.
         is_delta: Whether a context banner uses the delta colour scheme.
+        msg_index: Index of the source message in ``chat.messages``, or ``-1``
+            for derived items (context banners, pending results). Used by the
+            delete/regenerate card actions.
 
     Returns:
         A role-keyed chat item dictionary.
@@ -81,6 +85,7 @@ def make_item(
         int(ChatRole.TOOL_CALL_ID): tool_call_id,
         int(ChatRole.SECTIONS): sections,
         int(ChatRole.IS_DELTA): is_delta,
+        int(ChatRole.MSG_INDEX): msg_index,
     }
 
 
@@ -112,6 +117,7 @@ def _card_item(
     tool_name: str = "",
     tool_call_id: str = "",
     collapsed: bool = False,
+    msg_index: int = -1,
 ) -> dict[int, object]:
     """Build one card item with the shared header/token/pending defaults.
 
@@ -126,6 +132,7 @@ def _card_item(
         tool_call_id: Tool-call id for result cards.
         collapsed: Whether the body starts collapsed (older cards collapse so
             their rich text is not laid out or rendered).
+        msg_index: Index of the source message in ``chat.messages``, or ``-1``.
 
     Returns:
         A role-keyed chat item dictionary.
@@ -140,6 +147,7 @@ def _card_item(
         tool_name=tool_name,
         tool_call_id=tool_call_id,
         collapsed=collapsed,
+        msg_index=msg_index,
     )
 
 
@@ -182,17 +190,26 @@ def thinking_body(text: str) -> str:
 # ------------------------------------------------------------------
 
 
-def build_user_item(text: str, *, collapsed: bool = False) -> dict[int, object]:
+def build_user_item(
+    text: str, *, collapsed: bool = False, msg_index: int = -1
+) -> dict[int, object]:
     """Build a user message card item.
 
     Args:
         text: User message text.
         collapsed: Whether the body starts collapsed.
+        msg_index: Index of the user message in ``chat.messages``.
 
     Returns:
         A role-keyed chat item dictionary.
     """
-    return _card_item(KIND_USER, title="User", body_html=_plain_body(text), collapsed=collapsed)
+    return _card_item(
+        KIND_USER,
+        title="User",
+        body_html=_plain_body(text),
+        collapsed=collapsed,
+        msg_index=msg_index,
+    )
 
 
 # ------------------------------------------------------------------
@@ -221,7 +238,7 @@ def build_waiting_item() -> dict[int, object]:
 
 
 def build_thinking_item(
-    text: str, *, token_count: int = 0, collapsed: bool = False
+    text: str, *, token_count: int = 0, collapsed: bool = False, msg_index: int = -1
 ) -> dict[int, object]:
     """Build a completed thinking card item.
 
@@ -229,6 +246,7 @@ def build_thinking_item(
         text: Thinking content.
         token_count: Token count displayed in the header.
         collapsed: Whether the body starts collapsed.
+        msg_index: Index of the source assistant message in ``chat.messages``.
 
     Returns:
         A role-keyed chat item dictionary.
@@ -239,10 +257,13 @@ def build_thinking_item(
         body_html=thinking_body(text),
         token_count=token_count,
         collapsed=collapsed,
+        msg_index=msg_index,
     )
 
 
-def build_thinking_pending_item(text: str = "", *, token_count: int = 0) -> dict[int, object]:
+def build_thinking_pending_item(
+    text: str = "", *, token_count: int = 0, msg_index: int = -1
+) -> dict[int, object]:
     """Build a pending (streaming) thinking card item.
 
     The body is rendered from the partial text so the card streams live; it stays
@@ -252,6 +273,7 @@ def build_thinking_pending_item(text: str = "", *, token_count: int = 0) -> dict
     Args:
         text: Partial thinking content to render as the streaming body.
         token_count: Initial token count displayed in the header.
+        msg_index: Index of the source assistant message in ``chat.messages``.
 
     Returns:
         A role-keyed chat item dictionary.
@@ -262,6 +284,7 @@ def build_thinking_pending_item(text: str = "", *, token_count: int = 0) -> dict
         body_html=thinking_body(text),
         token_count=token_count,
         is_pending=True,
+        msg_index=msg_index,
     )
 
 
@@ -271,7 +294,7 @@ def build_thinking_pending_item(text: str = "", *, token_count: int = 0) -> dict
 
 
 def build_response_item(
-    text: str, *, token_count: int = 0, collapsed: bool = False
+    text: str, *, token_count: int = 0, collapsed: bool = False, msg_index: int = -1
 ) -> dict[int, object]:
     """Build a completed assistant response card item.
 
@@ -279,6 +302,7 @@ def build_response_item(
         text: Response content in markdown.
         token_count: Token count displayed in the header.
         collapsed: Whether the body starts collapsed.
+        msg_index: Index of the source assistant message in ``chat.messages``.
 
     Returns:
         A role-keyed chat item dictionary.
@@ -289,10 +313,13 @@ def build_response_item(
         body_html=render_markdown(text),
         token_count=token_count,
         collapsed=collapsed,
+        msg_index=msg_index,
     )
 
 
-def build_response_pending_item(text: str = "", *, token_count: int = 0) -> dict[int, object]:
+def build_response_pending_item(
+    text: str = "", *, token_count: int = 0, msg_index: int = -1
+) -> dict[int, object]:
     """Build a pending (streaming) assistant response card item.
 
     The body is rendered from the partial text so the card streams live; it stays
@@ -302,6 +329,7 @@ def build_response_pending_item(text: str = "", *, token_count: int = 0) -> dict
     Args:
         text: Partial response content to render as the streaming body.
         token_count: Initial token count displayed in the header.
+        msg_index: Index of the source assistant message in ``chat.messages``.
 
     Returns:
         A role-keyed chat item dictionary.
@@ -312,6 +340,7 @@ def build_response_pending_item(text: str = "", *, token_count: int = 0) -> dict
         body_html=render_markdown(text),
         token_count=token_count,
         is_pending=True,
+        msg_index=msg_index,
     )
 
 
@@ -460,7 +489,7 @@ def _to_yaml_string(entry: dict) -> str:
 
 
 def build_tool_call_item(
-    entry: dict, *, token_count: int = 0, collapsed: bool = False
+    entry: dict, *, token_count: int = 0, collapsed: bool = False, msg_index: int = -1
 ) -> dict[int, object]:
     """Build a finalized tool call card item.
 
@@ -468,6 +497,7 @@ def build_tool_call_item(
         entry: Tool call entry with ``name``, ``mode``, ``arguments`` keys.
         token_count: Token count displayed in the header.
         collapsed: Whether the body starts collapsed.
+        msg_index: Index of the source assistant message in ``chat.messages``.
 
     Returns:
         A role-keyed chat item dictionary.
@@ -485,16 +515,20 @@ def build_tool_call_item(
         mode=mode,
         tool_name=name,
         collapsed=collapsed,
+        msg_index=msg_index,
     )
 
 
-def build_tool_call_pending_item(name: str, mode: str, token_count: int = 0) -> dict[int, object]:
+def build_tool_call_pending_item(
+    name: str, mode: str, token_count: int = 0, msg_index: int = -1
+) -> dict[int, object]:
     """Build a pending tool call card item.
 
     Args:
         name: Tool name.
         mode: Tool permission mode (``"allow"``, ``"ask"``, ``"block"``).
         token_count: Initial argument token count displayed in the header.
+        msg_index: Index of the source assistant message in ``chat.messages``.
 
     Returns:
         A role-keyed chat item dictionary.
@@ -506,6 +540,7 @@ def build_tool_call_pending_item(name: str, mode: str, token_count: int = 0) -> 
         is_pending=True,
         mode=mode,
         tool_name=name,
+        msg_index=msg_index,
     )
 
 
@@ -515,7 +550,7 @@ def build_tool_call_pending_item(name: str, mode: str, token_count: int = 0) -> 
 
 
 def build_tool_result_item(
-    name: str, content: str, *, token_count: int = 0, collapsed: bool = False
+    name: str, content: str, *, token_count: int = 0, collapsed: bool = False, msg_index: int = -1
 ) -> dict[int, object]:
     """Build a completed tool result card item.
 
@@ -524,6 +559,7 @@ def build_tool_result_item(
         content: Result content text.
         token_count: Token count displayed in the header.
         collapsed: Whether the body starts collapsed.
+        msg_index: Index of the source tool message in ``chat.messages``.
 
     Returns:
         A role-keyed chat item dictionary.
@@ -535,6 +571,7 @@ def build_tool_result_item(
         token_count=token_count,
         tool_name=name,
         collapsed=collapsed,
+        msg_index=msg_index,
     )
 
 
@@ -542,6 +579,9 @@ def build_tool_result_pending_item(
     name: str, tool_call_id: str = "", token_count: int = 0
 ) -> dict[int, object]:
     """Build a pending tool result card item.
+
+    The real result message does not exist yet, so the card carries no
+    ``msg_index`` and offers no delete action (actions are disabled while busy).
 
     Args:
         name: Tool name displayed in the header.

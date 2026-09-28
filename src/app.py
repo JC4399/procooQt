@@ -7,9 +7,10 @@ import ctypes
 import logging
 from pathlib import Path
 import sys
+from typing import cast
 
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QFontDatabase, QIcon
+from PySide6.QtGui import QFontDatabase, QIcon, QWindow
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuickControls2 import QQuickStyle
 from PySide6.QtWidgets import QApplication
@@ -19,6 +20,7 @@ from .automation.manager import AutomationManager
 from .chat.store import ChatStore
 from .config.manager import ConfigManager
 from .notification.manager import NotificationManager
+from .qt import native_frame
 from .qt.ui import ProcooQtUI
 from .skill.manager import SkillManager
 from .skill.preset import PresetStore
@@ -143,6 +145,9 @@ def main() -> None:
     if not engine.rootObjects():
         logger.critical("Failed to load QML: %s", main_qml)
         sys.exit(1)
+
+    root_window = cast(QWindow, engine.rootObjects()[0])
+    _native_frame = native_frame.install(qt_app, root_window)
 
     ui.start()
     logger.info("Procoo Qt started (ui=%s)", type(ui).__name__)

@@ -206,6 +206,26 @@ class EditorChatController(QObject):
         self.chat._handle_regenerate_for(self._chat_id)
         self._refresh()
 
+    @Slot(int)
+    def _handle_delete_turn(self, msg_index: int) -> None:
+        """Delete the editor chat turn containing a card.
+
+        Args:
+            msg_index: Index of the source message in the editor chat history.
+        """
+        self.chat._handle_delete_turn_for(self._chat_id, msg_index)
+        self._refresh()
+
+    @Slot(int)
+    def _handle_regenerate_from(self, msg_index: int) -> None:
+        """Regenerate the editor chat from a specific user card.
+
+        Args:
+            msg_index: Index of the source user message in the editor chat.
+        """
+        self.chat._handle_regenerate_from_for(self._chat_id, msg_index)
+        self._refresh()
+
     @Slot()
     def _handle_clear(self) -> None:
         """Discard the editor conversation and start fresh."""
