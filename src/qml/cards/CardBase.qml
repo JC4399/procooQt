@@ -145,7 +145,7 @@ Rectangle {
                 Item { Layout.fillWidth: true }
 
                 CardActionIcon {
-                    glyph: "\u27f3"
+                    glyph: "\uf021"
                     visible: card.kind === "user"
                     enabled: card.actionsEnabled
                     Layout.alignment: Qt.AlignVCenter
@@ -153,7 +153,7 @@ Rectangle {
                 }
 
                 CardActionIcon {
-                    glyph: "\u2716"
+                    glyph: "\uf1f8"
                     visible: card.msgIndex >= 0
                     enabled: card.actionsEnabled
                     Layout.alignment: Qt.AlignVCenter

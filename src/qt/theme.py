@@ -256,7 +256,7 @@ FONT_SIZE_LATEX = 14
 #: percentage of the font size.
 LINE_HEIGHT_BODY = "125%"
 
-FONT_MONO = "Sarasa Fixed TC"
+FONT_MONO = "Sarasa Fixed TC Nerd Font"
 FONT_SIZE_BODY = 12
 FONT_SIZE_LABEL_SMALL = 12
 FONT_SIZE_TITLE_SMALL = 16

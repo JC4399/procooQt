@@ -67,14 +67,16 @@ from the `ChatListModel` roles (`kind`, `title`, `body_html`, `token_text`,
 `mode`, `is_pending`, `tool_name`, `sections`, `is_delta`, `msg_index`).
 
 `CardBase` carries two header actions driven by `msgIndex` (the source message
-index, `-1` for derived cards): a delete icon on every message card (`✖`
-`U+2716`) removes the turn containing that card, and a reload icon (`⟳`
-`U+27F3`) on user cards regenerates from that message. Both are rendered by the
-shared `CardActionIcon.qml` component (`src/qml/components/`) as a monospace
-glyph with the project's hover/colour contract and emit `deleteRequested` /
-`regenerateRequested`, which the panel delegates forward to
-[`ChatController`](qt-chat-controller.md). The glyphs come from the bundled
-Sarasa Fixed TC font because the project ships no icon font or SVG icon set. The
+index, `-1` for derived cards): a delete icon on every message card
+(`fa-trash` `U+F1F8`) removes the turn containing that card, and a reload icon
+(`fa-refresh` `U+F021`) on user cards regenerates from that message. Both are
+rendered by the shared `CardActionIcon.qml` component (`src/qml/components/`) as
+a monospace glyph with the project's hover/colour contract and emit
+`deleteRequested` / `regenerateRequested`, which the panel delegates forward to
+[`ChatController`](qt-chat-controller.md). The glyphs are Font Awesome
+codepoints supplied by the bundled **Sarasa Fixed TC Nerd Font** (registered by
+[`app._register_fonts`](app.md) and named by `Theme.fontMono`); the Nerd Font is a
+superset of the plain Sarasa Fixed TC, so ordinary text is unchanged. The
 header's collapse `MouseArea` is declared before the row so the icons sit on top
 and consume their clicks; `actionsEnabled` (bound to the panel's busy flag) makes
 them inert while a generation runs.
@@ -144,7 +146,7 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 
 1. **User / tool result / thinking** — `_plain_body` normalises CR/CRLF
    newlines to LF, escapes the text with `html.escape`, and wraps it in
-   `<pre style="white-space:pre-wrap;margin:0;font-family:Sarasa Fixed TC;line-height:125%">`
+   `<pre style="white-space:pre-wrap;margin:0;font-family:Sarasa Fixed TC Nerd Font;line-height:125%">`
    (the `font-family` keeps Qt's `<pre>` from substituting its system monospace
    font, matching `Theme.fontMono`; `line-height` comes from
    `Theme.LINE_HEIGHT_BODY` so plain text matches markdown leading). The LF

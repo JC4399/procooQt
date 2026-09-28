@@ -83,13 +83,28 @@ class ProcooApp:
 
 
 def _register_fonts() -> None:
-    """Register the bundled monospace font with Qt."""
-    font_path = _PROJECT_ROOT / "assets" / "fonts" / "SarasaFixedTC-Regular.ttf"
-    if font_path.is_file():
-        QFontDatabase.addApplicationFont(str(font_path))
-        logger.info("Registered font: %s", font_path.name)
-    else:
+    """Register the bundled Nerd Font monospace (text + icon glyphs) with Qt.
+
+    The family name Qt reports depends on the platform plugin (Windows uses
+    ``"Sarasa Fixed TC Nerd Font"``), so the resolved family is logged and
+    checked against ``Theme.fontMono``; a mismatch would silently fall back to a
+    proportional system font.
+    """
+    from .qt.theme import FONT_MONO
+
+    font_path = _PROJECT_ROOT / "assets" / "fonts" / "sarasa-fixed-tc-regular-nerd-font.ttf"
+    if not font_path.is_file():
         logger.warning("Font not found: %s", font_path)
+        return
+    font_id = QFontDatabase.addApplicationFont(str(font_path))
+    families = QFontDatabase.applicationFontFamilies(font_id) if font_id != -1 else []
+    logger.info("Registered font: %s -> %s", font_path.name, families)
+    if FONT_MONO not in families:
+        logger.warning(
+            "Font family mismatch: Theme.fontMono=%r not in %s; text will fall back",
+            FONT_MONO,
+            families,
+        )
 
 
 def _set_app_user_model_id() -> None:

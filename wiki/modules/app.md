@@ -13,7 +13,8 @@ QML UI on a fused `qasync` + Qt event loop.
 - `ProcooApp` instance holding `config`, `skill_manager`, `chat_store`,
   `preset_store`, `capabilities_dir`, `automation_manager`, and
   `notification_manager`.
-- `_register_fonts()` — registers the bundled `Sarasa Fixed TC` font.
+- `_register_fonts()` — registers the bundled `Sarasa Fixed TC` Nerd Font
+  (monospace text plus Font Awesome icon glyphs).
 - `_set_app_user_model_id()` — sets a stable Windows AppUserModelID so the
   taskbar groups the app under its own icon instead of `python.exe`.
 - `_set_app_icon()` — applies `assets/logos/logo.png` as the application-wide
@@ -72,7 +73,7 @@ QML UI on a fused `qasync` + Qt event loop.
 |---|---|
 | Signature | `def _register_fonts() -> None` |
 | Output | `None` |
-| Flow | `QFontDatabase.addApplicationFont(assets/fonts/SarasaFixedTC-Regular.ttf)`; logs info, or warning if missing. |
+| Flow | `QFontDatabase.addApplicationFont(assets/fonts/sarasa-fixed-tc-regular-nerd-font.ttf)`; logs the resolved family and warns if it does not match `Theme.fontMono` (a mismatch falls back to a proportional system font), or if the file is missing. |
 
 ### `_set_app_user_model_id`
 

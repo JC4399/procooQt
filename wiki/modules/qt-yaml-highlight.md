@@ -21,7 +21,7 @@ string/number/boolean detection.
 2. Tokenize each line with `_tokenize_line`.
 3. Join the line fragments with `\n`.
 4. Wrap in
-   `<pre style="white-space:pre-wrap;margin:0;font-family:Sarasa Fixed TC;line-height:125%">…</pre>`
+   `<pre style="white-space:pre-wrap;margin:0;font-family:Sarasa Fixed TC Nerd Font;line-height:125%">…</pre>`
    (`pre-wrap` preserves indentation while still wrapping long values; the
    explicit family keeps Qt's system monospace out, and `line-height` uses
    `Theme.LINE_HEIGHT_BODY`).
