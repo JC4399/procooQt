@@ -15,6 +15,9 @@ Read rules (see [notification-lifecycle-flow](../flows/notification-lifecycle-fl
 - **info / error** — marked read only when the user presses **Confirm**.
 - **error** additionally offers **Debug**, which emits `edit_automation_requested`.
 
+The bell page shows **unread** notifications only; a read item disappears from
+the page (it stays in history).
+
 ## Deliverables
 
 - `NotificationListModel` for the page (`notification_model`) and history
@@ -65,7 +68,7 @@ Read rules (see [notification-lifecycle-flow](../flows/notification-lifecycle-fl
 | `@Slot() def _handle_view_history(self) -> None` | — | `None` | reset search + reload | Emits `history_changed` |
 | `@Slot(str) def _handle_history_search(self, text) -> None` | text | `None` | reset + reload | Emits `history_changed` |
 | `@Slot() def _handle_load_more(self) -> None` | — | `None` | append next page | Emits `history_changed` |
-| `_unread(kind)` / `_rebuild_page()` / `_reload_history()` | — | int / `None` | helpers | — |
+| `_unread(kind)` / `_rebuild_page()` / `_reload_history()` | — | int / `None` | helpers; page rebuild keeps unread only | — |
 
 ## See also
 

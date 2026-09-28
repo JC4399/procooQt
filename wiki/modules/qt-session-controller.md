@@ -62,11 +62,14 @@ split/move, persistence, and hydration. Every panel exposes a
 | `RUNNING` | Busy with a generation |
 | `WAITING` | Busy, awaiting tool approval |
 | `FINISHED` | Has messages, idle |
-| `ERROR` | Reserved error state |
+| `ERROR` | Last generation errored or was stopped by the user |
 
 `statusColor(status)` maps a status string to the matching `COLOR_CHAT_*`
 theme constant (default `COLOR_CHAT_EMPTY`); `ChatTabBar.qml` calls it to paint
-each tab's dot.
+each tab's dot. `_derive_chat_status` (off-thread enrichment) and
+`_chat_display_status` (immediate, disk-free) share `_status_from_state`, which
+maps a `ChatState` + message presence to `RUNNING`/`WAITING` (busy),
+`ERROR` (idle with `has_error`), else `FINISHED`/`EMPTY`.
 
 ## Steps / Flow
 
@@ -173,7 +176,9 @@ chats fall back to it.
 | `@Slot(str, result=str) def statusColor(self, status)` | status | Hex color | `_STATUS_COLORS.get(status, COLOR_CHAT_EMPTY)` | — |
 | `@Slot(str, result=str) def modelNameFor(self, chat_id)` | chat | Model name | `state.model_name` or the config default (in-memory) | May create a `ChatState` |
 | `@Slot(str, str) def _handle_model_changed(self, chat_id, model_name)` | chat, model | `None` | validate against `llm_models` → set `state.model_name` → persist → `Agent.set_model` if live → refresh panel | Writes store; toasts on unknown model |
-| `@Slot(str) def refresh_chat_panels(self, chat_id)` | chat | `None` | update the panel showing that chat's runtime values | Updates a `ChatPanelModel` |
+| `@Slot(str) def refresh_chat_panels(self, chat_id)` | chat | `None` | derive live status/blink → push `update_tab` to every panel owning the chat → `set_runtime` for the panel showing it | Updates `ChatPanelModel`/`ChatTabModel`; runs on every `chat_state_changed` |
+| `def _chat_display_status(self, chat_id)` | chat | `ChatStatus` | live `ChatState` + live agent messages (fallback enriched summary) → `_status_from_state` | Disk-free; GUI thread only |
+| `@staticmethod def _status_from_state(state, has_messages)` | state; message presence | `ChatStatus` | busy → `WAITING`/`RUNNING`; error → `ERROR`; else `FINISHED`/`EMPTY` | Pure |
 | `def _reconcile_panels(self, name)` | session | `None` | stored layout vs session chats → `_panels` | Saves layout |
 | `def _sync_panels(self)` | — | `None` | push layout + runtime into `ChatPanelModel`s; set visible chats | Emits `panels_changed`/`tabs_changed` |
 | `def _panel_runtime(self, chat_id)` | chat | 11-tuple | busy/approval/tokens/loading + primary/allow/ask/block counts + model name | Reads `ChatState`; tokens are the true `token_usage` values (no estimate) |
@@ -191,7 +196,7 @@ chats fall back to it.
 | `def _apply_summaries(self, enriched, sessions)` | summaries; session names | `None` | seed chat counts + model name + persisted true token counts → group by session → set menu model → emit → `_sync_panels` | GUI thread only |
 | `def _enrich_chat(self, stored, states) -> dict` | stored chat; states snapshot | Summary + `title`/`status`/`model_name` + counts + `true_input_tokens`/`true_output_cum` | derive title/status/counts/model/tokens from loaded data | No extra disk read |
 | `@staticmethod def _derive_chat_title(sess) -> str` | stored chat | Title | first user message (30 chars) else id[:15] | — |
-| `def _derive_chat_status(self, cid, stored, states) -> str` | id, stored, states | `ChatStatus` | busy → `WAITING`/`RUNNING`; else `EMPTY`/`FINISHED` | — |
+| `def _derive_chat_status(self, cid, stored, states) -> str` | id, stored, states | `ChatStatus` | `has_messages` from stored → `_status_from_state` | — |
 | `@staticmethod def _build_context_snapshot(chat) -> dict` | live chat | Snapshot | `sys_prompt`, `_pending_sys_message`, skills, `_tools`, `_tool_config` | — |
 | `def _create_stored_chat(self, chat_id, source_chat_id="")` | id; optional source chat | `None` | new record with `session`/`messages`/`true_input_tokens`/`true_output_cum`; `skills_config`/`model_name` copied from `source_chat_id` else empty config / config default → save | Writes store |
 | `def _chat_save_snapshot(self, chat_id)` | id | `(messages, snapshot)` or `None` | capture live messages/context on the GUI thread | — |

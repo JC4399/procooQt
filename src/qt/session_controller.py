@@ -701,15 +701,25 @@ class SessionController(QObject):
 
     @Slot(str)
     def refresh_chat_panels(self, chat_id: str) -> None:
-        """Refresh a panel's runtime values after a chat state change.
+        """Refresh a chat's tab status and panel runtime after a state change.
+
+        Pushes the tab dot's status/blink immediately (without waiting for the
+        debounced disk refresh) to every panel that owns the chat, and updates
+        the runtime values of the panel currently showing it.
 
         Args:
             chat_id: The chat whose state changed.
         """
+        if not chat_id:
+            return
+        status = self._chat_display_status(chat_id)
+        state = self._states.get(chat_id)
+        blinking = bool(state and state.is_busy and not state.pending_tool_info)
         for panel_model, panel in zip(self._panel_models, self._panels, strict=False):
+            if chat_id in panel["chat_ids"]:
+                panel_model.update_tab(chat_id, status, blinking)
             if panel["active_chat_id"] == chat_id:
                 panel_model.set_runtime(*self._panel_runtime(chat_id))
-                break
 
     def _open_chat(self, chat_id: str) -> None:
         """Activate and hydrate a chat, then rebuild its display.
@@ -811,14 +821,47 @@ class SessionController(QObject):
         Returns:
             One of the :class:`ChatStatus` values.
         """
-        state = states.get(cid)
+        has_messages = bool(stored and stored.get("messages"))
+        return self._status_from_state(states.get(cid), has_messages)
+
+    def _chat_display_status(self, chat_id: str) -> str:
+        """Derive a chat's live display status without a disk read.
+
+        Used by :meth:`refresh_chat_panels` to paint the tab dot the instant a
+        chat state changes. Prefers the live agent's messages and falls back to
+        the last enriched summary when the chat is not hydrated.
+
+        Args:
+            chat_id: The chat id.
+
+        Returns:
+            One of the :class:`ChatStatus` values.
+        """
+        state = self._states.get(chat_id)
+        chat = chat_manager.get_chat(chat_id)
+        if chat is not None:
+            has_messages = bool(chat.messages)
+        else:
+            enriched = self._enriched.get(chat_id)
+            has_messages = bool(enriched and enriched.get("message_count"))
+        return self._status_from_state(state, has_messages)
+
+    @staticmethod
+    def _status_from_state(state: ChatState | None, has_messages: bool) -> str:
+        """Map a chat's UI state and message presence to a display status.
+
+        Args:
+            state: The chat's UI state, or ``None``.
+            has_messages: Whether the chat has any messages.
+
+        Returns:
+            One of the :class:`ChatStatus` values.
+        """
         if state and state.is_busy:
             return ChatStatus.WAITING if state.pending_tool_info else ChatStatus.RUNNING
-        if not stored:
-            return ChatStatus.EMPTY
-        if not stored.get("messages"):
-            return ChatStatus.EMPTY
-        return ChatStatus.FINISHED
+        if state and state.has_error:
+            return ChatStatus.ERROR
+        return ChatStatus.FINISHED if has_messages else ChatStatus.EMPTY
 
     # ------------------------------------------------------------------
     #  Context snapshot

@@ -93,6 +93,7 @@ class AutomationRole(IntEnum):
     ENABLED = 6
     LAST_RUN = 7
     EVENT = 8
+    RUNNING = 9
 
 
 class NotificationRole(IntEnum):

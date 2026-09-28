@@ -65,3 +65,29 @@ class ChatTabModel(ListModel):
             )
             keys.append(f"chat:{chat_id}")
         self.set_items(rows, keys)
+
+    # ------------------------------------------------------------------
+    #  Public: mutation
+    # ------------------------------------------------------------------
+
+    def update_chat(self, chat_id: str, status: str, blinking: bool) -> None:
+        """Update one tab's status and blink flag in place.
+
+        Emits a role-scoped ``dataChanged`` (no model reset) so the delegate
+        survives and a running blink animation is not restarted.
+
+        Args:
+            chat_id: The chat whose tab to update.
+            status: The new :class:`ChatStatus` string.
+            blinking: Whether the tab dot should pulse.
+        """
+        for row, item in enumerate(self._items):
+            if item.get(int(ChatTabRole.CHAT_ID)) == chat_id:
+                self.update_item(
+                    row,
+                    {
+                        int(ChatTabRole.STATUS): status,
+                        int(ChatTabRole.IS_BLINKING): blinking,
+                    },
+                )
+                return

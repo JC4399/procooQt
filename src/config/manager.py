@@ -114,7 +114,7 @@ class ConfigManager:
 
     @property
     def chat_max_mb(self) -> int:
-        """Chat history size limit in megabytes (0 disables the byte limit)."""
+        """Chat history size limit in megabytes (0 or negative disables the byte limit)."""
         return int(self._get_optional("limits", "max_chat_mb", default=70))
 
     @property
@@ -124,7 +124,7 @@ class ConfigManager:
 
     @property
     def chat_max_tokens(self) -> int:
-        """Chat token limit (0 disables the token limit)."""
+        """Chat token limit (0 or negative disables the token limit)."""
         return int(self._get_optional("limits", "max_chat_tokens", default=150000))
 
     # ------------------------------------------------------------------

@@ -111,6 +111,7 @@ enum into the `{role id: bytes}` mapping Qt expects.
 | `ENABLED` | 6 | Enable toggle state |
 | `LAST_RUN` | 7 | Last-run timestamp |
 | `EVENT` | 8 | Event name (event automations) |
+| `RUNNING` | 9 | Whether a manual run is in flight |
 
 ### `NotificationRole` — `NotificationListModel`
 

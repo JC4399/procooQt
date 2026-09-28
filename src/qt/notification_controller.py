@@ -220,8 +220,9 @@ class NotificationController(QObject):
         return self.app.notification_manager.unread_counts().get(kind, 0)
 
     def _rebuild_page(self) -> None:
-        """Rebuild the bell-page model from all notifications."""
-        self._model.set_notifications(self.app.notification_manager.items)
+        """Rebuild the bell-page model with unread notifications only."""
+        items = [item for item in self.app.notification_manager.items if not item.read]
+        self._model.set_notifications(items)
         self.notifications_changed.emit()
 
     def _reload_history(self) -> None:

@@ -47,7 +47,9 @@ the same header and set `isPending`; `CardBase` shows a `KnightRiderSpinner`
 yet, so a streaming thinking/response card renders its growing body instead of
 the spinner. Spinners keep sweeping whenever they are visible (`running: visible`);
 they are not gated on window focus, and the tab status-dot blink
-(`model.is_blinking`) likewise keeps pulsing in an unfocused window. `CardBase` also exposes `headerVisible` (default `true`); the
+(`model.is_blinking`) likewise keeps pulsing in an unfocused window, resetting the
+dot's opacity to `1.0` the moment the blink stops so a finished tab is never left
+faded. `CardBase` also exposes `headerVisible` (default `true`); the
 headerless `WaitingCard.qml` sets it `false` so the pre-response placeholder is
 just a grey scanner. The waiting item is emitted (keyed `w:pending`) at the end
 of the render plan while a generation is busy but the current assistant turn has

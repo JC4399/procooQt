@@ -79,7 +79,7 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 | | |
 |---|---|
 | Signature | `def __init__(self, chat_id, model, primary_skill_contents, secondary_skill_contents, tool_functions, tool_config, skills_dir, system_message="You are a helpful assistant.", sampling_config=None, initial_messages=None, summary_prompt="", chat_limits=None) -> None` |
-| Inputs | see docstring; `model` = `{model_name, api_key, api_base}`; `tool_config` = per-tool mode; `initial_messages` seeds history; `summary_prompt` = summarization instruction; `chat_limits` = `{"max_bytes": int, "max_tokens": int}` (0 disables). |
+| Inputs | see docstring; `model` = `{model_name, api_key, api_base}`; `tool_config` = per-tool mode; `initial_messages` seeds history; `summary_prompt` = summarization instruction; `chat_limits` = `{"max_bytes": int, "max_tokens": int}` (0 or negative disables). |
 | Output | `None` |
 | Flow | init queue/approvals → build `sys_prompt` from primary/secondary skills → `ChatTokenTracker` → `_build_model(model)` (`OpenAIModel(stream=True)`) → register tools → log skills. |
 
@@ -131,7 +131,7 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 
 | Method | Signature | Purpose |
 |---|---|---|
-| `check_limit_exceeded` | `() -> dict \| None` | returns `{"reason", "bytes", "tokens"}` when byte/token limit exceeded, else `None`. |
+| `check_limit_exceeded` | `() -> dict \| None` | returns `{"reason", "bytes", "tokens"}` when byte/token limit exceeded, else `None` (limits `<= 0` are ignored). |
 | `summarize` | `async () -> str` | single non-tool LLM call producing a summary of the history. |
 | `_render_messages_for_summary` | `() -> str` | compact role-labelled serialization of `messages`. |
 

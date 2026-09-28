@@ -26,9 +26,14 @@ and last-run live in `storage/automations.json`, not in the file.
 |---|---|
 | Schedule | `AutomationScheduler._loop` → `_run_due` |
 | External event | `AutomationEventServer._handle_event` |
-| Manual (Run now) | `AutomationController._handle_run_now` |
+| Manual (Run now) | `AutomationPanel.qml` card "Run now" button → `AutomationController._handle_run_now` |
 
 All three call `AutomationRunner.run(automation, payload)`.
+
+For the manual path the controller marks the automation's path in `_running` for
+the duration, so the card shows a `KnightRiderSpinner` and disables the button
+until the run completes (see
+[qt-automation-controller](../modules/qt-automation-controller.md)).
 
 ## Sequence
 

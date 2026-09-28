@@ -108,6 +108,7 @@ filtered to the panel's chats and ordered. Summaries must be pre-enriched with
 |---|---|---|---|
 | `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `ChatTabRole` |
 | `def set_chats(self, chats: list[dict[str, Any]], active_id: str \| None, states: dict[str, ChatState]) -> None` | summaries, active id, per-chat states | `None` | build rows+keys → `set_items`; full reset |
+| `def update_chat(self, chat_id: str, status: str, blinking: bool) -> None` | chat id, `ChatStatus`, blink flag | `None` | find row by chat id → `update_item`; role-scoped `dataChanged`, no reset |
 
 ### `SessionMenuModel`
 
@@ -197,12 +198,14 @@ a short extension label (`"py"`, `"md"`, …) or the folder marker `"dir"`.
 
 Automation cards, filtered by a fuzzy subsequence match over name, description,
 event, and schedule. `SCHEDULE_TEXT` is the cron expression, or
-`"Event driven (<event>)"` for event automations.
+`"Event driven (<event>)"` for event automations. `RUNNING` marks an automation
+with an in-flight manual run (drives the card's spinner and disabled button).
 
 | Signature | Inputs | Output | Flow / Side effects |
 |---|---|---|---|
 | `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `AutomationRole` |
-| `def set_automations(self, automations: list[AutomationInfo], search: str = "") -> None` | automations; fuzzy filter | `None` | filter → build rows → `set_items`; full reset |
+| `def set_automations(self, automations: list[AutomationInfo], search: str = "", running: set[str] \| None = None) -> None` | automations; fuzzy filter; running paths | `None` | filter → build rows → `set_items`; full reset |
+| `def set_running(self, path: str, running: bool) -> None` | path; running | `None` | locate row by key → `update_item` (`RUNNING`); no reset |
 | `fuzzy_match(query, text) module fn -> bool` | query; text | subsequence match | case-insensitive ordered scan |
 
 ### `NotificationListModel`

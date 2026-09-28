@@ -17,9 +17,11 @@ Rectangle {
     property string scheduleText: ""
     property bool enabled: true
     property string lastRun: ""
+    property bool running: false
 
     signal toggleRequested(string path, bool enabled)
     signal editRequested(string path)
+    signal runRequested(string path)
 
     implicitHeight: layout.implicitHeight + 20
     color: Theme.colors.surfaceBg
@@ -132,6 +134,21 @@ Rectangle {
             }
 
             Item { Layout.fillWidth: true }
+
+            KnightRiderSpinner {
+                visible: card.running
+                running: card.running
+                cells: 5
+                baseColor: Theme.colors.accentGreen
+                Layout.alignment: Qt.AlignVCenter
+            }
+
+            FlatButton {
+                implicitWidth: 90
+                text: card.running ? qsTr("Running...") : qsTr("Run now")
+                enabled: !card.running
+                onClicked: card.runRequested(card.path)
+            }
 
             FlatButton {
                 implicitWidth: 90

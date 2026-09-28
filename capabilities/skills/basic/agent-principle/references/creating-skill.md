@@ -121,6 +121,8 @@ Before shipping the skill, confirm:
 - The purpose, deliverable, and methodology are all present and unambiguous.
 - The frontmatter name and description are filled in, and the description carries
   the trigger in the user's words.
+- Rules the user asks to be written into a skill are rephrased in the agent's own
+  compressed words — only the description triggers stay in the user's words.
 - The References section lists the reference files and points to them.
 - Steps and tests live in `references/`, not in SKILL.md.
 - The skill carries what a future agent cannot derive on its own: the user's

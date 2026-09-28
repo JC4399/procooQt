@@ -35,9 +35,13 @@ whenever `counts_changed` is emitted.
   `editor_open_requested` (QML shows the editor window) and loads
   `capabilities/automations/<path>/AUTOMATION.py`.
 
+The bell page lists only **unread** notifications: once an item is marked read
+(logs on page open, info/error on Confirm) it disappears from the page and
+remains available in history.
+
 ## 4. History
 
-`NotificationPanel` shows all notifications (newest first) with a **View
+`NotificationPanel` shows unread notifications (newest first) with a **View
 history** button. `_handle_view_history()` resets the search and reloads page 0;
 `NotificationHistoryWindow.qml` lists `history_model` and calls
 `_handle_load_more()` when scrolled to the bottom (20 rows per page). Searching

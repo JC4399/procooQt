@@ -44,6 +44,8 @@ class ChatState:
         chat_id: The chat this state belongs to.
         generation_id: Incremented per generation to detect stale tasks.
         is_busy: Whether a generation is currently running.
+        has_error: Whether the last generation errored or was stopped by the
+            user, so the tab dot shows red until the next send.
         is_loading: Whether a switch rebuild overlay is showing for this chat.
         active_task: The running ``Agent.run`` task, if any.
         approval_event: Set when the user resolves a pending tool approval.
@@ -84,6 +86,7 @@ class ChatState:
     chat_id: str
     generation_id: int = 0
     is_busy: bool = False
+    has_error: bool = False
     is_loading: bool = False
     active_task: asyncio.Task[Any] | None = None
     approval_event: asyncio.Event | None = None

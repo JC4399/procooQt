@@ -78,7 +78,8 @@ class Agent:
                 the conversation history with.
             summary_prompt: Instruction used when summarizing an over-limit chat.
             chat_limits: Optional ``{"max_bytes": int, "max_tokens": int}``
-                compaction limits (``0`` disables the corresponding limit).
+                compaction limits (``0`` or a negative value disables the
+                corresponding limit).
         """
         from ..util.log.formatter import log_chat_skills
         from ..util.tokens.tracker import ChatTokenTracker
@@ -868,17 +869,17 @@ class Agent:
         """Return limit info when the chat exceeds a configured limit.
 
         Checks the JSON byte size against ``max_bytes`` and the token
-        count against ``max_tokens``.  A limit of ``0`` disables that
-        check.
+        count against ``max_tokens``.  A limit of ``0`` or a negative
+        value disables that check.
 
         Returns:
             Dict with ``reason`` (``"bytes"``/``"tokens"``), ``bytes`` and
             ``tokens`` when exceeded, otherwise ``None``.
         """
         tokens = self.chat_token_count()
-        if self._max_tokens and tokens > self._max_tokens:
+        if self._max_tokens > 0 and tokens > self._max_tokens:
             return {"reason": "tokens", "bytes": self.chat_byte_size(), "tokens": tokens}
-        if self._max_bytes and self.chat_byte_size() > self._max_bytes:
+        if self._max_bytes > 0 and self.chat_byte_size() > self._max_bytes:
             return {"reason": "bytes", "bytes": self.chat_byte_size(), "tokens": tokens}
         return None
 

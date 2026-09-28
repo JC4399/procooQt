@@ -77,12 +77,16 @@ Rectangle {
                 scheduleText: model.schedule_text
                 enabled: model.enabled
                 lastRun: model.last_run
+                running: model.running
 
                 onToggleRequested: function (path, enabled) {
                     automation._handle_toggle(path, enabled)
                 }
                 onEditRequested: function (path) {
                     automation._handle_edit(path)
+                }
+                onRunRequested: function (path) {
+                    automation._handle_run_now(path)
                 }
             }
         }

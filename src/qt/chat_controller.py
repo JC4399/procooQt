@@ -720,6 +720,7 @@ class ChatController(QObject):
             return
         state = self.session.state(chat_id)
         state.is_busy = True
+        state.has_error = False
         state.generation_id += 1
         gen_id = state.generation_id
         self._append_waiting_placeholder(chat_id)
@@ -772,6 +773,7 @@ class ChatController(QObject):
             return chat
         if state.generation_id == gen_id:
             state.is_busy = False
+            state.has_error = True
             if self._is_visible(chat_id):
                 self._rebuild_chat_display(chat_id)
             self.chat_state_changed.emit(chat_id)
@@ -812,6 +814,7 @@ class ChatController(QObject):
                 break
             elif etype == "error":
                 brief = event.get("brief", event.get("message", "Unknown error"))
+                state.has_error = True
                 if self._is_visible(chat_id):
                     self.toast_requested.emit(brief, TOAST_ERROR)
                 break
@@ -895,6 +898,8 @@ class ChatController(QObject):
         if not chat_id:
             return
         state = self.session.state(chat_id)
+        if state.is_busy:
+            state.has_error = True
         if state.pending_tool_info:
             chat = chat_manager.get_chat(chat_id)
             if chat:

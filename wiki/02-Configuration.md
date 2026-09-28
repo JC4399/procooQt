@@ -26,8 +26,8 @@ auth:
   api_keys: []               # event-server API keys (empty disables auth)
 
 limits:
-  max_chat_mb: 70            # 0 disables the byte-size limit
-  max_chat_tokens: 0         # 0 disables the token limit
+  max_chat_mb: 70            # 0 or negative disables the byte-size limit
+  max_chat_tokens: 0         # 0 or negative disables the token limit
 
 agent:
   system_prompt: "You are a helpful assistant."
@@ -77,10 +77,10 @@ default. `auth.api_keys` is a list of accepted keys; when non-empty, requests to
 
 When a chat's message history exceeds `max_chat_mb` (converted to bytes via
 `chat_max_bytes`) or its token count exceeds `max_chat_tokens`, the agent
-summarizes the chat and starts a new one. Setting either value to `0` disables
-that limit. When a key is absent, the manager falls back to `70` MB and
-`150000` tokens respectively; the committed config sets `max_chat_tokens: 0`
-to disable the token limit.
+summarizes the chat and starts a new one. Setting either value to `0` or any
+negative number (e.g. `-1`) disables that limit. When a key is absent, the
+manager falls back to `70` MB and `150000` tokens respectively; the committed
+config sets `max_chat_tokens: 0` to disable the token limit.
 
 ### Agent prompts (`agent`)
 

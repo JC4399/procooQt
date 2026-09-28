@@ -165,21 +165,32 @@ Rectangle {
                             spacing: 4
 
                             Rectangle {
+                                id: statusDot
                                 Layout.alignment: Qt.AlignVCenter
                                 width: 8
                                 height: 8
                                 radius: Theme.metrics.statusDotRadius
                                 color: session.statusColor(model.status)
 
-                                SequentialAnimation on opacity {
+                                SequentialAnimation {
                                     running: model.is_blinking
                                     loops: Animation.Infinite
+
                                     NumberAnimation {
-                                        to: 0.2; duration: 300; easing.type: Easing.InOutQuad
+                                        target: statusDot
+                                        property: "opacity"
+                                        to: 0.2
+                                        duration: 300
+                                        easing.type: Easing.InOutQuad
                                     }
                                     NumberAnimation {
-                                        to: 1.0; duration: 300; easing.type: Easing.InOutQuad
+                                        target: statusDot
+                                        property: "opacity"
+                                        to: 1.0
+                                        duration: 300
+                                        easing.type: Easing.InOutQuad
                                     }
+                                    onRunningChanged: if (!running) statusDot.opacity = 1.0
                                 }
                             }
 

@@ -52,6 +52,7 @@ class AutomationController(QObject):
         _server: AutomationEventServer
         _search_text: str
         _tasks: set[asyncio.Task[Any]]
+        _running: set[str]
 
     # ------------------------------------------------------------------
     #  Setup
@@ -67,6 +68,7 @@ class AutomationController(QObject):
         super().__init__(parent)
         self.app = app
         self._tasks: set[asyncio.Task[Any]] = set()
+        self._running: set[str] = set()
 
     # ------------------------------------------------------------------
     #  Builder
@@ -178,6 +180,9 @@ class AutomationController(QObject):
     async def _run_now(self, path: str) -> None:
         """Execute an automation on demand and publish its result.
 
+        Marks the automation as running so its card shows a spinner and disables
+        the button for the duration of the run.
+
         Args:
             path: Relative automation path.
         """
@@ -185,8 +190,14 @@ class AutomationController(QObject):
         if info is None:
             self.toast_requested.emit("Automation not found.", TOAST_ERROR)
             return
-        result = await self._runner.run(info)
-        self.app.automation_manager.record_run(path, result.timestamp)
+        self._running.add(path)
+        self._model.set_running(path, True)
+        try:
+            result = await self._runner.run(info)
+            self.app.automation_manager.record_run(path, result.timestamp)
+        finally:
+            self._running.discard(path)
+            self._model.set_running(path, False)
         self._on_result(result)
 
     # ------------------------------------------------------------------
@@ -232,7 +243,9 @@ class AutomationController(QObject):
 
     def _rebuild(self) -> None:
         """Rebuild the automation model from the manager and current search."""
-        self._model.set_automations(self.app.automation_manager.automations, self._search_text)
+        self._model.set_automations(
+            self.app.automation_manager.automations, self._search_text, self._running
+        )
         self.automations_changed.emit()
 
     def _spawn(self, coro: Coroutine[Any, Any, Any]) -> None:

@@ -148,6 +148,16 @@ class ChatPanelModel(QObject):
         self._tab_model.set_chats(tabs, tabs_active_id, states)
         self.changed.emit()
 
+    def update_tab(self, chat_id: str, status: str, blinking: bool) -> None:
+        """Update one tab's status/blink without rebuilding the panel.
+
+        Args:
+            chat_id: The chat whose tab to update.
+            status: The new :class:`ChatStatus` string.
+            blinking: Whether the tab dot should pulse.
+        """
+        self._tab_model.update_chat(chat_id, status, blinking)
+
     def set_runtime(
         self,
         busy: bool,

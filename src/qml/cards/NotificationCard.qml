@@ -109,13 +109,17 @@ Rectangle {
                 Layout.preferredWidth: 70
             }
 
-            Text {
+            TextEdit {
                 Layout.fillWidth: true
+                Layout.preferredHeight: contentHeight
                 text: card.message
                 color: Theme.colors.textSecondary
                 font.family: Theme.fontMono
                 font.pointSize: Theme.metrics.fontSizeBase
-                wrapMode: Text.WordWrap
+                readOnly: true
+                textFormat: TextEdit.PlainText
+                wrapMode: TextEdit.Wrap
+                selectByMouse: true
             }
         }
 

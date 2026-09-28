@@ -15,7 +15,7 @@ ChatPanel.submit → chat._handle_send_for(chat_id, text)   [ChatController @Slo
    │  _append_user_message(chat_id, text) → model.append_item (optimistic row)
    ▼
 _launch_generation(chat_id, message)
-   │  state.is_busy=True, generation_id++
+   │  state.has_error=False, is_busy=True, generation_id++
    │  _append_waiting_placeholder → model.append_item (w:pending scanner)
    │  _spawn(_run_chat_loop)
    ▼
@@ -64,7 +64,8 @@ _resolve_tool_calls ───────────┘
 4. **token_usage** — `state.true_input_tokens` / `state.true_output_cum`
    update (true API counts only, no estimate); the panel's `ConfigTokenBar`
    (via `ChatPanelModel`) refreshes. The counts persist across turns.
-5. **done / error** — break out of the loop.
+5. **done / error** — break out of the loop; an `error` also sets
+   `state.has_error` so the chat's tab dot shows red until the next send.
 6. `finally: _finalize_turn` — rebuild the chat display, save the chat,
    reset per-turn tracking, and update the Send/Stop buttons.
 

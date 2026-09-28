@@ -39,6 +39,7 @@ never holds a QML object.
 | `chat_id` | `str` | The chat this state belongs to |
 | `generation_id` | `int` | Incremented per generation to detect stale tasks |
 | `is_busy` | `bool` | Whether a generation is currently running |
+| `has_error` | `bool` | Last generation errored or was stopped by the user; drives the red tab dot until the next send |
 | `is_loading` | `bool` | Whether the switch-rebuild overlay is showing |
 | `active_task` | `asyncio.Task \| None` | The running `Agent.run` task |
 | `approval_event` | `asyncio.Event \| None` | Set when the user resolves a pending approval |
@@ -77,4 +78,4 @@ prefix sprawl on the controller.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def reset_turn(self) -> None` | — | `None` | reset `thinking`/`response` → clear `current_tool_calls`/`tool_results` → clear `pending_tool_info`/`approval_event`/`approval_text` → clear `rendered_item_keys`/`tool_call_indices` → blank all `last_rendered_*` / `last_tok_counted_*` → zero the two timers | Called by [`ChatController._finalize_turn`](qt-chat-controller.md); does **not** touch `chat_id`, `is_busy`, `generation_id`, `true_input_tokens`, `true_output_cum`, `context_banners_data`, `init_banner_displayed`, `context_snapshot`, or `item_cache` |
+| `def reset_turn(self) -> None` | — | `None` | reset `thinking`/`response` → clear `current_tool_calls`/`tool_results` → clear `pending_tool_info`/`approval_event`/`approval_text` → clear `rendered_item_keys`/`tool_call_indices` → blank all `last_rendered_*` / `last_tok_counted_*` → zero the two timers | Called by [`ChatController._finalize_turn`](qt-chat-controller.md); does **not** touch `chat_id`, `is_busy`, `has_error`, `generation_id`, `true_input_tokens`, `true_output_cum`, `context_banners_data`, `init_banner_displayed`, `context_snapshot`, or `item_cache` |

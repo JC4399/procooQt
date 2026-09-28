@@ -71,7 +71,8 @@ state tracking always run.
 
 ### Launch (`_launch_generation`)
 
-1. Set `state.is_busy = True`; increment `state.generation_id` (`gen_id`).
+1. Clear `state.has_error`; set `state.is_busy = True`; increment
+   `state.generation_id` (`gen_id`).
 2. `_append_waiting_placeholder(chat_id)` — the `w:pending` scanner renders in
    the same frame as the user card, before hydration.
 3. `_refresh_sidebar()`; emit `chat_state_changed(chat_id)`.
@@ -80,7 +81,8 @@ state tracking always run.
 ### `_run_chat_loop` (phases)
 
 1. **Hydrate** — `_hydrate_phase(chat_id, gen_id)` calls
-   `session._hydrate_chat(...)`. On failure, clear busy/rebuild/refresh.
+   `session._hydrate_chat(...)`. On failure, clear busy, set `has_error`,
+   rebuild/refresh.
 2. Start `task = asyncio.ensure_future(chat.run(message))`; store as
    `state.active_task`.
 3. `await asyncio.sleep(0)`; rebuild the display when visible to reconcile the
@@ -102,7 +104,7 @@ reading with `asyncio.wait_for(..., timeout=0.1)`. By `event["type"]`:
 | `tool_result` | Append to `state.tool_results` |
 | `token_usage` | Set `true_input_tokens` / `true_output_cum`; when visible, `_update_token_bar` refreshes the bar |
 | `done` | Break out of the loop |
-| `error` | Toast the `brief` (when visible) and break |
+| `error` | Set `state.has_error`, toast the `brief` (when visible), and break |
 
 After each event, a change in `len(chat.messages)` triggers `_refresh_sidebar()`,
 and when visible `_render_active_event(...)` updates the display.
@@ -170,7 +172,8 @@ call `chat.approve_tool` / `chat.deny_tool` and `set()` the event.
 
 ### Stop / regenerate / approve / deny
 
-- `_handle_stop_for(chat_id)` → `_stop_generation(chat_id)`.
+- `_handle_stop_for(chat_id)` → `_stop_generation(chat_id)`: mark the chat
+  `has_error` (stopped turns show a red tab dot) then cancel the run.
 - `_handle_regenerate_for(chat_id)` → `_regenerate(chat_id)`: find the last user
   message, trim the stored turn (`_trim_stored_chat`), drop delta banners, remove
   the live chat, rebuild, relaunch.
@@ -218,13 +221,13 @@ the per-card `tk` estimate, which is independent of the token bar.
 | `@Slot(str) def _handle_chat_switch_started(self, chat_id)` | chat | `None` | `_cancel_staged_build()` → `_set_loading(chat_id, True)` | Shows the overlay at the user action |
 | `@Slot(str) def _handle_chat_activated(self, chat_id)` | chat (may be `""`) | `None` | set focused id → clear caches → emit → `_set_loading(chat_id, True)` → `_spawn(_rebuild_after_switch)` | Emits `active_model_changed` |
 | `async def _rebuild_after_switch(self, chat_id)` | chat | `None` | sleep(0) → visible check → staged rebuild → `_set_loading(chat_id, False)` → emit `chat_state_changed` | — |
-| `def _launch_generation(self, chat_id, message)` | chat, text | `None` | busy + bump `generation_id` → append scanner → refresh → emit state → spawn loop | Mutates state |
+| `def _launch_generation(self, chat_id, message)` | chat, text | `None` | clear `has_error` + busy + bump `generation_id` → append scanner → refresh → emit state → spawn loop | Mutates state |
 | `async def _run_chat_loop(self, message, gen_id, chat_id)` | message, generation, chat | `None` | hydrate → run → reconcile → consume → finalize → compact on limit | Cancellable; persists |
-| `async def _hydrate_phase(self, chat_id, gen_id)` | chat, generation | Live chat or `None` | `_hydrate_chat`; on failure clear busy/rebuild | Side effects on failure |
-| `async def _consume_events(self, chat, chat_id, state, task)` | live chat, id, state, task | `None` | 0.1s poll → per-type branches | May block on approval |
+| `async def _hydrate_phase(self, chat_id, gen_id)` | chat, generation | Live chat or `None` | `_hydrate_chat`; on failure clear busy + set `has_error`/rebuild | Side effects on failure |
+| `async def _consume_events(self, chat, chat_id, state, task)` | live chat, id, state, task | `None` | 0.1s poll → per-type branches (`error` sets `has_error`) | May block on approval |
 | `async def _render_active_event(self, event, chat, chat_id, state, msg_count, last_rendered)` | event + render context | New count | swap result vs rebuild vs live | May mutate model; awaits worker render |
-| `def _finalize_turn(self, chat_id, state, gen_id)` | chat, state, generation | `None` | clear busy → rebuild → reset → save → refresh → emit state | Persists |
-| `async def _stop_generation(self, chat_id)` | chat | `None` | deny pending → set event → cancel task | Cancels task |
+| `def _finalize_turn(self, chat_id, state, gen_id)` | chat, state, generation | `None` | clear busy (`has_error` left as-is) → rebuild → reset → save → refresh → emit state | Persists |
+| `async def _stop_generation(self, chat_id)` | chat | `None` | mark `has_error` → deny pending → set event → cancel task | Cancels task |
 | `async def _approve(self, chat_id)` | chat | `None` | `approve_tool` → set event → emit state | Releases approval |
 | `async def _deny(self, chat_id, reason)` | chat, reason | `None` | `deny_tool` → set event → emit state | Releases approval |
 | `async def _regenerate(self, chat_id)` | chat | `None` | find last user → trim → drop deltas → remove live → rebuild → `_launch_generation` | Error toasts |

@@ -58,21 +58,41 @@ class AutomationListModel(ListModel):
     #  Builder
     # ------------------------------------------------------------------
 
-    def set_automations(self, automations: list[AutomationInfo], search: str = "") -> None:
+    def set_automations(
+        self,
+        automations: list[AutomationInfo],
+        search: str = "",
+        running: set[str] | None = None,
+    ) -> None:
         """Replace rows with the automations matching *search*.
 
         Args:
             automations: Discovered automations.
             search: Fuzzy filter over name/description/event/schedule.
+            running: Paths of automations with an in-flight manual run.
         """
+        running = running or set()
         rows: list[Item] = []
         keys: list[str] = []
         for info in automations:
             if not self._matches(info, search):
                 continue
-            rows.append(self._row(info))
+            rows.append(self._row(info, running))
             keys.append(f"automation:{info.path}")
         self.set_items(rows, keys)
+
+    def set_running(self, path: str, running: bool) -> None:
+        """Update a single row's ``RUNNING`` flag without resetting the model.
+
+        Args:
+            path: Relative automation path.
+            running: Whether the automation currently has an in-flight run.
+        """
+        try:
+            row = self._keys.index(f"automation:{path}")
+        except ValueError:
+            return
+        self.update_item(row, {int(AutomationRole.RUNNING): running})
 
     # ------------------------------------------------------------------
     #  Private
@@ -91,11 +111,12 @@ class AutomationListModel(ListModel):
         )
 
     @staticmethod
-    def _row(info: AutomationInfo) -> Item:
+    def _row(info: AutomationInfo, running: set[str]) -> Item:
         """Build a role-keyed automation row.
 
         Args:
             info: The automation to flatten.
+            running: Paths of automations with an in-flight manual run.
 
         Returns:
             A role-keyed row consumed by the QML delegate.
@@ -115,4 +136,5 @@ class AutomationListModel(ListModel):
             int(AutomationRole.ENABLED): info.enabled,
             int(AutomationRole.LAST_RUN): info.last_run,
             int(AutomationRole.EVENT): info.event,
+            int(AutomationRole.RUNNING): info.path in running,
         }
