@@ -293,6 +293,7 @@ async def run(
 
 
 if __name__ == "__main__":
+    sys.stdin.reconfigure(encoding="utf-8")
     args = json.loads(sys.stdin.read())
     result = asyncio.run(run(**{k: v for k, v in args.items() if v is not None}))
     sys.stdout.reconfigure(encoding="utf-8")
