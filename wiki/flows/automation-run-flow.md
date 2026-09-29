@@ -28,7 +28,11 @@ and last-run live in `storage/automations.json`, not in the file.
 | External event | `AutomationEventServer._handle_event` |
 | Manual (Run now) | `AutomationPanel.qml` card "Run now" button → `AutomationController._handle_run_now` |
 
-All three call `AutomationRunner.run(automation, payload)`.
+All three call `AutomationRunner.run(automation, payload)`. Only the schedule
+path honours the optional `start_date` / `end_date` frontmatter window:
+`_next_time` skips firing outside the window, and the loop auto-disables an
+enabled automation once `end_date` has passed (event and manual runs ignore the
+window).
 
 For the manual path the controller marks the automation's path in `_running` for
 the duration, so the card shows a `KnightRiderSpinner` and disables the button

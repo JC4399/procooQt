@@ -28,16 +28,20 @@ whenever `counts_changed` is emitted.
 | `info` | User presses **Confirm** | Confirm |
 | `error` | User presses **Confirm** | Confirm, Debug |
 
-- Page shown → `notification._handle_page_opened()` → `mark_logs_read()`.
+- Page shown → `notification._handle_page_opened()` → `mark_logs_read()`; the
+  page model is rebuilt **keeping the just-read logs**, so the cards remain
+  visible (dimmed via `NotificationCard.read`) until the page closes.
+- Page hidden → `notification._handle_page_closed()` → rebuild unread-only;
+  the dimmed logs leave the page.
 - Confirm → `_handle_confirm(id)` → `mark_read(id)`.
 - Debug → `_handle_debug(id)` → emits `edit_automation_requested(path)` →
   `EditorController._handle_open_automation(path)`, which emits
   `editor_open_requested` (QML shows the editor window) and loads
   `capabilities/automations/<path>/AUTOMATION.py`.
 
-The bell page lists only **unread** notifications: once an item is marked read
-(logs on page open, info/error on Confirm) it disappears from the page and
-remains available in history.
+The bell page lists **unread** notifications plus the success logs the current
+page-open just marked read: once the page is closed (or an info/error is
+confirmed) a read item disappears and remains available in history.
 
 ## 4. History
 

@@ -5,6 +5,10 @@ scheduled automations, runs due ones sequentially through the
 :class:`AutomationRunner`, records their last-run state, and forwards each
 result to the notification callback.  The loop is woken early via
 :meth:`notify_changed` whenever automations are added, removed, or toggled.
+
+Automations may declare an optional ``start_date`` / ``end_date`` window in
+their frontmatter: firing is skipped before the start date, and automations
+are auto-disabled once the end date has passed.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ from typing import TYPE_CHECKING
 
 from croniter import croniter
 
-from .models import AutomationResult
+from .models import AutomationResult, parse_iso_date
 
 if TYPE_CHECKING:
     from .manager import AutomationManager
@@ -102,6 +106,7 @@ class AutomationScheduler:
         """Wait for the next due time, then run due automations."""
         try:
             while not self._stopped.is_set():
+                self._auto_disable_expired()
                 jobs = self._enabled_scheduled()
                 next_time = self._nearest_time(jobs)
                 delay = (
@@ -155,8 +160,51 @@ class AutomationScheduler:
             if self._manager.is_enabled(info.path)
         ]
 
+    def _auto_disable_expired(self) -> None:
+        """Disable enabled scheduled automations whose end date has passed."""
+        today = datetime.now().date()
+        for info in self._manager.scheduled_automations():
+            end = parse_iso_date(info.end_date)
+            if end is None or today <= end or not self._manager.is_enabled(info.path):
+                continue
+            logger.info(
+                "Automation '%s' auto-disabled: end date %s passed", info.path, info.end_date
+            )
+            self._manager.set_enabled(info.path, False)
+
+    def _in_window(self, automation: AutomationInfo) -> bool:
+        """Return whether the automation's date window covers today.
+
+        Automations without dates are always in window.
+
+        Args:
+            automation: The automation to check.
+
+        Returns:
+            ``True`` when today is within ``[start_date, end_date]``.
+        """
+        today = datetime.now().date()
+        start = parse_iso_date(automation.start_date)
+        end = parse_iso_date(automation.end_date)
+        if start is not None and today < start:
+            return False
+        return not (end is not None and today > end)
+
     def _next_time(self, automation: AutomationInfo) -> float | None:
-        """Return the next fire timestamp for an automation, or ``None``."""
+        """Return the next fire timestamp for an automation, or ``None``.
+
+        Returns ``None`` while the automation is outside its date window
+        (before ``start_date`` or after ``end_date``).
+
+        Args:
+            automation: The automation to evaluate.
+
+        Returns:
+            The next fire timestamp, or ``None`` when out of window or the
+            cron expression is invalid.
+        """
+        if not self._in_window(automation):
+            return None
         try:
             next_dt = croniter(automation.schedule, datetime.now()).get_next(datetime)
             return next_dt.timestamp()
@@ -164,9 +212,26 @@ class AutomationScheduler:
             logger.warning("Invalid schedule for automation '%s': %s", automation.path, error)
             return None
 
+    def _wake_time(self, automation: AutomationInfo) -> float | None:
+        """Return when the loop should next wake for an automation.
+
+        Unlike :meth:`_next_time`, a future automation wakes the loop at its
+        window start so the schedule is re-evaluated on the day it activates.
+
+        Args:
+            automation: The automation to evaluate.
+
+        Returns:
+            The next wake timestamp, or ``None`` when expired or unschedulable.
+        """
+        start = parse_iso_date(automation.start_date)
+        if start is not None and datetime.now().date() < start:
+            return datetime(start.year, start.month, start.day).timestamp()
+        return self._next_time(automation)
+
     def _nearest_time(self, automations: list[AutomationInfo]) -> float | None:
-        """Return the earliest next fire time across automations, or ``None``."""
-        times = [t for info in automations if (t := self._next_time(info)) is not None]
+        """Return the earliest next wake time across automations, or ``None``."""
+        times = [t for info in automations if (t := self._wake_time(info)) is not None]
         return min(times) if times else None
 
     async def _wait(self, delay: float | None) -> bool:

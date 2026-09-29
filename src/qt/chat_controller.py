@@ -295,14 +295,19 @@ def _count_trailing_tool_results(messages: list[dict], after_idx: int) -> int:
     return count
 
 
-def _round_bounds(messages: list[dict], msg_index: int) -> tuple[int, int]:
-    """Return the ``[start, end)`` range of the turn containing *msg_index*.
+def _delete_bounds(messages: list[dict], msg_index: int) -> tuple[int, int]:
+    """Return the ``[start, end)`` range to remove for one card delete.
 
-    A turn starts at a user message (extended back over immediately-preceding
-    injected system messages) and ends just before the next user message, so
-    deleting a turn removes its prompt, assistant reply, tool calls, and tool
-    results as one coherent, LLM-valid unit. A card before any user message is
-    treated as a leading fragment starting at index ``0``.
+    Each card maps to one message object in *messages*; only the minimum
+    extra messages required to keep the OpenAI sequence valid go with it:
+
+    * ``user`` — the message alone.
+    * ``assistant`` (thinking / response / tool-call cards share the same
+      object) — the message plus its contiguous trailing ``tool`` results,
+      which would otherwise be orphaned.
+    * ``tool`` — the result alone; when the preceding assistant message is
+      left with ``tool_calls`` and no remaining results, that assistant
+      message is removed too.
 
     Args:
         messages: The full message list.
@@ -311,18 +316,17 @@ def _round_bounds(messages: list[dict], msg_index: int) -> tuple[int, int]:
     Returns:
         The half-open ``(start, end)`` range to remove.
     """
-    start = 0
-    for i in range(msg_index, -1, -1):
-        if messages[i].get("role") == "user":
-            start = i
-            break
-    while start > 0 and messages[start - 1].get("role") == "system":
-        start -= 1
-    end = len(messages)
-    for j in range(msg_index + 1, len(messages)):
-        if messages[j].get("role") == "user":
-            end = j
-            break
+    start = msg_index
+    end = msg_index + 1
+    role = messages[msg_index].get("role", "")
+    if role == "assistant":
+        end += _count_trailing_tool_results(messages, msg_index)
+    elif role == "tool":
+        prev = start - 1
+        if prev >= 0 and messages[prev].get("role") == "assistant":
+            remaining = _count_trailing_tool_results(messages, prev)
+            if messages[prev].get("tool_calls") and remaining <= 1:
+                start = prev
     return start, end
 
 
@@ -653,7 +657,7 @@ class ChatController(QObject):
 
     @Slot(str, int)
     def _handle_delete_turn_for(self, chat_id: str, msg_index: int) -> None:
-        """Delete the turn containing a chat card from history.
+        """Delete the message object behind a chat card from history.
 
         Args:
             chat_id: The chat whose card was clicked.
@@ -1067,11 +1071,11 @@ class ChatController(QObject):
         self.app.chat_store.save_chat(chat_id, stored)
 
     def _delete_turn(self, chat_id: str, msg_index: int) -> None:
-        """Delete the turn containing a card and rebuild the chat.
+        """Delete the message object behind a card and rebuild the chat.
 
-        The whole turn is removed (prompt, assistant reply, tool calls, and tool
-        results) so the remaining history stays valid for the LLM. Messages
-        before and after the turn are untouched.
+        ``_delete_bounds`` maps the card to its message and expands the range
+        only as far as needed to keep the history LLM-valid; the surrounding
+        messages are untouched.
 
         Args:
             chat_id: The chat whose card was clicked.
@@ -1089,7 +1093,7 @@ class ChatController(QObject):
             messages = live.messages
             if not 0 <= msg_index < len(messages):
                 return
-            start, end = _round_bounds(messages, msg_index)
+            start, end = _delete_bounds(messages, msg_index)
             del messages[start:end]
             live._current_assistant_msg = None
             state.item_cache.clear()
@@ -1101,14 +1105,14 @@ class ChatController(QObject):
             messages = list((stored or {}).get("messages", []))
             if not 0 <= msg_index < len(messages):
                 return
-            start, end = _round_bounds(messages, msg_index)
+            start, end = _delete_bounds(messages, msg_index)
             del messages[start:end]
             if stored:
                 stored["messages"] = messages
                 stored["message_count"] = len(messages)
                 self.app.chat_store.save_chat(chat_id, stored)
             state.item_cache.clear()
-        logger.info("Deleted turn [%d:%d] from chat '%s'", start, end, chat_id)
+        logger.info("Deleted messages [%d:%d] from chat '%s'", start, end, chat_id)
         self._rebuild_chat_display(chat_id)
         self._refresh_sidebar()
 

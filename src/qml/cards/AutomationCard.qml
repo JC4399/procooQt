@@ -15,6 +15,7 @@ Rectangle {
     property string name: ""
     property string description: ""
     property string scheduleText: ""
+    property string windowText: ""
     property bool enabled: true
     property string lastRun: ""
     property bool running: false
@@ -112,6 +113,29 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 text: card.scheduleText
+                color: Theme.colors.textSecondary
+                font.family: Theme.fontMono
+                font.pointSize: Theme.metrics.fontSizeBase
+                elide: Text.ElideRight
+            }
+        }
+
+        // ----------------------------------------------------------
+        //  Date window row (hidden when no start/end date is set)
+        // ----------------------------------------------------------
+        RowLayout {
+            Layout.fillWidth: true
+            visible: card.windowText !== ""
+            spacing: 8
+
+            FieldLabel {
+                text: qsTr("Window")
+                Layout.preferredWidth: 82
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: card.windowText
                 color: Theme.colors.textSecondary
                 font.family: Theme.fontMono
                 font.pointSize: Theme.metrics.fontSizeBase

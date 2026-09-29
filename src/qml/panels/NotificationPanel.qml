@@ -7,7 +7,8 @@ import "../cards"
 
 // Notification page: a scrolling list of notification cards with a "View
 // history" action pinned to the bottom. Opening the page marks success logs as
-// read; info and error cards stay until the user confirms them.
+// read (they stay visible, dimmed, until the page is closed); info and error
+// cards stay until the user confirms them.
 Rectangle {
     id: panel
 
@@ -18,6 +19,8 @@ Rectangle {
     onVisibleChanged: {
         if (visible)
             notification._handle_page_opened()
+        else
+            notification._handle_page_closed()
     }
 
     ColumnLayout {

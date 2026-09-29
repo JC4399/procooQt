@@ -1,8 +1,9 @@
-"""Tool: execute Python code or shell commands. Dispatches on the `mode` parameter."""
+"""Tool: execute Python code, shell commands, or a skill script. Dispatches on `mode`."""
 
 import asyncio
 import json
 import os
+from pathlib import Path
 import re
 import sys
 import tempfile
@@ -127,12 +128,23 @@ async def _shell(command: str, timeout: int) -> str:
         return blocked
 
     try:
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=_venv_env(),
-        )
+        if os.name == "nt":
+            proc = await asyncio.create_subprocess_exec(
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=_venv_env(),
+            )
+        else:
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=_venv_env(),
+            )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
 
         output = stdout.decode("utf-8", errors="replace")
@@ -185,18 +197,86 @@ async def _python(code: str, timeout: int) -> str:
         return f"Python execution error: {e}"
 
 
+async def _skill(script: str, params: dict | None, timeout: int) -> str:
+    """Invoke a skill script by piping a JSON argument object to its stdin.
+
+    Runs the script directly (no shell), so the JSON parameter object never
+    passes through PowerShell quoting. The script must follow the skill-script
+    contract: read one JSON object from stdin and call ``run(**args)``.
+
+    Args:
+        script: Absolute path to the skill's ``.py`` script.
+        params: Argument object forwarded to the script's ``run(**params)``.
+        timeout: Maximum execution time in seconds.
+
+    Returns:
+        The script's stdout output as a string, or an error/timeout message.
+    """
+    if not script:
+        return "skill mode requires 'script' (absolute path to the skill script)."
+
+    path = Path(script)
+    if not path.is_file():
+        return f"Skill script not found: {script}"
+
+    if params is None:
+        params = {}
+    elif isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except (json.JSONDecodeError, TypeError):
+            return f"Skill script '{path.name}' received invalid params JSON: {params[:200]}"
+
+    args_json = json.dumps(params, ensure_ascii=False)
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            str(path),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_venv_env(),
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(args_json.encode("utf-8")),
+                timeout=timeout,
+            )
+        except TimeoutError:
+            proc.kill()
+            return f"Skill script '{path.name}' timed out after {timeout}s."
+
+        output = stdout.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+        stderr_output = stderr.decode("utf-8", errors="replace").strip() if stderr else ""
+
+        if proc.returncode is not None and proc.returncode != 0:
+            detail = stderr_output or output.strip()
+            return f"Skill script '{path.name}' exited with code {proc.returncode}. {detail[:1000]}"
+        if stderr_output:
+            output += f"\n[stderr]\n{stderr_output}"
+
+        return output.strip() or "(no output)"
+    except Exception as e:
+        return f"Skill script execution error: {e}"
+
+
 async def run(
     mode: str,
     code: str = "",
     command: str = "",
+    script: str = "",
+    params: dict | None = None,
     timeout: int = 600,
 ) -> str:
-    """Execute Python code or a shell command.
+    """Execute Python code, a shell command, or a skill script.
 
     Args:
-        mode: Execution mode — "python" or "shell".
+        mode: Execution mode — "python", "shell", or "skill".
         code: (python) Python source code to execute.
         command: (shell) Shell command string to run.
+        script: (skill) Absolute path to the skill's ``.py`` script.
+        params: (skill) Argument object forwarded to the script's ``run(**params)``.
         timeout: Maximum execution time in seconds. Defaults to 600 (10 minutes).
     """
     try:
@@ -204,8 +284,10 @@ async def run(
             return await _python(code, timeout)
         elif mode == "shell":
             return await _shell(command, timeout)
+        elif mode == "skill":
+            return await _skill(script, params, timeout)
         else:
-            return f"Unknown mode: {mode}. Valid modes: python, shell."
+            return f"Unknown mode: {mode}. Valid modes: python, shell, skill."
     except Exception:
         return json.dumps({"error": traceback.format_exc()})
 

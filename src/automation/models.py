@@ -2,10 +2,29 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel
+
+
+def parse_iso_date(value: str) -> date | None:
+    """Parse a ``YYYY-MM-DD`` string into a date.
+
+    Args:
+        value: The raw date string (leading/trailing whitespace allowed).
+
+    Returns:
+        The parsed date, or ``None`` when *value* is empty or malformed.
+    """
+    text = (value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 class ActivationType(StrEnum):
@@ -40,6 +59,8 @@ class AutomationInfo(BaseModel):
         has_references: Whether the folder contains a ``references/`` subdirectory.
         enabled: Whether the automation is currently enabled (from state store).
         last_run: Timestamp of the most recent run, or an empty string.
+        start_date: Optional first day the automation may fire (``YYYY-MM-DD``).
+        end_date: Optional last day the automation may fire (``YYYY-MM-DD``).
     """
 
     name: str
@@ -55,6 +76,8 @@ class AutomationInfo(BaseModel):
     has_references: bool = False
     enabled: bool = True
     last_run: str = ""
+    start_date: str = ""
+    end_date: str = ""
 
 
 class AutomationResult(BaseModel):

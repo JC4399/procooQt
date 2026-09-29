@@ -11,12 +11,14 @@ source automation, and the searchable paged history window. It calls the Qt-free
 
 Read rules (see [notification-lifecycle-flow](../flows/notification-lifecycle-flow.md)):
 
-- **log** — all logs are marked read when the notification page opens.
+- **log** — all logs are marked read when the notification page opens; they stay
+  listed (rendered dimmed) until the page closes.
 - **info / error** — marked read only when the user presses **Confirm**.
 - **error** additionally offers **Debug**, which emits `edit_automation_requested`.
 
-The bell page shows **unread** notifications only; a read item disappears from
-the page (it stays in history).
+The bell page shows **unread** notifications, plus the success logs that the
+current page-open just marked read; a read item disappears from the page once it
+is closed (it stays in history).
 
 ## Deliverables
 
@@ -49,7 +51,9 @@ the page (it stays in history).
 
 - `_handle_automation_result(result)` → `manager.add(result)` → rebuild page +
   reload history + emit counts.
-- `_handle_page_opened()` → `manager.mark_logs_read()`; if changed, rebuild.
+- `_handle_page_opened()` → `_page_open = True`; `manager.mark_logs_read()` →
+  emit counts when changed → rebuild (keeps the just-read logs) + reload history.
+- `_handle_page_closed()` → `_page_open = False` → rebuild (unread only).
 - `_handle_confirm(id)` → `manager.mark_read(id)`; if changed, rebuild.
 - `_handle_debug(id)` → `manager.get(id)` → emit `edit_automation_requested(path)`.
 - `_handle_load_more()` → next `HISTORY_PAGE_SIZE` (20) rows appended.
@@ -62,13 +66,14 @@ the page (it stays in history).
 | `def __init__(self, app, parent=None) -> None` | app; parent | `None` | store app | — |
 | `def build(self) -> None` | — | `None` | create models; rebuild page + history | — |
 | `@Slot(object) def _handle_automation_result(self, result) -> None` | `AutomationResult` | `None` | add; rebuild; counts | Persists notification |
-| `@Slot() def _handle_page_opened(self) -> None` | — | `None` | mark logs read | Persists when changed |
+| `@Slot() def _handle_page_opened(self) -> None` | — | `None` | set `_page_open`; mark logs read; rebuild + reload | Persists when changed |
+| `@Slot() def _handle_page_closed(self) -> None` | — | `None` | clear `_page_open`; rebuild | Emits `notifications_changed` |
 | `@Slot(str) def _handle_confirm(self, item_id) -> None` | id | `None` | mark read | Persists when changed |
 | `@Slot(str) def _handle_debug(self, item_id) -> None` | id | `None` | emit edit request | — |
 | `@Slot() def _handle_view_history(self) -> None` | — | `None` | reset search + reload | Emits `history_changed` |
 | `@Slot(str) def _handle_history_search(self, text) -> None` | text | `None` | reset + reload | Emits `history_changed` |
 | `@Slot() def _handle_load_more(self) -> None` | — | `None` | append next page | Emits `history_changed` |
-| `_unread(kind)` / `_rebuild_page()` / `_reload_history()` | — | int / `None` | helpers; page rebuild keeps unread only | — |
+| `_unread(kind)` / `_rebuild_page()` / `_reload_history()` | — | int / `None` | helpers; page rebuild keeps unread + (while open) just-read logs | — |
 
 ## See also
 

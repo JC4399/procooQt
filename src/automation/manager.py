@@ -24,7 +24,7 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from ..skill.models import ValidationIssue, ValidationLevel
-from .models import ActivationType, AutomationInfo
+from .models import ActivationType, AutomationInfo, parse_iso_date
 
 logger = logging.getLogger("procoo_qt")
 
@@ -258,6 +258,8 @@ class AutomationManager:
                 "body",
             )
 
+        start_date, end_date = self._load_window_dates(metadata, source)
+
         if missing_required or activation is None:
             return None
 
@@ -290,7 +292,39 @@ class AutomationManager:
             has_references=has_references,
             enabled=self.is_enabled(rel_path),
             last_run=str(self._state.get(rel_path, {}).get("last_run", "")),
+            start_date=start_date,
+            end_date=end_date,
         )
+
+    def _load_window_dates(self, metadata: dict, source: str) -> tuple[str, str]:
+        """Extract the optional ``start_date`` / ``end_date`` frontmatter window.
+
+        Malformed values produce a validation warning and are ignored (treated
+        as unset) so a typo cannot silently block an automation forever.
+
+        Args:
+            metadata: The parsed YAML frontmatter mapping.
+            source: Source label used for validation issues.
+
+        Returns:
+            A ``(start_date, end_date)`` tuple of normalised ``YYYY-MM-DD``
+            strings, either of which may be empty.
+        """
+        normalised: list[str] = []
+        for field in ("start_date", "end_date"):
+            raw = str(metadata.get(field, "")).strip()
+            parsed = parse_iso_date(raw)
+            if raw and parsed is None:
+                self._add_issue(
+                    ValidationLevel.WARNING,
+                    source,
+                    f"Invalid '{field}' (expected 'YYYY-MM-DD'): '{raw}'.",
+                    field,
+                )
+                normalised.append("")
+            else:
+                normalised.append("" if parsed is None else parsed.isoformat())
+        return normalised[0], normalised[1]
 
     # ------------------------------------------------------------------
     #  Private: State storage

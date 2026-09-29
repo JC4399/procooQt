@@ -71,7 +71,7 @@ so QML re-reads the properties from the chat's `ChatState`.
 | `async def _send(self, message) -> None` | message | `None` | hydrate → inject context → `chat._handle_send_for` | Launches generation |
 | `@Slot() def _handle_stop(self) -> None` | — | `None` | `chat._handle_stop_for` | — |
 | `@Slot() def _handle_regenerate(self) -> None` | — | `None` | `chat._handle_regenerate_for` | — |
-| `@Slot(int) def _handle_delete_turn(self, msg_index) -> None` | source message index | `None` | `chat._handle_delete_turn_for(chat_id, msg_index)` | Removes the turn |
+| `@Slot(int) def _handle_delete_turn(self, msg_index) -> None` | source message index | `None` | `chat._handle_delete_turn_for(chat_id, msg_index)` | Removes the card's message object |
 | `@Slot(int) def _handle_regenerate_from(self, msg_index) -> None` | source user index | `None` | `chat._handle_regenerate_from_for(chat_id, msg_index)` | Truncates + regenerates |
 | `@Slot() def _handle_clear(self) -> None` | — | `None` | stop; drop agent; reset record/model | Rewrites chat file |
 | `@Slot(str) def _handle_state_changed(self, chat_id) -> None` | chat id | `None` | refresh if it is the editor chat | Emits `state_changed` |

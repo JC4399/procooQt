@@ -665,7 +665,6 @@ async def _image(
         img = Image.open(str(path))
         img.load()
         width, height = img.size
-        file_size = path.stat().st_size
     except Exception as e:
         return f"Failed to read image: {e}"
 
@@ -695,8 +694,7 @@ async def _image(
         out = _resize_by_dpi(img, dpi)
         out = _clamp_image(out)
         w, h = out.size
-        size_str = _format_file_size(file_size)
-        return _media_output_image(f"{path.name} ({w}x{h}, {size_str})", out)
+        return _media_output_image(f"{path.name} ({w}x{h})", out)
 
     return (
         f"Unknown submode: {sub!r}. Valid: full, ocr, thumbnail, cropping, test, test-resolution."
@@ -1255,6 +1253,11 @@ async def _probe_ocr() -> str:
 def _format_media_output(text: str, media: list[dict]) -> str:
     """Build the JSON payload used to signal image results to the main process.
 
+    The size of every returned image (its encoded byte length) is appended to
+    the tool output ``text`` — as a single value for one image, or a total for
+    several — and to each entry's ``desc``, so the caller can see how large the
+    returned image(s) are.
+
     Args:
         text: Human-readable summary for the tool result message.
         media: List of ``{"desc": str, "data": base64_str}`` entries.
@@ -1262,6 +1265,19 @@ def _format_media_output(text: str, media: list[dict]) -> str:
     Returns:
         JSON string with ``_media`` marker.
     """
+    sizes = [_b64_byte_size(entry.get("data", "")) for entry in media]
+    for entry, size in zip(media, sizes):
+        size_str = _format_file_size(size)
+        desc = entry.get("desc", "")
+        entry["desc"] = f"{desc}, {size_str}" if desc else size_str
+
+    if sizes:
+        total = sum(sizes)
+        if len(sizes) == 1:
+            text = f"{text} ({_format_file_size(total)})"
+        else:
+            text = f"{text} (total {_format_file_size(total)})"
+
     return json.dumps({"_media": True, "text": text, "media": media})
 
 
@@ -1279,6 +1295,23 @@ def _format_file_size(num_bytes: int) -> str:
     if num_bytes < 1024 * 1024:
         return f"{num_bytes / 1024:.0f}KB"
     return f"{num_bytes / (1024 * 1024):.1f}MB"
+
+
+def _b64_byte_size(b64: str) -> int:
+    """Return the decoded byte length of a base64 payload.
+
+    Args:
+        b64: Base64-encoded string (the returned image data).
+
+    Returns:
+        Number of bytes in the decoded image, or 0 when decoding fails.
+    """
+    if not b64:
+        return 0
+    try:
+        return len(base64.b64decode(b64))
+    except Exception:
+        return 0
 
 
 # ---------------------------------------------------------------------------

@@ -75,6 +75,7 @@ Rectangle {
                 name: model.name
                 description: model.description
                 scheduleText: model.schedule_text
+                windowText: model.window_text
                 enabled: model.enabled
                 lastRun: model.last_run
                 running: model.running

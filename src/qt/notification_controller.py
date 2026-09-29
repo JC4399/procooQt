@@ -1,9 +1,9 @@
 """``NotificationController`` — notification cards, unread badges, and history.
 
 Owns the bell page model, the per-kind unread counts shown as title-bar badges,
-read semantics (success logs auto-read when the page opens; info/error on
-Confirm), the Debug action that opens the source automation, and the searchable,
-paged history window.
+read semantics (success logs auto-read when the page opens and stay visible
+dimmed until it closes; info/error on Confirm), the Debug action that opens the
+source automation, and the searchable, paged history window.
 """
 
 from __future__ import annotations
@@ -44,6 +44,7 @@ class NotificationController(QObject):
         _history_offset: int
         _history_total: int
         _history_search: str
+        _page_open: bool
 
     # ------------------------------------------------------------------
     #  Setup
@@ -70,6 +71,7 @@ class NotificationController(QObject):
         self._history_offset = 0
         self._history_total = 0
         self._history_search = ""
+        self._page_open = False
         self._rebuild_page()
         self._reload_history()
 
@@ -137,16 +139,23 @@ class NotificationController(QObject):
         self.counts_changed.emit()
 
     # ------------------------------------------------------------------
-    #  Slot: Page open / read marking
+    #  Slot: Page open / close / read marking
     # ------------------------------------------------------------------
 
     @Slot()
     def _handle_page_opened(self) -> None:
-        """Mark success logs read when the notification page is opened."""
+        """Mark success logs read and keep them visible (dimmed) until closed."""
+        self._page_open = True
         if self.app.notification_manager.mark_logs_read():
-            self._rebuild_page()
-            self._reload_history()
             self.counts_changed.emit()
+        self._rebuild_page()
+        self._reload_history()
+
+    @Slot()
+    def _handle_page_closed(self) -> None:
+        """Drop the dimmed success logs once the notification page is left."""
+        self._page_open = False
+        self._rebuild_page()
 
     @Slot(str)
     def _handle_confirm(self, item_id: str) -> None:
@@ -220,8 +229,18 @@ class NotificationController(QObject):
         return self.app.notification_manager.unread_counts().get(kind, 0)
 
     def _rebuild_page(self) -> None:
-        """Rebuild the bell-page model with unread notifications only."""
-        items = [item for item in self.app.notification_manager.items if not item.read]
+        """Rebuild the bell-page model.
+
+        Unread notifications always appear. While the page is open, success
+        logs marked read by the open itself stay listed so the user can still
+        see them (the card renders them dimmed); they are dropped on close.
+        """
+        items = [
+            item
+            for item in self.app.notification_manager.items
+            if not item.read
+            or (self._page_open and item.kind is NotificationKind.LOG)
+        ]
         self._model.set_notifications(items)
         self.notifications_changed.emit()
 

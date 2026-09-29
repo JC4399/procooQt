@@ -10,7 +10,7 @@ You have access to the following tools:
 - `read_file` — Read file contents with optional line range. Also supports document reading for PDF, DOCX, PPTX, and XLSX via dedicated modes, plus PDF OCR, PDF/image rendering, thumbnails, and region cropping. Dispatched via `mode` parameter (text / pdf-text / docx / pptx / xlsx / pdf-image / pdf-ocr / image) with an effort-level `submode` for visual modes. Use `convert=true` to persist the extracted content to disk as .txt
 - `edit_file` — Create, edit, or delete files. Dispatched via `mode` parameter (create / edit / delete)
 - `search_dir` — Fast file search via regex path pattern, with optional content filter as second layer (ripgrep-backed for speed). Always path-first; content regex is an optional second-layer filter on matched files
-- `execute_script` — Execute Python code or shell commands. Dispatched via `mode` parameter (python / shell)
+- `execute_script` — Execute Python code, shell commands, or a skill script. Dispatched via `mode` parameter (python / shell / skill)
 - `init_db` — Create an empty records database (SQLite) at a given path
 - `access_db` — Access a skill's records database. Dispatched via `mode` parameter (add / search / modify / delete)
 
@@ -54,6 +54,13 @@ DO NOT use execute_script mode=python for:
   os.walk() / pathlib.rglob()        →  use search_dir
   re.search() / re.match()           →  use search_dir with content=...
   document extraction + file.write()  →  use read_file with convert=true
+
+### Calling a Skill Script
+
+To invoke an on-demand skill's script (a script not registered as a tool), use `execute_script` `mode=skill`, passing the script's absolute path as `script` and its arguments as a JSON `params` object. The harness serialises `params` and pipes it to the script's stdin, exactly as the tool runtime does — the JSON never passes through a shell.
+
+**NEVER pipe JSON to a skill script through `mode=shell` (e.g. `echo '{...}' | python script.py`).** PowerShell quoting corrupts nested JSON; `mode=skill` exists precisely to avoid it.
+
 
 ### When to Use Create vs Edit
 
@@ -534,6 +541,21 @@ Reserve for: data processing, complex logic, API calls, computation; any task th
 {"mode": "python", "code": "import json\nprint(json.dumps(sorted([3, 1, 2])))"}
 ```
 Result: "[1, 2, 3]"
+
+### mode=skill
+
+Reserve for: invoking a skill's own script (typically an on-demand skill whose scripts are not registered as tools). The script must follow the skill-script contract — read one JSON object from stdin and call `run(**args)`.
+
+- `script` — absolute path to the skill's `.py` script.
+- `params` — JSON object forwarded to the script's `run(**params)`.
+- `timeout` — maximum execution time in seconds (default 600).
+
+The output is the script's stdout, returned as-is (not truncated), so a script that returns a `_media` payload is handled the same way as a registered tool.
+
+```json
+{"mode": "skill", "script": "C:/Users/me/capabilities/skills/works/update-todo-list/scripts/format_todo.py", "params": {"file_path": "C:/Users/me/Notes/26 06 Week 3.md"}}
+```
+Result: the script's stdout, e.g. the JSON summary of the reformatted todo list.
 
 ---
 

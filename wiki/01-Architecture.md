@@ -166,9 +166,9 @@ same ReAct loop as chat), so automations can use the LLM. Results are
 
 Every automation result becomes a notification: success → grey **log**, info →
 amber **info**, error → red **error**. Logs are marked read when the notification
-page opens; info/error require **Confirm** (errors also offer **Debug** which
-opens the source file). History and read flags persist in
-`storage/notifications.json`. See
+page opens and stay visible (dimmed) until it closes; info/error require
+**Confirm** (errors also offer **Debug** which opens the source file). History
+and read flags persist in `storage/notifications.json`. See
 [`notification`](modules/notification.md) and
 [`notification-lifecycle-flow`](flows/notification-lifecycle-flow.md).
 

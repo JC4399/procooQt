@@ -7,6 +7,7 @@ event, and schedule, then flattens each into a role-keyed row.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from ..models.base import Item, ListModel
@@ -137,4 +138,46 @@ class AutomationListModel(ListModel):
             int(AutomationRole.LAST_RUN): info.last_run,
             int(AutomationRole.EVENT): info.event,
             int(AutomationRole.RUNNING): info.path in running,
+            int(AutomationRole.WINDOW_TEXT): AutomationListModel._window_text(info),
         }
+
+    @staticmethod
+    def _window_text(info: AutomationInfo) -> str:
+        """Build the display text for an automation's date window.
+
+        Args:
+            info: The automation whose ``start_date`` / ``end_date`` to render.
+
+        Returns:
+            An empty string when no dates are set, otherwise a ``YYYY-MM-DD →
+            YYYY-MM-DD`` range suffixed with ``pending``, ``active``, or
+            ``expired``.
+        """
+        start = (info.start_date or "").strip()
+        end = (info.end_date or "").strip()
+        if not start and not end:
+            return ""
+        range_text = " → ".join(part for part in (start, end) if part)
+        return f"{range_text} · {AutomationListModel._window_status(info)}"
+
+    @staticmethod
+    def _window_status(info: AutomationInfo) -> str:
+        """Classify an automation's date window relative to today.
+
+        Args:
+            info: The automation whose window to classify.
+
+        Returns:
+            ``"pending"`` before the start date, ``"expired"`` after the end
+            date, otherwise ``"active"``.
+        """
+        from ...automation.models import parse_iso_date
+
+        today = date.today()
+        start = parse_iso_date(info.start_date)
+        end = parse_iso_date(info.end_date)
+        if start is not None and today < start:
+            return "pending"
+        if end is not None and today > end:
+            return "expired"
+        return "active"

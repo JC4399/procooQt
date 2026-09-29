@@ -23,6 +23,12 @@ The `watchdog` callback runs on a background thread and only emits
   `edit_automation_requested`, `toast_requested`.
 - Slots: `start`, search, toggle, edit, run-now, watcher refresh.
 
+Date windows (`start_date` / `end_date` frontmatter) are **read-only display
+data**: the model exposes a precomputed `WINDOW_TEXT` role (range +
+`pending`/`active`/`expired`), and `AutomationCard.qml` renders it in a
+"Window" row hidden when unset. No slots exist for editing it; watchdog
+refreshes pick up frontmatter edits automatically.
+
 ## Signals & properties
 
 | Signal | Payload | Emitted when |

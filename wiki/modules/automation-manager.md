@@ -50,6 +50,13 @@ Automation identity = relative path from `automations_dir` (e.g. `"reports/daily
 | `event` | event only | Event name matched by the HTTP server |
 | `primary_skills` | no | Skill paths fed to the automation's headless agent |
 | `secondary_skills` | no | Secondary skill paths |
+| `start_date` | no | First day the automation may fire, `YYYY-MM-DD` |
+| `end_date` | no | Last day the automation may fire, `YYYY-MM-DD` |
+
+The date window gates **scheduled** firing only (the
+[scheduler](automation-scheduler.md) skips before `start_date` and auto-disables
+after `end_date`); event automations ignore it. Malformed dates produce a
+`WARNING` and are treated as unset.
 
 The body after the frontmatter is the Python code (plus skill-like comments). It
 must define `async def run(ctx)`; see [automation-runner](automation-runner.md).
@@ -63,8 +70,9 @@ must define `async def run(ctx)`; see [automation-runner](automation-runner.md).
    `schedule`, `event`, and the optional skill lists.
 3. Validate: missing `name`/`description`/`activation` → `ERROR` + skip; a
    scheduled automation with a missing/invalid cron → `ERROR` + skip; an event
-   automation with no `event` name → `ERROR` + skip; empty code body or a
-   `scripts/` directory with no `.py` files → `WARNING`.
+   automation with no `event` name → `ERROR` + skip; empty code body, a
+   `scripts/` directory with no `.py` files, or a malformed `start_date` /
+   `end_date` → `WARNING` (malformed dates are treated as unset).
 4. Merge persisted `enabled` / `last_run` from `_state`.
 5. Append `AutomationInfo`.
 
@@ -112,6 +120,7 @@ a Qt signal (the [automation controller](qt-automation-controller.md) does this)
 | Function | Signature | Purpose |
 |---|---|---|
 | `_load_automation_info` | `(auto_file, entry, rel_path) -> AutomationInfo \| None` | parse + validate one file |
+| `_load_window_dates` | `(metadata, source) -> tuple[str, str]` | normalise `start_date`/`end_date`, warn on malformed |
 | `_load_state` / `_save_state` | `() -> dict` / `() -> None` | read/write `automations.json` |
 | `_string_list` | `(value) -> list[str]` | coerce frontmatter list |
 | `_add_issue` / `_print_validation` | `(...) -> None` | collect/log validation |
@@ -123,8 +132,12 @@ a Qt signal (the [automation controller](qt-automation-controller.md) does this)
 |---|---|
 | `ActivationType` (`StrEnum`) | `SCHEDULED`, `EVENT` |
 | `AutomationResultKind` (`StrEnum`) | `SUCCESS`, `INFO`, `ERROR` |
-| `AutomationInfo` | `name`, `path`, `directory`, `description`, `activation`, `schedule`, `event`, `primary_skills`, `secondary_skills`, `has_scripts`, `has_references`, `enabled`, `last_run` |
+| `AutomationInfo` | `name`, `path`, `directory`, `description`, `activation`, `schedule`, `event`, `primary_skills`, `secondary_skills`, `has_scripts`, `has_references`, `enabled`, `last_run`, `start_date`, `end_date` |
 | `AutomationResult` | `kind`, `path`, `task`, `message`, `log`, `data`, `timestamp` |
+
+Module-level helper: `parse_iso_date(value: str) -> date | None` — parses
+`YYYY-MM-DD`, returning `None` for empty/malformed input (shared by the manager
+and the scheduler).
 
 ## See also
 

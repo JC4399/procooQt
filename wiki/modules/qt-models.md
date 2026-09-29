@@ -200,6 +200,8 @@ Automation cards, filtered by a fuzzy subsequence match over name, description,
 event, and schedule. `SCHEDULE_TEXT` is the cron expression, or
 `"Event driven (<event>)"` for event automations. `RUNNING` marks an automation
 with an in-flight manual run (drives the card's spinner and disabled button).
+`WINDOW_TEXT` renders the optional `start_date`/`end_date` frontmatter window as
+`YYYY-MM-DD → YYYY-MM-DD · pending|active|expired` (`""` when no dates set).
 
 | Signature | Inputs | Output | Flow / Side effects |
 |---|---|---|---|
@@ -207,6 +209,8 @@ with an in-flight manual run (drives the card's spinner and disabled button).
 | `def set_automations(self, automations: list[AutomationInfo], search: str = "", running: set[str] \| None = None) -> None` | automations; fuzzy filter; running paths | `None` | filter → build rows → `set_items`; full reset |
 | `def set_running(self, path: str, running: bool) -> None` | path; running | `None` | locate row by key → `update_item` (`RUNNING`); no reset |
 | `fuzzy_match(query, text) module fn -> bool` | query; text | subsequence match | case-insensitive ordered scan |
+| `_row(info, running)` (`@staticmethod`) | automation; running paths | role dict | flattens one card row incl. `WINDOW_TEXT` |
+| `_window_text(info)` / `_window_status(info)` (`@staticmethod`) | automation | display text / status word | range + `pending`/`active`/`expired` via `parse_iso_date` |
 
 ### `NotificationListModel`
 

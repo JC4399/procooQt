@@ -113,6 +113,7 @@ enum into the `{role id: bytes}` mapping Qt expects.
 | `LAST_RUN` | 7 | Last-run timestamp |
 | `EVENT` | 8 | Event name (event automations) |
 | `RUNNING` | 9 | Whether a manual run is in flight |
+| `WINDOW_TEXT` | 10 | Date-window display text, or `""` when no dates set |
 
 ### `NotificationRole` — `NotificationListModel`
 

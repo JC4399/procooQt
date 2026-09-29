@@ -33,7 +33,7 @@ the sidebar refresh is debounced and offloaded.
 - The `_PlanBuilder`, `_StagedBuildState` and `_RenderIndices` dataclasses.
 - Tool approval via `asyncio.Event`, stop/regenerate, and automatic chat
   compaction.
-- Per-card history editing: `_handle_delete_turn_for` removes the turn a card
+- Per-card history editing: `_handle_delete_turn_for` removes the message object behind a card
   belongs to; `_handle_regenerate_from_for` truncates from a user card and
   regenerates.
 - `chat_state_changed(chat_id)` — emitted whenever a chat's runtime state
@@ -186,7 +186,7 @@ call `chat.approve_tool` / `chat.deny_tool` and `set()` the event.
 - `_handle_approve_for(chat_id)` → `_approve`; `_handle_deny_for(chat_id, reason)`
   → `_deny`.
 
-### Delete turn / regenerate from a card
+### Delete message / regenerate from a card
 
 Every rendered card carries the `msg_index` of the message it was built from (in
 the item and in its render key, so a matched row can never keep a stale index;
@@ -195,13 +195,16 @@ the item and in its render key, so a matched row can never keep a stale index;
 - `_handle_delete_turn_for(chat_id, msg_index)` → `_delete_turn` (synchronous):
   rejects a busy chat, then resolves the live `Agent` messages (mutated in place,
   `_current_assistant_msg` reset) or the stored messages when the chat is not
-  hydrated. `_round_bounds` returns the `[start, end)` of the turn: it walks back
-  to the nearest user message (over any immediately-preceding injected system
-  messages) and forward to the next user message, so the prompt, assistant reply,
-  tool calls, and tool results are removed together and the remaining history
-  stays LLM-valid. The truncated list is persisted (`_save_current_chat_for` for
-  a live chat, a direct store save otherwise), `state.item_cache` is cleared, and
-  the display and sidebar are rebuilt.
+  hydrated. `_delete_bounds` maps the clicked card to its message object and
+  removes only that object plus the minimum needed to keep the history
+  LLM-valid: a `user` message goes alone; an `assistant` message (thinking /
+  response / tool-call cards share one object) takes its contiguous trailing
+  `tool` results with it; a `tool` result goes alone unless the preceding
+  assistant message would be left with `tool_calls` and no remaining results,
+  in which case that assistant message is removed too. The truncated list is
+  persisted (`_save_current_chat_for` for a live chat, a direct store save
+  otherwise), `state.item_cache` is cleared, and the display and sidebar are
+  rebuilt.
 - `_handle_regenerate_from_for(chat_id, msg_index)` → `_regenerate_from`
   (async): rejects a busy chat or a non-user index, reads the message text via
   `normalize_content`, writes `messages[:msg_index]` to the store, drops delta
@@ -265,7 +268,7 @@ the per-card `tk` estimate, which is independent of the token bar.
 | `async def _approve(self, chat_id)` | chat | `None` | `approve_tool` → set event → emit state | Releases approval |
 | `async def _deny(self, chat_id, reason)` | chat, reason | `None` | `deny_tool` → set event → emit state | Releases approval |
 | `async def _regenerate(self, chat_id)` | chat | `None` | find last user → trim → drop deltas → remove live → rebuild → `_launch_generation` | Error toasts |
-| `def _delete_turn(self, chat_id, msg_index)` | chat, source message index | `None` | guard busy → live/stored messages → `_round_bounds` → delete range → persist → clear cache → rebuild → refresh sidebar | Mutates messages; error toasts |
+| `def _delete_turn(self, chat_id, msg_index)` | chat, source message index | `None` | guard busy → live/stored messages → `_delete_bounds` → delete range → persist → clear cache → rebuild → refresh sidebar | Mutates messages; error toasts |
 | `async def _regenerate_from(self, chat_id, msg_index)` | chat, source user index | `None` | guard busy/non-user → read text → store `messages[:msg_index]` → drop deltas → remove live → rebuild → `_launch_generation` | Writes store; error toasts |
 | `def _find_last_user_message(self, chat_id)` | chat | Last user text | live → stored messages | — |
 | `def _trim_stored_chat(self, chat_id)` | chat | `None` | pop trailing non-user then user → save | Writes store |
@@ -301,7 +304,7 @@ the per-card `tk` estimate, which is independent of the token bar.
 | `def _assistant_decision(msg: dict) -> dict` | assistant message | Decision dict | Thinking/response/tool-call state |
 | `def _is_waiting_for_assistant(state: ChatState, messages) -> bool` | state, messages | Bool | Busy with no assistant content yet |
 | `def _count_trailing_tool_results(messages, after_idx) -> int` | messages, index | Count | Consecutive `role == "tool"` messages |
-| `def _round_bounds(messages, msg_index) -> tuple[int, int]` | messages, source index | `(start, end)` | Half-open turn range: back to nearest user message (over preceding system messages), forward to next user message |
+| `def _delete_bounds(messages, msg_index) -> tuple[int, int]` | messages, source index | `(start, end)` | Half-open range for one card delete: the card's own message object, plus contiguous trailing `tool` results for an assistant message, plus the preceding assistant message when a `tool` delete would orphan its `tool_calls` |
 | `def _accumulate_tokens(text, previous, current) -> int` | text, counted prefix, count | Updated count | Counts the appended suffix only |
 
 `_PlanBuilder` (class) accumulates keys/items/indices and owns the
