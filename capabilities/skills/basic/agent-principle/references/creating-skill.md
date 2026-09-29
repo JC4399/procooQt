@@ -30,6 +30,10 @@ Author the three parts in order, then test.
    output looks like. Ask for edge cases, example files, and success criteria.
    Ask, too, where a future agent must come back to you instead of guessing: the
    judgments only you can make are part of the skill.
+   **First check for overlap.** Search the skill set (catalog skill, sibling skill
+   folders) for an existing skill covering the same ground. If the request
+   duplicates or extends one, say so and confirm merge-versus-new with the user
+   before writing anything — users do not always know their own inventory.
 2. Write the briefing (`SKILL.md`): the purpose, the deliverable, and the
    methodology. If you cannot state these clearly, you do not understand the task
    well enough to automate it.
