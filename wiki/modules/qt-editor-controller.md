@@ -7,9 +7,9 @@ Source: `src/qt/editor_controller.py`
 Drives the separate code editor window (`src/qml/windows/EditorWindow.qml`, which
 hosts `EditorPanel.qml`): a read-only code editor backed by a QML `TextArea`, a
 collapsible file tree rooted at the **capabilities directory** (left of the code
-pane), and Edit/Save/Cancel/Reload actions. It also attaches a
-`QSyntaxHighlighter` to the `TextArea`'s text document. The window's right side
-hosts the full [editor chat panel](qt-editor-chat-controller.md)
+pane) with a fuzzy search field above it, and Edit/Save/Cancel/Reload actions. It
+also attaches a `QSyntaxHighlighter` to the `TextArea`'s text document. The
+window's right side hosts the full [editor chat panel](qt-editor-chat-controller.md)
 (`EditorChatPanel.qml`), a real chat driven by
 [`ChatController`](qt-chat-controller.md).
 
@@ -21,7 +21,8 @@ through the conflict slots. File reads and writes are offloaded with
 
 ## Deliverables
 
-- `FileTreeModel` (`editor.file_model`) — flattened file/folder rows.
+- `FileTreeModel` (`editor.file_model`) — flattened file/folder rows with a
+  fuzzy name search (matched folders keep their entire subtree).
 - `EditorController` (`QObject`) with signals, `Q_PROPERTY` accessors, and `@Slot`
   handlers for file clicks, folder toggles, edit/save/cancel/reload, the skill
   watcher, window visibility, conflict resolution, and opening an automation.
@@ -56,7 +57,8 @@ through the conflict slots. File reads and writes are offloaded with
 ### Build (`build`)
 
 1. Create `FileTreeModel`; initialise `_current_path`, `_current_text`,
-   `_language="plain"`, `_is_editing=False`, highlighter/document wrappers, `_tasks`.
+   `_language="plain"`, `_is_editing=False`, `_search_text=""`, highlighter/document
+   wrappers, `_tasks`.
 2. `_refresh_file_tree()` emits `file_tree_changed`.
 
 ### Start (`start`)
@@ -109,6 +111,25 @@ Both clear the pending conflict via `_clear_conflict`.
    `detect_language`, updates the highlighter language, emits
    `current_file_changed`. Read errors toast.
 
+### File tree search (`_handle_search_changed` / `_handle_clear_search`)
+
+The search field at the top of the file tree pane (styled like the
+[SkillDock](qt-skill-controller.md) search) calls `_handle_search_changed(text)`;
+the "×" button clears the field and calls `_handle_clear_search`.
+
+1. The term is stored in `_search_text` (so watcher rebuilds keep the filter —
+   `_refresh_file_tree` and `_refresh_from_watcher` pass it to
+   `FileTreeModel.rebuild`) and forwarded to `FileTreeModel.set_search`.
+2. The model re-flattens with a fuzzy (case-insensitive subsequence, reusing
+   `fuzzy_match`) filter over entry names: a matching file is kept; a folder
+   whose name matches keeps its **entire subtree** (expand state ignored); a
+   non-matching folder is kept only when a descendant matches, showing just the
+   matching chain.
+3. While a term is active every folder renders expanded
+   (`is_folder_expanded` returns `True`), matching the skill tree's search
+   behavior; the stored collapse state resumes when the filter clears.
+4. Emits `file_tree_changed`.
+
 ### Edit mode / save / cancel / reload
 
 - `_handle_edit` enters edit mode (warning when no file is open).
@@ -131,11 +152,11 @@ files mid-edit is blocked in the controller (`_open_file_in_editor` warning).
 shown by the "Open Editor" button in `SkillDock.qml` (or when
 `editor_open_requested` fires); it reports visibility via
 `editor._handle_window_visibility(visible)`. `EditorPanel.qml` is a `SplitView`
-placing the file tree pane on the left, the code pane in the middle, and the
-[editor chat panel](qt-editor-chat-controller.md) on the right, and renders
-`file_conflict` as a themed modal `Dialog` (mono font, `fontSizeBase` = 12,
-square surfaces) whose buttons call `_handle_conflict_keep` /
-`_handle_conflict_discard`.
+placing the file tree pane (fuzzy search field + tree) on the left, the code pane
+in the middle, and the [editor chat panel](qt-editor-chat-controller.md) on the
+right, and renders `file_conflict` as a themed modal `Dialog` (mono font,
+`fontSizeBase` = 12, square surfaces) whose buttons call `_handle_conflict_keep`
+/ `_handle_conflict_discard`.
 
 ### Highlighter bridge (`attachHighlighter`)
 
@@ -172,6 +193,8 @@ square surfaces) whose buttons call `_handle_conflict_keep` /
 |---|---|---|---|---|
 | `_handle_file_click(path: str, is_folder: bool) -> None` | `path` relative to capabilities root; `is_folder` | `None` | Folder → toggle; file → `_open_file_in_editor(absolute)` | Schedules file load / emits tree change |
 | `_handle_folder_toggle(path: str, expanded: bool) -> None` | `path`; `expanded` | `None` | `_file_model.set_folder_expanded`; emit | Emits `file_tree_changed` |
+| `_handle_search_changed(text: str) -> None` @Slot(str) | `text` — search field content | `None` | Store `_search_text`; `_file_model.set_search`; emit | Emits `file_tree_changed` |
+| `_handle_clear_search() -> None` @Slot | — | `None` | `_handle_search_changed("")` | Emits `file_tree_changed` |
 | `_handle_open_automation(path: str) -> None` @Slot(str) | `path` relative to automations root | `None` | Emit `editor_open_requested`; `_open_file_in_editor(capabilities/automations/<path>/AUTOMATION.py)` | Emits `editor_open_requested`; schedules a load |
 
 ### Slots: edit / save / cancel / reload
@@ -211,7 +234,7 @@ square surfaces) whose buttons call `_handle_conflict_keep` /
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `_refresh_from_watcher() async -> None` | — | `None` | `await asyncio.to_thread(_file_model.rebuild, capabilities_dir)`; emit; reconcile open file | Emits `file_tree_changed`; logs failure |
+| `_refresh_from_watcher() async -> None` | — | `None` | `await asyncio.to_thread(_file_model.rebuild, capabilities_dir, _search_text)`; emit; reconcile open file | Emits `file_tree_changed`; logs failure |
 | `_reload_open_file_if_changed() async -> None` | — | `None` | Skip with no file / pending conflict; stat + read; prompt `"deleted"` / `"modified"`; equal content records mtime | Emits `file_conflict` |
 | `_open_conflict(kind: str, path: str, mtime: float) -> None` | kind/path/mtime | `None` | Store conflict state; emit | Emits `file_conflict`; logs a warning |
 | `_clear_conflict() -> None` | — | `None` | Reset `_conflict_path` / `_conflict_kind` / `_conflict_mtime` | None |
@@ -221,7 +244,7 @@ square surfaces) whose buttons call `_handle_conflict_keep` /
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
 | `_set_editing(editing: bool) -> None` | `editing` | `None` | No-op if unchanged; store + emit | Emits `edit_mode_changed` |
-| `_refresh_file_tree() -> None` | — | `None` | `_file_model.rebuild(app.capabilities_dir)`; emit | Emits `file_tree_changed` |
+| `_refresh_file_tree() -> None` | — | `None` | `_file_model.rebuild(app.capabilities_dir, _search_text)`; emit | Emits `file_tree_changed` |
 
 ### Task & file helpers
 

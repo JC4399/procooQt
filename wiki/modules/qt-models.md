@@ -34,7 +34,7 @@ stream token.
 - `ChatListModel` — rendered chat items for `ChatPanel.qml`.
 - `SkillTreeModel` — flattened skill/folder tree with selection state.
 - `ToolModeModel` — per-tool permission rows grouped by skill.
-- `FileTreeModel` — flattened file/folder tree for `EditorPanel.qml`.
+- `FileTreeModel` — flattened file/folder tree with fuzzy name search for `EditorPanel.qml`.
 - `AutomationListModel` — automation cards for `AutomationPanel.qml`.
 - `NotificationListModel` — notification cards for the notification page and history.
 
@@ -171,17 +171,27 @@ tool of each skill so a QML delegate can render the group header inline.
 ### `FileTreeModel`
 
 Walks the skills root and flattens visible entries into depth-tagged rows.
-Folder-first ordering; folder collapse starts collapsed. `FileRole.ICON` carries
-a short extension label (`"py"`, `"md"`, …) or the folder marker `"dir"`.
+Folder-first ordering; folder collapse starts collapsed. An optional fuzzy
+search term (reusing `fuzzy_match`) filters rows by entry name: a folder whose
+name matches keeps its entire subtree, otherwise only the matching descendants
+are shown, and all folders render expanded while a term is active.
+`FileRole.ICON` carries a short extension label (`"py"`, `"md"`, …) or the
+folder marker `"dir"`.
 
 | Signature | Inputs | Output | Flow / Side effects |
 |---|---|---|---|
-| `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `FileRole`; init `_root`/`_expanded` |
-| `def rebuild(self, root: Path \| str) -> None` | root path | `None` | store root → `_flatten` |
+| `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `FileRole`; init `_root`/`_search`/`_expanded` |
+| `def rebuild(self, root: Path \| str, search: str = "") -> None` | root path; search term | `None` | store both → `_flatten` |
+| `def set_search(self, search: str) -> None` | search term | `None` | store term → `_flatten` |
 | `def set_folder_expanded(self, path: str, expanded: bool) -> None` | folder path, flag | `None` | update `_expanded` → `_flatten` |
-| `def is_folder_expanded(self, path: str) -> bool` | folder path | `True` if expanded | — |
-| `_flatten()` | — | `None` | `_walk` root → `set_items` |
-| `_walk(directory, depth, parent_path, rows, keys)` | dir etc. | `None` | sorted entries → recurse expanded folders; swallows `OSError`/`PermissionError` |
+| `def is_folder_expanded(self, path: str) -> bool` | folder path | `True` if expanded or search active | — |
+| `_flatten()` | — | `None` | search → `_walk_search`, else `_walk` → `set_items` |
+| `_walk(directory, depth, parent_path, rows, keys)` | dir etc. | `None` | no-search flatten: sorted entries → recurse expanded folders |
+| `_walk_search(directory, depth, parent_path, rows, keys) -> bool` | dir etc. | subtree has a match | fuzzy filter: matching folder keeps whole subtree; childless-of-match folders dropped |
+| `_walk_all(directory, depth, parent_path, rows, keys)` | dir etc. | `None` | dump every descendant ignoring `_expanded`; used under a matched folder |
+| `_matches(name: str) -> bool` | display name | fuzzy pass | delegates to `fuzzy_match(_search, name)` |
+| `_sorted_entries(directory) -> list[Path]` (`@staticmethod`) | dir | visible-order entries | folders-first sort; `[]` on `OSError`/`PermissionError` |
+| `_join(parent_path: str, name: str) -> str` (`@staticmethod`) | parent path; child name | child's root-relative path | — |
 | `_folder_row(path, name, depth)` / `_file_row(path, name, depth)` (`@staticmethod`) | row data | `Item` | file icon via `_EXT_TO_LABEL` |
 | `_is_hidden(entry)` (`@staticmethod`) | `Path` | `bool` | skip `__pycache__` and dotfiles except `.gitignore` |
 

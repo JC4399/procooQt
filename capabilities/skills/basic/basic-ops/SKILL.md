@@ -616,7 +616,9 @@ Search before answering a question the stored records should already know, with
 
 - `hybrid` (default) — keyword and semantic retrieval fused by reciprocal rank
   fusion, then reranked by the reranker. Use when unsure which signal matters.
-- `keyword` — literal term matching. Use for a specific phrase.
+- `keyword` — exact whole-word matching over an explicit keyword list
+  (`keywords: [...]`); a record must contain every keyword. Use for precise
+  multi-keyword lookups.
 - `semantic` — embedding similarity. Use for related meaning rather than exact
   words.
 

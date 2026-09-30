@@ -1,6 +1,7 @@
 """Access a skill's records database. Dispatch on ``mode``: add / search / modify / delete."""
 
 import asyncio
+from collections import Counter
 from datetime import UTC, datetime
 import json
 import math
@@ -144,27 +145,52 @@ async def _rerank(query: str, documents: list[str]) -> list[dict]:
 # ------------------------------------------------------------------
 
 
-def _keyword_scored(conn: sqlite3.Connection, query: str, limit: int) -> list[tuple[int, float]]:
-    """Rank records by keyword term frequency against ``query``.
+def _tokenize(text: str) -> list[str]:
+    """Lowercase word tokens from free text, stopwords removed.
+
+    Args:
+        text: Free text to tokenize.
+
+    Returns:
+        List of lowercase word tokens.
+    """
+    return [t for t in re.findall(r"\w+", text.lower()) if t not in STOPWORDS]
+
+
+def _keyword_scored(
+    conn: sqlite3.Connection, keywords: list[str], limit: int, require_all: bool = True
+) -> list[tuple[int, float]]:
+    """Rank records by exact whole-word term frequency over ``keywords``.
+
+    Each keyword must appear as an exact whole word in a record's content,
+    tags or source — it does not match inside a longer word (e.g. ``NTR``
+    does not match ``INTRA-ORAL``). With ``require_all`` (the ``keyword``
+    submode) a record is kept only if it contains *every* keyword; the score
+    is the total number of exact occurrences summed over all keywords.
+    Without it (the ``hybrid`` lexical leg) any keyword may match.
 
     Args:
         conn: An open SQLite connection.
-        query: Search query text.
+        keywords: List of keywords to match, e.g. ``["NTR", "SE"]``.
         limit: Maximum number of results.
+        require_all: Require every keyword to be present.
 
     Returns:
         List of ``(record_id, score)`` sorted by descending score.
     """
-    terms = [t for t in re.findall(r"\w+", query.lower()) if t not in STOPWORDS]
-    if not terms:
+    term_set = frozenset(k.lower().strip() for k in keywords if k and k.strip())
+    if not term_set:
         return []
     rows = conn.execute("SELECT id, content, tags, source FROM notes").fetchall()
     scored: list[tuple[int, float]] = []
     for r in rows:
-        text = f"{r['content']} {r['tags']} {r['source']}".lower()
-        score = sum(text.count(t) for t in terms)
-        if score > 0:
-            scored.append((r["id"], float(score)))
+        words = re.findall(r"\w+", f"{r['content']} {r['tags']} {r['source']}".lower())
+        counts = Counter(w for w in words if w in term_set)
+        if require_all and len(counts) < len(term_set):
+            continue
+        if not counts:
+            continue
+        scored.append((r["id"], float(sum(counts.values()))))
     scored.sort(key=lambda kv: -kv[1])
     return scored[:limit]
 
@@ -233,9 +259,16 @@ async def _add(db_path: str, content: str | None, tags: str | None, source: str)
 
 
 async def _search(
-    db_path: str, query: str, top_k: int, submode: str, min_score: float
+    db_path: str, query: str, top_k: int, submode: str, min_score: float,
+    keywords: list[str] | None = None,
 ) -> dict:
-    if not query:
+    if submode == "keyword":
+        if isinstance(keywords, str) or not keywords:
+            return {
+                "error": 'keyword search requires "keywords": an explicit list, '
+                'e.g. ["NTR", "SE"]'
+            }
+    elif not query:
         return {"error": "query is required for search"}
     conn = _connect(db_path)
     try:
@@ -247,7 +280,7 @@ async def _search(
 
         filtered = 0
         if submode == "keyword":
-            pairs = _keyword_scored(conn, query, top_k)
+            pairs = _keyword_scored(conn, keywords, top_k)
         elif submode == "semantic":
             pairs = _semantic_scored(rows, await _embed(query), top_k)
         else:
@@ -272,6 +305,8 @@ async def _search(
             "matched": bool(results),
             "results": results,
         }
+        if submode == "keyword":
+            response["keywords"] = keywords
         if filtered > 0:
             response["filtered_out"] = filtered
             response["filter_note"] = (
@@ -288,7 +323,7 @@ async def _hybrid_search(
     top_k: int, min_score: float = 0.1,
 ) -> tuple[list[tuple[int, float]], int]:
     query_vec = await _embed(query)
-    keyword = _keyword_scored(conn, query, top_k * 5)
+    keyword = _keyword_scored(conn, _tokenize(query), top_k * 5, require_all=False)
     semantic = _semantic_scored(rows, query_vec, top_k * 5)
     fused = _rrf([keyword, semantic])
     pool = fused[: max(top_k * 2, top_k)]
@@ -371,6 +406,7 @@ async def run(
     source: str = "",
     note_id: int = 0,
     query: str = "",
+    keywords: list[str] | None = None,
     top_k: int = 5,
     min_score: float = 0.1,
     submode: str = "hybrid",
@@ -379,7 +415,9 @@ async def run(
     record (embedding computed via the embedding server); search ranks records
     by query; modify updates a record's content or tags; delete removes a
     record. search supports submode "hybrid" (default: keyword and semantic
-    fused by reciprocal rank fusion, then reranked), "keyword", or "semantic".
+    fused by reciprocal rank fusion, then reranked), "keyword" (exact
+    whole-word matching over an explicit ``keywords`` list; every keyword must
+    be present), or "semantic".
 
     Args:
         mode: Operation — "add", "search", "modify", or "delete".
@@ -390,7 +428,10 @@ async def run(
             keep the existing tags.
         source: (add) Optional provenance label, e.g. a document or file id.
         note_id: (modify/delete) Id of the record to update or remove.
-        query: (search) Search query text.
+        keywords: (search, "keyword" submode) Explicit list of keywords, e.g.
+            ["NTR", "SE"]. A record must contain every keyword, each as an
+            exact whole word. Required for the "keyword" submode.
+        query: (search) Search query text, used by "semantic" and "hybrid".
         top_k: (search) Maximum number of results to return. Defaults to 5.
         min_score: (search, hybrid) Minimum reranker relevance score to keep a
             result. Results below this are dropped; when the reranker is
@@ -400,14 +441,16 @@ async def run(
             the response includes "filtered_out" (count) and "filter_note"
             (human-readable explanation).
         submode: (search) Ranking — "hybrid", "keyword", or "semantic".
-            Defaults to "hybrid".
+            Defaults to "hybrid". "keyword" requires ``keywords`` and matches
+            exact whole words only (all must be present).
     """
     try:
         if mode == "add":
             return json.dumps(await _add(db_path, content, tags, source), ensure_ascii=False)
         if mode == "search":
             return json.dumps(
-                await _search(db_path, query, top_k, submode, min_score), ensure_ascii=False
+                await _search(db_path, query, top_k, submode, min_score, keywords),
+                ensure_ascii=False,
             )
         if mode == "modify":
             return json.dumps(await _modify(db_path, note_id, content, tags), ensure_ascii=False)

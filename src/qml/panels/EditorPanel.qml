@@ -4,11 +4,11 @@ import QtQuick.Layouts
 
 import "../components"
 
-// Editor window content: a collapsible file tree on the left and a code editor
-// on the right, matching the layout of a typical text editor. The editor is
-// read-only until Edit is pressed; Save/Cancel/Reload drive the controller
-// slots. External file changes and deletions raise a themed conflict dialog
-// that asks whether to keep the buffer or take the on-disk state.
+// Editor window content: a fuzzy-searchable collapsible file tree on the left
+// and a code editor on the right, matching the layout of a typical text editor.
+// The editor is read-only until Edit is pressed; Save/Cancel/Reload drive the
+// controller slots. External file changes and deletions raise a themed conflict
+// dialog that asks whether to keep the buffer or take the on-disk state.
 SplitView {
     id: editorPanel
 
@@ -60,24 +60,66 @@ SplitView {
         border.width: 1
         radius: 0
 
-        ListView {
-            id: fileList
+        ColumnLayout {
             anchors.fill: parent
-            clip: true
             spacing: 0
-            model: editor.file_model
 
-            delegate: FileNode {
-                width: fileList.width
-                path: model.path
-                name: model.name
-                icon: model.icon
-                depth: model.depth
-                isFolder: model.is_folder
-                selected: model.path === editor.currentFile
-                expanded: editor.isFolderExpanded(model.path)
-                onActivated: function (path, isFolder) {
-                    editor._handle_file_click(path, isFolder)
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 6
+                spacing: 6
+
+                TextField {
+                    id: fileSearchField
+                    Layout.fillWidth: true
+                    implicitHeight: 26
+                    placeholderText: qsTr("Search...")
+                    color: Theme.colors.inputText
+                    placeholderTextColor: Theme.colors.textDisabled
+                    font.family: Theme.fontMono
+                    font.pointSize: Theme.metrics.fontSizeBase
+                    background: Rectangle {
+                        color: Theme.colors.inputFill
+                        border.color: fileSearchField.activeFocus
+                                      ? Theme.colors.inputFocusedBorder
+                                      : Theme.colors.inputBorder
+                        border.width: 1
+                        radius: 0
+                    }
+                    onTextChanged: editor._handle_search_changed(text)
+                }
+
+                FlatButton {
+                    implicitWidth: 26
+                    text: qsTr("\u00d7")
+                    visible: fileSearchField.text.length > 0
+                    onClicked: {
+                        fileSearchField.text = ""
+                        editor._handle_clear_search()
+                    }
+                }
+            }
+
+            ListView {
+                id: fileList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 0
+                model: editor.file_model
+
+                delegate: FileNode {
+                    width: fileList.width
+                    path: model.path
+                    name: model.name
+                    icon: model.icon
+                    depth: model.depth
+                    isFolder: model.is_folder
+                    selected: model.path === editor.currentFile
+                    expanded: editor.isFolderExpanded(model.path)
+                    onActivated: function (path, isFolder) {
+                        editor._handle_file_click(path, isFolder)
+                    }
                 }
             }
         }

@@ -104,6 +104,7 @@ class EditorController(QObject):
         _language: str
         _is_editing: bool
         _active: bool
+        _search_text: str
         _disk_mtime: float | None
         _conflict_path: str | None
         _conflict_kind: str
@@ -139,6 +140,7 @@ class EditorController(QObject):
         self._language = "plain"
         self._is_editing = False
         self._active = False
+        self._search_text = ""
         self._disk_mtime = None
         self._conflict_path = None
         self._conflict_kind = ""
@@ -253,7 +255,9 @@ class EditorController(QObject):
     async def _refresh_from_watcher(self) -> None:
         """Rebuild the file tree off-loop, then reconcile the open file."""
         try:
-            await asyncio.to_thread(self._file_model.rebuild, self.app.capabilities_dir)
+            await asyncio.to_thread(
+                self._file_model.rebuild, self.app.capabilities_dir, self._search_text
+            )
         except Exception as error:
             logger.error("Editor tree refresh failed: %s", error)
             return
@@ -408,6 +412,26 @@ class EditorController(QObject):
             ``True`` when the folder's children are shown.
         """
         return self._file_model.is_folder_expanded(path)
+
+    # ------------------------------------------------------------------
+    #  Slot: Search
+    # ------------------------------------------------------------------
+
+    @Slot(str)
+    def _handle_search_changed(self, text: str) -> None:
+        """Re-filter the file tree as the search field changes.
+
+        Args:
+            text: The current search field text.
+        """
+        self._search_text = (text or "").strip()
+        self._file_model.set_search(self._search_text)
+        self.file_tree_changed.emit()
+
+    @Slot()
+    def _handle_clear_search(self) -> None:
+        """Clear the search filter and show the whole tree."""
+        self._handle_search_changed("")
 
     # ------------------------------------------------------------------
     #  Slot: Edit / Save / Cancel / Reload
@@ -581,7 +605,7 @@ class EditorController(QObject):
 
     def _refresh_file_tree(self) -> None:
         """Rebuild the file tree from the capabilities directory."""
-        self._file_model.rebuild(self.app.capabilities_dir)
+        self._file_model.rebuild(self.app.capabilities_dir, self._search_text)
         self.file_tree_changed.emit()
 
     # ------------------------------------------------------------------
