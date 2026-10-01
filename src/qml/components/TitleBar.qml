@@ -214,6 +214,36 @@ Rectangle {
         anchors.verticalCenter: parent.verticalCenter
     }
 
+    // Create a new session and open it in a separate window.
+    Rectangle {
+        id: newWindowButton
+        anchors.left: sessionSelector.right
+        anchors.leftMargin: 6
+        anchors.verticalCenter: parent.verticalCenter
+        implicitWidth: 52
+        implicitHeight: 22
+        color: newWindowArea.containsMouse ? Theme.colors.hoverBg : "transparent"
+        border.color: Theme.colors.borderDefault
+        border.width: 1
+        radius: 0
+
+        Text {
+            anchors.centerIn: parent
+            text: qsTr("+ Win")
+            color: Theme.colors.textSecondary
+            font.family: Theme.fontMono
+            font.pointSize: Theme.metrics.fontSizeBase
+        }
+
+        MouseArea {
+            id: newWindowArea
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: windows.new_window()
+        }
+    }
+
     Row {
         id: controls
         anchors.right: parent.right

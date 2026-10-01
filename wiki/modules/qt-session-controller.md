@@ -21,7 +21,9 @@ split/move, persistence, and hydration. Every panel exposes a
 - `activeSessionName` — the selected session.
 - `modelNames` — configured LLM model names for the per-chat model selector.
 - `state()` registry of `ChatState` objects, one per chat.
-- Session slots: create/switch/delete session.
+- Session slots: create/switch/delete session, plus `open_session(name)` used by
+  secondary windows (activates unconditionally via `_activate_session`) and
+  `ensure_chat(panel_index)` to seed a newly created session with one chat.
 - Chat slots: new chat in panel, activate tab, move, split, delete.
 - Model slots: `modelNameFor(chat_id)`, `_handle_model_changed(chat_id, name)`.
 - Layout engine: `_reconcile_panels`, `_sync_panels`, `_save_layout`.
@@ -171,7 +173,10 @@ chats fall back to it.
 | `@Slot(str) def _handle_delete_chat(self, chat_id)` | chat | `None` | `_delete_chat_by_id` | Deletes store + panel tab |
 | `@Slot() def _handle_new_session(self)` | — | `None` | emit `new_session_requested` | QML opens dialog |
 | `@Slot(str) def _handle_create_session(self, name)` | name | `None` | strip → create session → switch | `ValueError` → toast |
-| `@Slot(str) def _handle_switch_session(self, name)` | name | `None` | set active → refresh → reconcile → sync → open | Rebuilds all panels |
+| `@Slot(str) def _handle_switch_session(self, name)` | name | `None` | no-op if already active → `_activate_session` | Rebuilds all panels |
+| `@Slot(str) def open_session(self, name)` | name | `None` | `_activate_session` (no skip) | Used by new windows |
+| `@Slot(int) def ensure_chat(self, panel_index=0)` | panel | `None` | `_handle_new_chat` when the session has no chats | Seeds a fresh session with one chat |
+| `def _activate_session(self, name)` | name | `None` | set active → emit → refresh → reconcile → sync → open | Shared by switch/open |
 | `@Slot(str) def _handle_delete_session(self, name)` | name | `None` | delete session + chats → forget → fallback Default → rebuild | `ValueError` → toast |
 | `@Slot(str, result=str) def statusColor(self, status)` | status | Hex color | `_STATUS_COLORS.get(status, COLOR_CHAT_EMPTY)` | — |
 | `@Slot(str, result=str) def modelNameFor(self, chat_id)` | chat | Model name | `state.model_name` or the config default (in-memory) | May create a `ChatState` |

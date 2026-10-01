@@ -75,8 +75,8 @@ A directory with no `SKILL.md` is treated as a grouping folder.
 | `path_to_display_name` | `(path: str) -> str` | display name for path |
 | `get_validation_issues` | `() -> list[ValidationIssue]` | collected issues |
 | `refresh` | `() -> None` | clear caches, re-discover |
-| `start_watching` | `(callback: Callable[[], None]) -> None` | watch dir for changes |
-| `stop_watching` | `() -> None` | stop watcher |
+| `start_watching` | `(callback: Callable[[], None]) -> None` | register a change callback (multiple supported; starts the watcher lazily) |
+| `stop_watching` | `() -> None` | stop watcher and clear callbacks |
 
 ### Private (key)
 

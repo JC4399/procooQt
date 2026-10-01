@@ -13,40 +13,44 @@ selector, and per-panel view models are handled by
 [`qt-session-controller`](qt-session-controller.md) and
 [`qt-chat-panel-model`](qt-chat-panel-model.md).
 
+The three per-window controllers (`session`, `chat`, `skill`) on the root
+context belong to the **primary window**. Secondary windows get a fresh,
+independent triple via `_build_window_bundle`, managed by
+[`qt-window-manager`](qt-window-manager.md) and exposed as `windows`.
+
 ## Deliverables
 
 - `ProcooQtUI(QObject)` owning `theme`, `notifier`, `session`, `chat`, `skill`,
-  `editor`, `editor_chat`, `automation`, and `notification`.
-- `_build_controllers()` — builds every controller's models and state.
-- Eleven QML context properties: `ui`, `backend`, `Theme`, `toasts`, `session`,
-  `chat`, `skill`, `editor`, `editorChat`, `automation`, `notification`.
-- `start()` — startup hook invoked from `app.main` after the QML root loads.
-- Cross-controller references and signal connections (toasts, chat activation,
-  state changes, automation results, debug-open).
+  `editor`, `editor_chat`, `automation`, `notification`, and `windows`.
+- `_build_controllers()` — builds the primary controllers' models and state.
+- `_build_window_bundle()` — builds a fresh `(context, session, chat, skill)`
+  bundle for a secondary window on a child `QQmlContext`.
+- `_wire_window()` / `_wire_editor_chat()` — cross-controller references and
+  signal connections.
+- Twelve QML context properties: `ui`, `backend`, `Theme`, `toasts`, `session`,
+  `chat`, `skill`, `editor`, `editorChat`, `automation`, `notification`,
+  `windows`.
+- `start(window=None, frame_filter=None)` — startup hook invoked from `app.main`
+  after the QML root loads; registers the primary window with `WindowManager`.
 
 ## Composition
 
 ```python
 self.theme = Theme(self)
 self.notifier = ErrorNotifier(self)
-self.session = SessionController(app, self)
+self.session = SessionController(app, self)       # primary window
 self.chat = ChatController(app, self)
 self.skill = SkillController(app, self)
-self.editor = EditorController(app, self)
+self.editor = EditorController(app, self)          # shared singleton
 self.editor_chat = EditorChatController(app, self)
 self.automation = AutomationController(app, self)
 self.notification = NotificationController(app, self)
-self.chat.session = self.session      # cross-controller references
-self.session.chat = self.chat
-self.skill.session = self.session
-self.skill.chat = self.chat
-self.skill.notifier = self.notifier
-self.editor_chat.editor = self.editor
-self.editor_chat.session = self.session
-self.editor_chat.chat = self.chat
+self.windows = WindowManager(app, engine, self._build_window_bundle, qt_app, self)
+self._wire_window(self.session, self.chat, self.skill)
+self._wire_editor_chat()
 ```
 
-Cross-controller signal connections made in `__init__`:
+`_wire_window(session, chat, skill)` performs, for any window's triple:
 
 | Emitter signal | Connected slot |
 |---|---|
@@ -55,13 +59,21 @@ Cross-controller signal connections made in `__init__`:
 | `session.chat_switch_started` | `chat._handle_chat_switch_started` |
 | `session.active_chat_changed` | `skill._handle_chat_activated` |
 | `chat.chat_state_changed` | `session.refresh_chat_panels` |
-| `chat.chat_state_changed` | `editor_chat._handle_state_changed` |
-| `chat.token_counts_changed` | `editor_chat._handle_token_counts` |
 | `chat.toast_requested` | `notifier.toast_requested` |
 | `skill.toast_requested` | `notifier.toast_requested` |
-| `editor.toast_requested` | `notifier.toast_requested` |
-| `editor_chat.toast_requested` | `notifier.toast_requested` |
-| `automation.toast_requested` | `notifier.toast_requested` |
+
+It also sets `chat.session`, `session.chat`, `skill.session`, `skill.chat`, and
+`skill.notifier`.
+
+`_wire_editor_chat()` connects the **shared** editor chat to the primary
+window's `chat`/`session` only (`chat.chat_state_changed →
+editor_chat._handle_state_changed`, `chat.token_counts_changed →
+editor_chat._handle_token_counts`).
+
+The remaining shared connections are made in `__init__`:
+
+| Emitter signal | Connected slot |
+|---|---|
 | `skill.skill_files_changed` | `editor._handle_skill_files_changed` |
 | `automation.files_changed` | `editor._handle_skill_files_changed` |
 | `automation.result_ready` | `notification._handle_automation_result` |
@@ -73,27 +85,23 @@ Cross-controller signal connections made in `__init__`:
 chat, and the chat and skill controllers react. `chat_switch_started` is emitted
 earlier (at the user action) so the panel loading overlay paints before the
 off-thread hydration. `chat.chat_state_changed` lets the session controller push
-per-panel runtime values (busy/approval/tokens/config counts) as they change.
-`ErrorNotifier` fans every `toast_requested` stream into the `toasts`
-context property consumed by `ToastHost.qml`. The
-[skill controller](qt-skill-controller.md)'s `skill_files_changed` and the
-[automation controller](qt-automation-controller.md)'s `files_changed` are
-emitted on watchdog threads and queued to the
-[editor controller](qt-editor-controller.md) so it can reconcile the code editor
-window. `automation.result_ready` feeds the
-[notification controller](qt-notification-controller.md), and both the
-automation Edit and notification Debug actions open the matching automation file
-via `editor._handle_open_automation`.
+per-panel runtime values as they change. `ErrorNotifier` fans every
+`toast_requested` stream into the `toasts` context property consumed by
+`ToastHost.qml`. The [skill controller](qt-skill-controller.md)'s
+`skill_files_changed` and the [automation controller](qt-automation-controller.md)'s
+`files_changed` are emitted on watchdog threads and queued to the
+[editor controller](qt-editor-controller.md).
 
 ## QML view (context property consumers)
 
 | Context | Consumed by |
 |---|---|
-| `session` | `SessionSelector.qml` (title bar); `SplitWorkspace.qml` (`panelCount`, `panelAt`, split/move slots) |
+| `session` | `SessionSelector.qml`; `SplitWorkspace.qml` (`panelCount`, `panelAt`, split/move slots) |
 | `chat` | `ChatPanel.qml` (send/stop/approve per chat) |
 | `skill` | `SkillDock.qml` (per-panel skill/tool config) |
+| `windows` | `TitleBar.qml` (`new_window`), `Main.qml` / `ChatWindow.qml` (editor/history routing) |
 | `editor` / `editorChat` | `EditorWindow.qml` / `EditorPanel.qml` / `EditorChatPanel.qml` |
-| `automation` / `notification` | `TitleBar.qml` (tabs + badges), `AutomationPanel.qml`, `NotificationPanel.qml`, `NotificationHistoryWindow.qml` |
+| `automation` / `notification` | `TitleBar.qml`, `AutomationPanel.qml`, `NotificationPanel.qml`, `NotificationHistoryWindow.qml` |
 | `Theme` / `toasts` | All surfaces / `ToastHost.qml` |
 
 ## Steps / Flow
@@ -101,28 +109,35 @@ via `editor._handle_open_automation`.
 ### `__init__`
 
 1. `super().__init__(parent)`.
-2. Store `app` and `engine`; create `theme` and `notifier`.
-3. Create the controllers: `session`, `chat`, `skill`, `editor`, `editor_chat`,
-   `automation`, `notification`.
-4. Inject cross-controller references (`chat.session`, `session.chat`,
-   `skill.session`, `skill.chat`, `skill.notifier`, `editor_chat.editor`,
-   `editor_chat.session`).
-5. Connect the toast, activation, state-change, watcher, result, and debug-open
-   signals above.
-6. `_build_controllers()` then `_expose_to_qml()`.
+2. Store `app`, `engine`, and `qt_app`; create `theme` and `notifier`.
+3. Create the primary triple, the shared controllers, and `WindowManager`.
+4. `_wire_window(primary triple)` then `_wire_editor_chat()`.
+5. `_build_controllers()` then `_expose_to_qml()`.
+
+### `_build_window_bundle`
+
+1. Create fresh `SessionController` / `ChatController` / `SkillController`.
+2. `_wire_window(...)` then `session.build()` / `chat.build()` / `skill.build()`.
+3. Create `QQmlContext(self.engine.rootContext())` and set `session`, `chat`,
+   `skill` on it.
+4. Return `(context, session, chat, skill)` to `WindowManager`.
 
 ### `start` (from `app.py`)
 
 `app.main` creates the `QApplication`, installs the qasync `QEventLoop`, creates
-`ProcooQtUI`, loads `src/qml/Main.qml`, and — only if a root object loaded — calls
-`ui.start()`. `start()` fans out to `session.start()`, `skill.start()`,
-`editor.start()`, and `automation.start()` (watcher + scheduler + event server).
+`ProcooQtUI(backend, engine, qt_app)`, loads `src/qml/Main.qml`, installs the
+native frame, and calls `ui.start(root_window, frame_filter)`. `start()` fans out
+to `session.start()`, `skill.start()`, `editor.start()`, `automation.start()`,
+then `windows.register_primary(...)`.
 
 ## Function Reference
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def __init__(self, app: ProcooApp, engine: QQmlApplicationEngine, parent: QObject \| None = None) -> None` | `app` backend subsystems; `engine` QML engine; `parent` optional Qt parent | `None` | theme/notifier → controllers → cross-refs → signal connections → `_build_controllers()` → `_expose_to_qml()` | Creates nine child `QObject`s; connects signals |
-| `def _build_controllers(self) -> None` | — | `None` | `session.build()` → `chat.build()` → `skill.build()` → `editor.build()` → `editor_chat.build()` → `notification.build()` → `automation.build()` | Allocates models and per-chat state |
-| `@Slot() def start(self) -> None` | — | `None` | `session.start()` → `skill.start()` → `editor.start()` → `automation.start()` | Emits validation toasts; starts watchers/scheduler/event server; opens the workspace |
-| `def _expose_to_qml(self) -> None` | — | `None` | `engine.rootContext().setContextProperty(...)` for `ui`, `backend`, `Theme`, `toasts`, `session`, `chat`, `skill`, `editor`, `editorChat`, `automation`, `notification` | Publishes objects to the QML root context |
+| `def __init__(self, app, engine, qt_app=None, parent=None) -> None` | backend; QML engine; `QApplication`; parent | `None` | theme/notifier → controllers → `WindowManager` → wiring → build → expose | Creates ten child `QObject`s; connects signals |
+| `def _wire_window(self, session, chat, skill) -> None` | one window's triple | `None` | cross-refs + signal connections | Connects signals |
+| `def _wire_editor_chat(self) -> None` | — | `None` | wire editor chat to primary chat | Connects signals |
+| `def _build_controllers(self) -> None` | — | `None` | build primary session/chat/skill/editor/editor_chat/notification/automation | Allocates models and state |
+| `def _build_window_bundle(self) -> tuple[QQmlContext, SessionController, ChatController, SkillController]` | — | bundle | build + wire a fresh triple on a child context | Allocates models and state |
+| `def start(self, window=None, frame_filter=None) -> None` | primary window; native-frame filter | `None` | controller starts → register primary | Starts watchers/scheduler/event server |
+| `def _expose_to_qml(self) -> None` | — | `None` | set twelve root context properties | Publishes objects to QML |

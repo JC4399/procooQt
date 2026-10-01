@@ -14,8 +14,10 @@ run.
 - Chat persistence: `save_chat`, `load_chat`, `load_all_chats`, `list_chats`,
   `list_chat_ids`, `delete_chat`.
 - Session management: `list_sessions`, `list_session_records`, `get_session`,
-  `get_layout`, `set_layout`, `create_session`, `ensure_default_session`,
-  `delete_session`, `set_chat_session`.
+  `get_session_by_id`, `session_id_for`, `get_layout`, `set_layout`,
+  `create_session`, `ensure_default_session`, `delete_session`,
+  `set_chat_session`.
+- Stable per-session UUID `id`, backfilled for legacy records by `_ensure_session_ids`.
 - `DEFAULT_SESSION_NAME` module constant.
 
 ## Chat file shape
@@ -47,6 +49,7 @@ token counts so the token bar survives a restart; they are written by
 {
   "sessions": [
     {
+      "id": "0f6c2e...",
       "name": "Default",
       "created_at": "...",
       "layout": {"splits": [{"chat_ids": ["20240101_120000"], "active_chat_id": "20240101_120000"}]}
@@ -54,6 +57,10 @@ token counts so the token bar survives a restart; they are written by
   ]
 }
 ```
+
+The `id` is a stable UUID used as the external identity of a session (e.g. by
+the control server and the Obsidian plugin). Records written before this field
+existed are backfilled in `ChatStore.__init__` via `_ensure_session_ids`.
 
 ## Function Reference
 
@@ -64,7 +71,7 @@ token counts so the token bar survives a restart; they are written by
 | Signature | `def __init__(self, storage_dir: str) -> None` |
 | Inputs | `storage_dir` — root storage path (`chats/` subdir used). |
 | Output | `None` |
-| Side effects | creates `chats/` dir; points `_sessions_path` at `sessions.json`. |
+| Side effects | creates `chats/` dir; points `_sessions_path` at `sessions.json`; backfills session ids via `_ensure_session_ids`. |
 
 ### `save_chat`
 
@@ -118,9 +125,11 @@ token counts so the token bar survives a restart; they are written by
 | `list_sessions` | `() -> list[str]` | sorted session names |
 | `list_session_records` | `() -> list[dict]` | full records (name, created_at, layout) |
 | `get_session` | `(name: str) -> dict \| None` | one session record |
+| `get_session_by_id` | `(session_id: str) -> dict \| None` | session record by stable UUID |
+| `session_id_for` | `(name: str) -> str` | stable UUID for a session name, or `""` |
 | `get_layout` | `(name: str) -> dict` | stored layout or the default |
 | `set_layout` | `(name: str, layout: dict) -> None` | persist a session's layout |
-| `create_session` | `(name: str, layout: dict \| None = None) -> None` | raises `ValueError` on duplicate |
+| `create_session` | `(name: str, layout: dict \| None = None, session_id: str \| None = None) -> str` | raises `ValueError` on duplicate; returns the session UUID |
 | `ensure_default_session` | `() -> str` | create `Default` if none; return first session name |
 | `delete_session` | `(name: str) -> list[str]` | delete session **and its chats**; return deleted chat ids |
 | `set_chat_session` | `(chat_id: str, session_name: str \| None) -> None` | assign/clear a chat's session |
@@ -131,3 +140,4 @@ token counts so the token bar survives a restart; they are written by
 |---|---|---|
 | `_load_sessions` | `() -> list[dict]` | read `sessions.json` |
 | `_save_sessions` | `(sessions: list[dict]) -> None` | write `sessions.json` |
+| `_ensure_session_ids` | `() -> None` | backfill + persist a UUID `id` on legacy session records |

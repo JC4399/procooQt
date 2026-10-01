@@ -4,17 +4,24 @@ Uses composition (not multiple inheritance): the orchestrator owns one controlle
 panel and exposes them, plus the backend and theme, as QML context properties. The
 ``session``, ``chat``, ``skill``, and ``editor`` controllers cover the UI,
 with chat rendering and streaming both handled by ``ChatController``.
+
+The primary window's ``session``/``chat``/``skill`` live on the engine's root
+context. Secondary windows get a private triple on a child context, built by
+:meth:`_build_window_bundle` and managed by :class:`WindowManager` (exposed to
+QML as ``windows``).
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import QObject, Slot
+from PySide6.QtCore import QObject
+from PySide6.QtQml import QQmlContext
 
 from .automation_controller import AutomationController
 from .chat_controller import ChatController
+from .control_controller import ControlController
 from .editor_chat_controller import EditorChatController
 from .editor_controller import EditorController
 from .error_handler import ErrorNotifier
@@ -22,8 +29,10 @@ from .notification_controller import NotificationController
 from .session_controller import SessionController
 from .skill_controller import SkillController
 from .theme import Theme
+from .window_manager import WindowManager
 
 if TYPE_CHECKING:
+    from PySide6.QtGui import QWindow
     from PySide6.QtQml import QQmlApplicationEngine
 
     from ..app import ProcooApp
@@ -39,19 +48,21 @@ class ProcooQtUI(QObject):
         engine: The QML application engine.
         theme: The theme registry (also exposed as ``Theme``).
         notifier: Toast/error notifier (also exposed as ``toasts``).
-        session: Session group and chat lifecycle controller.
-        chat: Chat rendering and generation controller.
-        skill: Skill tree, tool-mode, and preset controller.
+        session: Primary window's session group and chat lifecycle controller.
+        chat: Primary window's chat rendering and generation controller.
+        skill: Primary window's skill tree, tool-mode, and preset controller.
         editor: Code editor and file tree controller.
         editor_chat: Chat panel controller embedded in the editor window.
         automation: Automation page, scheduler, and event-server controller.
         notification: Notification page, badges, and history controller.
+        windows: Manager for primary and secondary per-session windows.
     """
 
     def __init__(
         self,
         app: ProcooApp,
         engine: QQmlApplicationEngine,
+        qt_app: Any = None,
         parent: QObject | None = None,
     ) -> None:
         """Initialise the UI orchestrator and expose it to QML.
@@ -59,6 +70,8 @@ class ProcooQtUI(QObject):
         Args:
             app: The backend application holding backend subsystems.
             engine: The QML application engine used for context properties.
+            qt_app: The running ``QApplication`` (for native-frame installation
+                on secondary windows).
             parent: Optional Qt parent object.
         """
         super().__init__(parent)
@@ -73,33 +86,50 @@ class ProcooQtUI(QObject):
         self.editor_chat = EditorChatController(app, self)
         self.automation = AutomationController(app, self)
         self.notification = NotificationController(app, self)
-        self.chat.session = self.session
-        self.session.chat = self.chat
-        self.skill.session = self.session
-        self.skill.chat = self.chat
-        self.skill.notifier = self.notifier
+        self.windows = WindowManager(app, engine, self._build_window_bundle, qt_app, self)
+        self.control = ControlController(app, self.windows, self)
+        self._wire_window(self.session, self.chat, self.skill)
+        self._wire_editor_chat()
+        self._build_controllers()
+        self._expose_to_qml()
+
+    # ------------------------------------------------------------------
+    #  Wiring
+    # ------------------------------------------------------------------
+
+    def _wire_window(
+        self,
+        session: SessionController,
+        chat: ChatController,
+        skill: SkillController,
+    ) -> None:
+        """Cross-reference and connect one window's controllers.
+
+        Args:
+            session: The window's session controller.
+            chat: The window's chat controller.
+            skill: The window's skill controller.
+        """
+        chat.session = session
+        session.chat = chat
+        skill.session = session
+        skill.chat = chat
+        skill.notifier = self.notifier
+        session.toast_requested.connect(self.notifier.toast_requested)
+        session.active_chat_changed.connect(chat._handle_chat_activated)
+        session.chat_switch_started.connect(chat._handle_chat_switch_started)
+        session.active_chat_changed.connect(skill._handle_chat_activated)
+        chat.chat_state_changed.connect(session.refresh_chat_panels)
+        chat.toast_requested.connect(self.notifier.toast_requested)
+        skill.toast_requested.connect(self.notifier.toast_requested)
+
+    def _wire_editor_chat(self) -> None:
+        """Wire the shared editor chat to the primary window's chat controller."""
         self.editor_chat.editor = self.editor
         self.editor_chat.session = self.session
         self.editor_chat.chat = self.chat
-        self.session.toast_requested.connect(self.notifier.toast_requested)
-        self.session.active_chat_changed.connect(self.chat._handle_chat_activated)
-        self.session.chat_switch_started.connect(self.chat._handle_chat_switch_started)
-        self.session.active_chat_changed.connect(self.skill._handle_chat_activated)
-        self.chat.chat_state_changed.connect(self.session.refresh_chat_panels)
         self.chat.chat_state_changed.connect(self.editor_chat._handle_state_changed)
         self.chat.token_counts_changed.connect(self.editor_chat._handle_token_counts)
-        self.skill.skill_files_changed.connect(self.editor._handle_skill_files_changed)
-        self.automation.files_changed.connect(self.editor._handle_skill_files_changed)
-        self.chat.toast_requested.connect(self.notifier.toast_requested)
-        self.skill.toast_requested.connect(self.notifier.toast_requested)
-        self.editor.toast_requested.connect(self.notifier.toast_requested)
-        self.editor_chat.toast_requested.connect(self.notifier.toast_requested)
-        self.automation.toast_requested.connect(self.notifier.toast_requested)
-        self.automation.result_ready.connect(self.notification._handle_automation_result)
-        self.automation.edit_automation_requested.connect(self.editor._handle_open_automation)
-        self.notification.edit_automation_requested.connect(self.editor._handle_open_automation)
-        self._build_controllers()
-        self._expose_to_qml()
 
     # ------------------------------------------------------------------
     #  Builder
@@ -114,22 +144,53 @@ class ProcooQtUI(QObject):
         self.editor_chat.build()
         self.notification.build()
         self.automation.build()
+        self.control.build()
+
+    def _build_window_bundle(
+        self,
+    ) -> tuple[QQmlContext, SessionController, ChatController, SkillController]:
+        """Build a fresh controller triple and private context for a new window.
+
+        Returns:
+            ``(context, session, chat, skill)`` where *context* is a child of the
+            engine root context carrying the window's three controllers.
+        """
+        session = SessionController(self.app, self)
+        chat = ChatController(self.app, self)
+        skill = SkillController(self.app, self)
+        self._wire_window(session, chat, skill)
+        session.build()
+        chat.build()
+        skill.build()
+        context = QQmlContext(self.engine.rootContext())
+        context.setContextProperty("session", session)
+        context.setContextProperty("chat", chat)
+        context.setContextProperty("skill", skill)
+        return context, session, chat, skill
 
     # ------------------------------------------------------------------
     #  Lifecycle
     # ------------------------------------------------------------------
 
-    @Slot()
-    def start(self) -> None:
+    def start(self, window: QWindow | None = None, frame_filter: Any = None) -> None:
         """Start the UI once the QML root object has loaded.
 
-        Called from ``app.main`` after a successful engine load. Future parts
-        hook their own startup here (P3 chat restore, P6 skill watcher).
+        Called from ``app.main`` after a successful engine load. Registers the
+        primary window with :class:`WindowManager` when *window* is supplied.
+
+        Args:
+            window: The primary top-level window.
+            frame_filter: The native-frame event filter to keep referenced.
         """
         self.session.start()
         self.skill.start()
         self.editor.start()
         self.automation.start()
+        self.control.start()
+        if window is not None:
+            self.windows.register_primary(
+                self.session, self.chat, self.skill, window, frame_filter
+            )
 
     # ------------------------------------------------------------------
     #  QML exposure
@@ -149,4 +210,5 @@ class ProcooQtUI(QObject):
         context.setContextProperty("editorChat", self.editor_chat)
         context.setContextProperty("automation", self.automation)
         context.setContextProperty("notification", self.notification)
+        context.setContextProperty("windows", self.windows)
         logger.debug("QML context properties published")

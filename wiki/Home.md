@@ -37,6 +37,7 @@ Python controllers and list models on a single `qasync` event loop.
 | Feature | Where |
 |---|---|
 | Split workspace + title-bar session selector (QML) | [`qt-ui`](modules/qt-ui.md) |
+| Per-session multi-window (primary + secondary windows) | [`qt-window-manager`](modules/qt-window-manager.md) |
 | Native edge resize + Aero Snap for the frameless window | [`qt-native-frame`](modules/qt-native-frame.md) |
 | Per-panel chat model (busy/approval/tokens/config counts) | [`qt-chat-panel-model`](modules/qt-chat-panel-model.md) |
 | ReAct agent loop + subprocess tool execution | [`chat-agent`](modules/chat-agent.md) |
@@ -46,6 +47,7 @@ Python controllers and list models on a single `qasync` event loop.
 | Skill discovery + AST schema inference | [`skill-manager`](modules/skill-manager.md) |
 | Automation discovery + scheduling + event server | [`automation-manager`](modules/automation-manager.md) · [`automation-scheduler`](modules/automation-scheduler.md) · [`automation-server`](modules/automation-server.md) |
 | Automation execution + headless agent bridge | [`automation-runner`](modules/automation-runner.md) |
+| External session/window control server (Obsidian integration) | [`control-server`](modules/control-server.md) · [`control-controller`](modules/control-controller.md) |
 | Notifications + unread badges + history | [`notification`](modules/notification.md) · [`qt-notification-controller`](modules/qt-notification-controller.md) |
 | Editor chat panel | [`qt-editor-chat-controller`](modules/qt-editor-chat-controller.md) |
 | Preset store | [`skill-preset`](modules/skill-preset.md) |
@@ -90,6 +92,7 @@ module). `capabilities_dir` points at the shared `../capabilities` library;
 - [Skill discovery flow](flows/skill-discovery-flow.md)
 - [Automation run flow](flows/automation-run-flow.md)
 - [Event server flow](flows/event-server-flow.md)
+- [Obsidian session flow](flows/obsidian-session-flow.md)
 - [Notification lifecycle flow](flows/notification-lifecycle-flow.md)
 
 ### Module reference
@@ -101,9 +104,10 @@ module). `capabilities_dir` points at the shared `../capabilities` library;
 | `src/chat/` | [agent](modules/chat-agent.md) · [llm](modules/chat-llm.md) · [manager](modules/chat-manager.md) · [store](modules/chat-store.md) |
 | `src/skill/` | [manager](modules/skill-manager.md) · [models](modules/skill-models.md) · [preset](modules/skill-preset.md) |
 | `src/automation/` | [manager](modules/automation-manager.md) · [runner](modules/automation-runner.md) · [scheduler](modules/automation-scheduler.md) · [server](modules/automation-server.md) |
+| `src/control/` | [server](modules/control-server.md) |
 | `src/notification/` | [models/store/manager](modules/notification.md) |
 | `src/util/` | [error](modules/util-error.md) · [log](modules/util-log.md) · [tokens](modules/util-tokens.md) · [venv](modules/util-venv.md) |
-| `src/qt/` | [ui](modules/qt-ui.md) · [native-frame](modules/qt-native-frame.md) · [theme](modules/qt-theme.md) · [chat-panel-model](modules/qt-chat-panel-model.md) · [chat-state](modules/qt-chat-state.md) · [session-controller](modules/qt-session-controller.md) · [chat-controller](modules/qt-chat-controller.md) · [chat-items](modules/qt-chat-items.md) · [context-banner](modules/qt-context-banner.md) · [skill-controller](modules/qt-skill-controller.md) · [editor-controller](modules/qt-editor-controller.md) · [editor-chat-controller](modules/qt-editor-chat-controller.md) · [automation-controller](modules/qt-automation-controller.md) · [notification-controller](modules/qt-notification-controller.md) · [markdown](modules/qt-markdown.md) · [latex](modules/qt-latex.md) · [yaml-highlight](modules/qt-yaml-highlight.md) · [highlighter](modules/qt-highlighter.md) · [error-handler](modules/qt-error-handler.md) · [models](modules/qt-models.md) · [qt-roles](modules/qt-qt-roles.md) |
+| `src/qt/` | [ui](modules/qt-ui.md) · [window-manager](modules/qt-window-manager.md) · [control-controller](modules/control-controller.md) · [native-frame](modules/qt-native-frame.md) · [theme](modules/qt-theme.md) · [chat-panel-model](modules/qt-chat-panel-model.md) · [chat-state](modules/qt-chat-state.md) · [session-controller](modules/qt-session-controller.md) · [chat-controller](modules/qt-chat-controller.md) · [chat-items](modules/qt-chat-items.md) · [context-banner](modules/qt-context-banner.md) · [skill-controller](modules/qt-skill-controller.md) · [editor-controller](modules/qt-editor-controller.md) · [editor-chat-controller](modules/qt-editor-chat-controller.md) · [automation-controller](modules/qt-automation-controller.md) · [notification-controller](modules/qt-notification-controller.md) · [markdown](modules/qt-markdown.md) · [latex](modules/qt-latex.md) · [yaml-highlight](modules/qt-yaml-highlight.md) · [highlighter](modules/qt-highlighter.md) · [error-handler](modules/qt-error-handler.md) · [models](modules/qt-models.md) · [qt-roles](modules/qt-qt-roles.md) |
 
 ## Conventions used in this wiki
 

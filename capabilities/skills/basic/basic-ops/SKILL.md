@@ -10,7 +10,7 @@ You have access to the following tools:
 - `read_file` — Read file contents with optional line range. Also supports document reading for PDF, DOCX, PPTX, and XLSX via dedicated modes, plus PDF OCR, PDF/image rendering, thumbnails, and region cropping. Dispatched via `mode` parameter (text / pdf-text / docx / pptx / xlsx / pdf-image / pdf-ocr / image) with an effort-level `submode` for visual modes. Use `convert=true` to persist the extracted content to disk as .txt
 - `edit_file` — Create, edit, or delete files. Dispatched via `mode` parameter (create / edit / delete)
 - `search_dir` — Fast file search via regex path pattern, with optional content filter as second layer (ripgrep-backed for speed). Always path-first; content regex is an optional second-layer filter on matched files
-- `execute_script` — Execute Python code, shell commands, or a skill script. Dispatched via `mode` parameter (python / shell / skill)
+- `execute_script` — Execute Python code, shell commands, or a skill script. Dispatched via `mode` parameter (python / shell / skill). Known defect (observed in-session): shell mode can return "(no output)" even for trivial commands; if that happens, re-run the work in python mode instead of retrying shell
 - `init_db` — Create an empty records database (SQLite) at a given path
 - `access_db` — Access a skill's records database. Dispatched via `mode` parameter (add / search / modify / delete)
 

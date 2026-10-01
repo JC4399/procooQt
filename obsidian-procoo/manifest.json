@@ -1,0 +1,9 @@
+{
+  "id": "procoo-bridge",
+  "name": "Procoo Bridge",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Link notes and todo items to Procoo chat sessions.",
+  "author": "jacky",
+  "isDesktopOnly": true
+}

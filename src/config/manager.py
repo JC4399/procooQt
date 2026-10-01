@@ -109,6 +109,33 @@ class ConfigManager:
         return [str(key) for key in keys]
 
     # ------------------------------------------------------------------
+    #  Control server
+    # ------------------------------------------------------------------
+
+    @property
+    def control_server_host(self) -> str:
+        """Host the control HTTP server binds to (defaults to localhost)."""
+        return str(self._get_optional("control_server", "host", default="127.0.0.1"))
+
+    @property
+    def control_server_port(self) -> int:
+        """Port the control HTTP server listens on."""
+        return int(self._get_optional("control_server", "port", default=12841))
+
+    @property
+    def control_server_api_keys(self) -> list[str]:
+        """API keys accepted by the control server.
+
+        Falls back to ``auth.api_keys`` when ``control_server.api_keys`` is not
+        set, so a single key set can gate both servers. An empty list disables
+        authentication.
+        """
+        keys = self._get_optional("control_server", "api_keys", default=None)
+        if keys is None:
+            keys = self._get_optional("auth", "api_keys", default=[]) or []
+        return [str(key) for key in keys]
+
+    # ------------------------------------------------------------------
     #  Chat limits
     # ------------------------------------------------------------------
 

@@ -16,6 +16,11 @@ server:
   host: "127.0.0.1"          # event server bind (localhost by default)
   port: 12840
 
+control_server:
+  host: "127.0.0.1"          # control server bind (localhost by default)
+  port: 12841
+  # api_keys: []             # defaults to auth.api_keys when omitted
+
 paths:
   # Relative to the procooQt project root (resolved against _PROJECT_ROOT in app.py).
   capabilities_dir: "../capabilities"   # holds skills/ and automations/
@@ -72,6 +77,22 @@ chat files; `AutomationManager` uses `storage/automations.json` and
 default. `auth.api_keys` is a list of accepted keys; when non-empty, requests to
 `POST /event/{name}` must present a matching `Authorization: Bearer <key>` or
 `X-Api-Key` header. An empty list disables authentication.
+
+### Control server (`control_server`)
+
+`control_server.host` / `control_server.port` configure the HTTP control server
+used by external tools (e.g. the Obsidian plugin) to create, open, and delete
+sessions/windows. It binds `127.0.0.1:12841` by default, separate from the event
+server. `control_server.api_keys` lists accepted keys and falls back to
+`auth.api_keys` when omitted; an empty list disables authentication.
+
+### Session ids
+
+Session records in `storage/sessions.json` carry a stable UUID `id` alongside
+`name`, `created_at`, and `layout`. The id is the identity used by the control
+server, so renaming a session does not break external links. `ChatStore`
+backfills an id for legacy records on construction and returns it from
+`create_session`; `session_id_for(name)` resolves a name to its id.
 
 ### Chat limits (`limits`)
 

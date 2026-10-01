@@ -3,6 +3,14 @@ server:
   host: "127.0.0.1"
   port: 12840
 
+control_server:
+  # HTTP control server used by external tools (e.g. the Obsidian plugin) to
+  # create / open / delete sessions and windows. Bind localhost by default.
+  host: "127.0.0.1"
+  port: 12841
+  # Accepted API keys; falls back to auth.api_keys when omitted. Empty disables auth.
+  # api_keys: ["change-me"]
+
 paths:
   # Relative to the procooQt project root (resolved against _PROJECT_ROOT in app.py).
   # Root capabilities library containing skills/ and automations/.

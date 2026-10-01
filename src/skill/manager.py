@@ -41,7 +41,7 @@ class SkillManager:
         self._validation_issues: list[ValidationIssue] = []
         self._watcher_observer: Any | None = None
         self._watcher_thread: threading.Thread | None = None
-        self._watcher_callback: Callable[[], None] | None = None
+        self._watcher_callbacks: list[Callable[[], None]] = []
         self._watcher_timer: threading.Timer | None = None
         self._watcher_lock = threading.Lock()
         self._watcher_debounce_sec: float = 0.5
@@ -671,21 +671,25 @@ class SkillManager:
         self._print_validation()
 
     def start_watching(self, callback: Callable[[], None]) -> None:
-        """Start watching the skills directory for file changes.
+        """Register a skills-change callback and start the directory watcher.
+
+        Multiple callbacks are supported (one per chat window); registering a
+        callback that is already present is a no-op. The watcher itself starts
+        lazily on the first registration.
 
         Uses ``watchdog`` on a background thread.  Events are debounced:
-        after the last file event within ``_watcher_debounce_sec``, the
-        *callback* is invoked (on the watchdog thread — the caller is
+        after the last file event within ``_watcher_debounce_sec``, every
+        registered *callback* is invoked (on the watchdog thread — the caller is
         responsible for marshaling to the UI thread).
 
         Args:
             callback: A callable with no arguments to invoke when skills
                 change.
         """
+        if callback not in self._watcher_callbacks:
+            self._watcher_callbacks.append(callback)
         if self._watcher_observer is not None:
             return
-
-        self._watcher_callback = callback
 
         class _SkillDirEventHandler(FileSystemEventHandler):
             """Debounced event handler — resets timer on each event."""
@@ -733,7 +737,7 @@ class SkillManager:
 
         self._watcher_observer = None
         self._watcher_thread = None
-        self._watcher_callback = None
+        self._watcher_callbacks = []
 
     # ------------------------------------------------------------------
     #  Private: Watcher helpers
@@ -756,10 +760,11 @@ class SkillManager:
             self._watcher_timer.start()
 
     def _on_watcher_debounced(self) -> None:
-        """Invoke the user callback after a debounce period."""
-        cb = self._watcher_callback
-        if cb is not None:
-            cb()
+        """Invoke every registered callback after a debounce period."""
+        with self._watcher_lock:
+            callbacks = list(self._watcher_callbacks)
+        for callback in callbacks:
+            callback()
 
     # ------------------------------------------------------------------
     #  Private: Validation

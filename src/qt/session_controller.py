@@ -240,6 +240,25 @@ class SessionController(QObject):
         self._open_chat(chat_id)
 
     # ------------------------------------------------------------------
+    #  Slot: Ensure chat
+    # ------------------------------------------------------------------
+
+    @Slot(int)
+    def ensure_chat(self, panel_index: int = 0) -> None:
+        """Create a chat in a panel when the session has none.
+
+        Used so a freshly created session (e.g. from the control server) opens
+        ready to use, with an active chat backing the per-chat skill/model dock.
+
+        Args:
+            panel_index: The panel to create the chat in.
+        """
+        session_chats = self._chats_by_session.get(self.active_session_name or "", [])
+        if session_chats:
+            return
+        self._handle_new_chat(panel_index)
+
+    # ------------------------------------------------------------------
     #  Slot: Panel tab activate
     # ------------------------------------------------------------------
 
@@ -401,6 +420,33 @@ class SessionController(QObject):
         """
         if not name or name == self.active_session_name:
             return
+        self._activate_session(name)
+
+    # ------------------------------------------------------------------
+    #  Slot: Open session (new window)
+    # ------------------------------------------------------------------
+
+    @Slot(str)
+    def open_session(self, name: str) -> None:
+        """Activate a session unconditionally and rebuild its workspace panels.
+
+        Used when a fresh window is created for a session: unlike
+        :meth:`_handle_switch_session`, it does not skip the activation when the
+        name matches the (empty) current selection.
+
+        Args:
+            name: The session name to activate.
+        """
+        if not name:
+            return
+        self._activate_session(name)
+
+    def _activate_session(self, name: str) -> None:
+        """Set the active session and rebuild every panel for it.
+
+        Args:
+            name: The session name to activate.
+        """
         self.active_session_name = name
         self.active_session_name_changed.emit()
         self.active_chat_id = None

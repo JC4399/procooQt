@@ -19,6 +19,10 @@ ApplicationWindow {
     color: Theme.colors.pageBg
     flags: Qt.Window | Qt.FramelessWindowHint
 
+    // The primary window owns the shared editor / history windows and quits the
+    // app when closed; closing a secondary window only closes that window.
+    onClosing: Qt.quit()
+
     // Active central content view: "chat", "automation", or "notification".
     property string activeContent: "chat"
 
@@ -83,6 +87,21 @@ ApplicationWindow {
         function onEditor_open_requested() {
             editorWindow.show()
             editorWindow.requestActivate()
+        }
+    }
+
+    // Secondary windows route editor / history requests here (the singletons
+    // live in the primary window).
+    Connections {
+        target: windows
+        function onShow_editor_requested() {
+            editorWindow.show()
+            editorWindow.requestActivate()
+        }
+        function onShow_history_requested() {
+            notification._handle_view_history()
+            historyWindow.show()
+            historyWindow.requestActivate()
         }
     }
 

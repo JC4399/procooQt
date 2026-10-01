@@ -6,6 +6,7 @@ import json
 import logging
 from pathlib import Path
 import time
+import uuid
 
 logger = logging.getLogger("procoo_qt")
 
@@ -29,6 +30,7 @@ class ChatStore:
         self.chats_dir = self.storage_dir / "chats"
         self.chats_dir.mkdir(parents=True, exist_ok=True)
         self._sessions_path = self.storage_dir / "sessions.json"
+        self._ensure_session_ids()
 
     def save_chat(self, chat_id: str, data: dict) -> None:
         """Persist a chat dictionary to disk, updating its timestamp.
@@ -144,6 +146,22 @@ class ChatStore:
         with open(self._sessions_path, "w", encoding="utf-8") as f:
             json.dump({"sessions": sessions}, f, indent=2)
 
+    def _ensure_session_ids(self) -> None:
+        """Backfill a stable UUID ``id`` onto any session record lacking one.
+
+        Existing ``sessions.json`` files predate session ids, so this runs once at
+        construction time and persists the generated ids. Records that already
+        carry an id are left untouched.
+        """
+        sessions = self._load_sessions()
+        changed = False
+        for session in sessions:
+            if not session.get("id"):
+                session["id"] = uuid.uuid4().hex
+                changed = True
+        if changed:
+            self._save_sessions(sessions)
+
     def list_sessions(self) -> list[str]:
         return sorted([s["name"] for s in self._load_sessions()])
 
@@ -157,6 +175,34 @@ class ChatStore:
             if session["name"] == name:
                 return session
         return None
+
+    def get_session_by_id(self, session_id: str) -> dict | None:
+        """Return the record for a session by its stable id, or ``None``.
+
+        Args:
+            session_id: The UUID stored in the session record's ``id`` field.
+
+        Returns:
+            The session record dict, or ``None`` when no session has that id.
+        """
+        if not session_id:
+            return None
+        for session in self._load_sessions():
+            if session.get("id") == session_id:
+                return session
+        return None
+
+    def session_id_for(self, name: str) -> str:
+        """Return the stable id of a session by name, or an empty string.
+
+        Args:
+            name: The session name.
+
+        Returns:
+            The session's UUID, or ``""`` when the session is unknown.
+        """
+        session = self.get_session(name)
+        return str(session.get("id", "")) if session else ""
 
     def get_layout(self, name: str) -> dict:
         """Return a session's saved split layout, or the default layout."""
@@ -181,18 +227,38 @@ class ChatStore:
             return
         self._save_sessions(sessions)
 
-    def create_session(self, name: str, layout: dict | None = None) -> None:
+    def create_session(
+        self, name: str, layout: dict | None = None, session_id: str | None = None
+    ) -> str:
+        """Create a session record and return its stable id.
+
+        Args:
+            name: The unique, human-readable session name.
+            layout: Optional initial split layout; the default layout is used
+                when omitted.
+            session_id: Optional stable UUID for the session. A new UUID is
+                generated when omitted.
+
+        Returns:
+            The session's stable UUID.
+
+        Raises:
+            ValueError: If a session with *name* already exists.
+        """
         sessions = self._load_sessions()
         if any(s["name"] == name for s in sessions):
             raise ValueError(f"Session '{name}' already exists.")
+        stable_id = session_id or uuid.uuid4().hex
         sessions.append(
             {
+                "id": stable_id,
                 "name": name,
                 "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "layout": layout or self._default_layout(),
             }
         )
         self._save_sessions(sessions)
+        return stable_id
 
     def ensure_default_session(self) -> str:
         """Create the ``Default`` session if no sessions exist.

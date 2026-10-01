@@ -154,7 +154,7 @@ def main() -> None:
     asyncio.set_event_loop(loop)
 
     engine = QQmlApplicationEngine()
-    ui = ProcooQtUI(backend, engine)
+    ui = ProcooQtUI(backend, engine, qt_app)
     main_qml = Path(__file__).resolve().parent / "qml" / "Main.qml"
     engine.load(QUrl.fromLocalFile(str(main_qml)))
     if not engine.rootObjects():
@@ -164,7 +164,7 @@ def main() -> None:
     root_window = cast(QWindow, engine.rootObjects()[0])
     _native_frame = native_frame.install(qt_app, root_window)
 
-    ui.start()
+    ui.start(root_window, _native_frame)
     logger.info("Procoo Qt started (ui=%s)", type(ui).__name__)
     with loop:
         loop.run_forever()

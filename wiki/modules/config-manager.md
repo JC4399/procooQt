@@ -11,8 +11,9 @@ properties. Raises `ConfigError` on missing keys (fail-fast at startup).
 
 - Parsed `self._data` dict from `config.yaml`.
 - Properties: `capabilities_dir`, `skills_dir`, `automations_dir`,
-  `storage_dir`, `server_host`, `server_port`, `api_keys`, `chat_max_mb`,
-  `chat_max_bytes`, `chat_max_tokens`, `agent_system_prompt`,
+  `storage_dir`, `server_host`, `server_port`, `api_keys`,
+  `control_server_host`, `control_server_port`, `control_server_api_keys`,
+  `chat_max_mb`, `chat_max_bytes`, `chat_max_tokens`, `agent_system_prompt`,
   `agent_summary_prompt`, `llm_models`, `llm_model_name`, `llm_api_key`,
   `llm_api_base`.
 - Named-model lookup `llm_config(model_name)`.
@@ -94,6 +95,9 @@ See also: [Configuration overview](../02-Configuration.md).
 | `server_host` | `str` | `_get_optional("server", "host", default="127.0.0.1")` |
 | `server_port` | `int` | `_get_optional("server", "port", default=12840)` |
 | `api_keys` | `list[str]` | `_get_optional("auth", "api_keys", default=[])` |
+| `control_server_host` | `str` | `_get_optional("control_server", "host", default="127.0.0.1")` |
+| `control_server_port` | `int` | `_get_optional("control_server", "port", default=12841)` |
+| `control_server_api_keys` | `list[str]` | `control_server.api_keys`, falling back to `auth.api_keys` |
 | `chat_max_mb` | `int` | `_get_optional("limits", "max_chat_mb", default=70)` |
 | `chat_max_bytes` | `int` | `chat_max_mb * 1024 * 1024` |
 | `chat_max_tokens` | `int` | `_get_optional("limits", "max_chat_tokens", default=150000)` |

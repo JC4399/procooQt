@@ -21,3 +21,11 @@
 /capabilities/skills/works/
 /capabilities/skills/roles/
 /capabilities/automations/
+
+# Node / Obsidian plugin (obsidian-procoo)
+node_modules/
+bun.lockb
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.tsbuildinfo
