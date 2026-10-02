@@ -7,9 +7,11 @@ private :class:`SessionController` / :class:`ChatController` /
 :class:`SkillController` triple built by :class:`~src.qt.ui.ProcooQtUI`, so its
 panels, tabs, and skill dock are independent of other windows.
 
-The manager also acts as the routing point for the shared editor and
-notification-history windows: any window may request them, and the primary
-window (which owns the single instances) shows them.
+The manager also owns the shared editor and notification-history windows: it
+lazily instantiates each from its own QML file on the engine root context and
+caches the singleton instance. Because they are created standalone (never
+declared inside ``Main.qml``), they carry no implicit transient parent and
+behave as independent top-level windows.
 """
 
 from __future__ import annotations
@@ -31,12 +33,19 @@ if TYPE_CHECKING:
 
     from ..app import ProcooApp
     from .chat_controller import ChatController
+    from .session_bus import SessionBus
     from .session_controller import SessionController
     from .skill_controller import SkillController
 
 logger = logging.getLogger("procoo_qt")
 
 _WINDOW_QML = Path(__file__).resolve().parent.parent / "qml" / "windows" / "ChatWindow.qml"
+_EDITOR_WINDOW_QML = (
+    Path(__file__).resolve().parent.parent / "qml" / "windows" / "EditorWindow.qml"
+)
+_HISTORY_WINDOW_QML = (
+    Path(__file__).resolve().parent.parent / "qml" / "windows" / "NotificationHistoryWindow.qml"
+)
 
 
 @dataclass
@@ -66,23 +75,35 @@ class WindowRecord:
     is_primary: bool = False
 
 
-class WindowManager(QObject):
-    """Registry and factory for per-session chat windows.
+@dataclass
+class ToolWindowRecord:
+    """One cached singleton tool window (editor or notification history).
 
     Attributes:
-        show_editor_requested: Ask the primary window to show the editor.
-        show_history_requested: Ask the primary window to show notification history.
+        window: The top-level QML window.
+        component: The component the window was instantiated from.
+    """
+
+    window: QWindow
+    component: QQmlComponent
+
+
+class WindowManager(QObject):
+    """Registry and factory for per-session chat windows and shared tool windows.
+
+    Attributes:
         windows_changed: Emitted whenever the set of open windows changes.
     """
 
-    show_editor_requested = Signal()
-    show_history_requested = Signal()
     windows_changed = Signal()
 
     if TYPE_CHECKING:
         app: ProcooApp
         _primary: WindowRecord | None
         _windows: dict[str, WindowRecord]
+        _bus: SessionBus
+        _editor_window: ToolWindowRecord | None
+        _history_window: ToolWindowRecord | None
         _factory: Callable[
             [], tuple[QQmlContext, SessionController, ChatController, SkillController]
         ]
@@ -98,6 +119,7 @@ class WindowManager(QObject):
         factory: Callable[
             [], tuple[QQmlContext, SessionController, ChatController, SkillController]
         ],
+        bus: SessionBus,
         qt_app: Any = None,
         parent: QObject | None = None,
     ) -> None:
@@ -108,6 +130,7 @@ class WindowManager(QObject):
             engine: The QML engine used to instantiate window components.
             factory: Builds a fresh ``(context, session, chat, skill)`` bundle for
                 a new window, wiring cross-controller signals as needed.
+            bus: The shared session-change broadcast hub.
             qt_app: The running ``QApplication`` (for native-frame installation).
             parent: Optional Qt parent object.
         """
@@ -116,8 +139,11 @@ class WindowManager(QObject):
         self._engine = engine
         self._qt_app = qt_app
         self._factory = factory
+        self._bus = bus
         self._primary = None
         self._windows = {}
+        self._editor_window = None
+        self._history_window = None
 
     # ------------------------------------------------------------------
     #  Public: Primary window
@@ -196,6 +222,7 @@ class WindowManager(QObject):
         except ValueError as error:
             logger.warning("Session create failed: %s", error)
             return ""
+        self._bus.sessions_changed.emit()
         if not self.open_session(cleaned):
             return ""
         record = self._windows.get(cleaned)
@@ -240,13 +267,15 @@ class WindowManager(QObject):
 
     @Slot()
     def show_editor(self) -> None:
-        """Request the primary window to show the shared editor window."""
-        self.show_editor_requested.emit()
+        """Show the shared editor window, creating it on first use."""
+        self._editor_window = self._show_tool_window(self._editor_window, _EDITOR_WINDOW_QML)
 
     @Slot()
     def show_history(self) -> None:
-        """Request the primary window to show the notification history window."""
-        self.show_history_requested.emit()
+        """Show the shared notification-history window, creating it on first use."""
+        self._history_window = self._show_tool_window(
+            self._history_window, _HISTORY_WINDOW_QML
+        )
 
     # ------------------------------------------------------------------
     #  Deletion
@@ -270,10 +299,11 @@ class WindowManager(QObject):
         if record is not None:
             record.session._handle_delete_session(name)
             record.window.close()
-        if primary_shows and self._primary is not None:
+        elif primary_shows and self._primary is not None:
             self._primary.session._handle_delete_session(name)
-        elif record is None:
+        else:
             self.app.chat_store.delete_session(name)
+            self._bus.sessions_changed.emit()
         self.windows_changed.emit()
         logger.info("Deleted session '%s' and closed its window", name)
         return True
@@ -361,6 +391,48 @@ class WindowManager(QObject):
         if record is not None:
             record.window.deleteLater()
         self.windows_changed.emit()
+
+    # ------------------------------------------------------------------
+    #  Private: Tool windows
+    # ------------------------------------------------------------------
+
+    def _show_tool_window(
+        self, record: ToolWindowRecord | None, qml_path: Path
+    ) -> ToolWindowRecord | None:
+        """Show a cached singleton window, creating it on first request.
+
+        Args:
+            record: The cached record, or ``None`` when never created.
+            qml_path: Path to the window's QML file.
+
+        Returns:
+            The shown record, or ``None`` when creation fails.
+        """
+        if record is None:
+            record = self._create_tool_window(qml_path)
+            if record is None:
+                return None
+            self.windows_changed.emit()
+            logger.info("Opened tool window: %s", qml_path.name)
+        record.window.show()
+        record.window.requestActivate()
+        return record
+
+    def _create_tool_window(self, qml_path: Path) -> ToolWindowRecord | None:
+        """Instantiate a singleton window on the engine root context.
+
+        Args:
+            qml_path: Path to the window's QML file.
+
+        Returns:
+            The new record, or ``None`` when creation fails.
+        """
+        component = QQmlComponent(self._engine, QUrl.fromLocalFile(str(qml_path)))
+        created = component.create()
+        if created is None:
+            logger.error("Failed to create %s: %s", qml_path.name, component.errors())
+            return None
+        return ToolWindowRecord(window=cast("QWindow", created), component=component)
 
     @staticmethod
     def _focus(record: WindowRecord) -> None:

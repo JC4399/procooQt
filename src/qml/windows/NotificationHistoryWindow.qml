@@ -6,10 +6,11 @@ import QtQuick.Window
 import "../components"
 import "../cards"
 
-// Separate top-level notification history window: a search field on top and a
+// Standalone top-level notification history window: a search field on top and a
 // paged list of past notifications below (20 per page, loading more when the
-// list is scrolled to the bottom). Hidden at startup; shown from the
-// notification page's "View history" action.
+// list is scrolled to the bottom). Instantiated on demand by the Python
+// `WindowManager` (exposed to QML as `windows`) via `windows.show_history()`;
+// never created at startup.
 Window {
     id: historyWindow
 

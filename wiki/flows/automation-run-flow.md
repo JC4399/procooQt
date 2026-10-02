@@ -32,7 +32,8 @@ All three call `AutomationRunner.run(automation, payload)`. Only the schedule
 path honours the optional `start_date` / `end_date` frontmatter window:
 `_next_time` skips firing outside the window, and the loop auto-disables an
 enabled automation once `end_date` has passed (event and manual runs ignore the
-window).
+window). Scheduled runs fire at the cron time planned before the loop's wait;
+a run missed while the app is closed is skipped (no catch-up).
 
 For the manual path the controller marks the automation's path in `_running` for
 the duration, so the card shows a `KnightRiderSpinner` and disables the button

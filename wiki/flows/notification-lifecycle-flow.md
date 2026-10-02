@@ -36,8 +36,8 @@ whenever `counts_changed` is emitted.
 - Confirm → `_handle_confirm(id)` → `mark_read(id)`.
 - Debug → `_handle_debug(id)` → emits `edit_automation_requested(path)` →
   `EditorController._handle_open_automation(path)`, which emits
-  `editor_open_requested` (QML shows the editor window) and loads
-  `capabilities/automations/<path>/AUTOMATION.py`.
+  `editor_open_requested` (wired to `windows.show_editor()`, which shows the
+  editor window) and loads `capabilities/automations/<path>/AUTOMATION.py`.
 
 The bell page lists **unread** notifications plus the success logs the current
 page-open just marked read: once the page is closed (or an info/error is

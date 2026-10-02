@@ -31,6 +31,7 @@ from .theme import (
 if TYPE_CHECKING:
     from ..app import ProcooApp
     from .chat_controller import ChatController
+    from .session_bus import SessionBus
 
 logger = logging.getLogger("procoo_qt")
 
@@ -70,6 +71,7 @@ class SessionController(QObject):
     if TYPE_CHECKING:
         app: ProcooApp
         chat: ChatController
+        _bus: SessionBus
         _session_menu_model: SessionMenuModel
         _states: dict[str, ChatState]
         _chats_by_session: dict[str, list[str]]
@@ -89,15 +91,19 @@ class SessionController(QObject):
     #  Setup
     # ------------------------------------------------------------------
 
-    def __init__(self, app: ProcooApp, parent: QObject | None = None) -> None:
+    def __init__(
+        self, app: ProcooApp, bus: SessionBus, parent: QObject | None = None
+    ) -> None:
         """Initialise the session controller.
 
         Args:
             app: The top-level application holding backend subsystems.
+            bus: The shared session-change broadcast hub.
             parent: Optional Qt parent object.
         """
         super().__init__(parent)
         self.app = app
+        self._bus = bus
 
     # ------------------------------------------------------------------
     #  Builder
@@ -116,6 +122,21 @@ class SessionController(QObject):
         self.active_session_name = None
         self.chat_ids = []
         self._refresh_model()
+        self._bus.sessions_changed.connect(self.refresh_sessions)
+
+    # ------------------------------------------------------------------
+    #  Slot: Refresh sessions
+    # ------------------------------------------------------------------
+
+    @Slot()
+    def refresh_sessions(self) -> None:
+        """Reload the session menu model from disk.
+
+        Connected to :class:`~src.qt.session_bus.SessionBus` so every open
+        window's title bar reflects a session created or deleted elsewhere.
+        Runs the disk scan off the GUI thread.
+        """
+        self._spawn(self.refresh_model_async())
 
     # ------------------------------------------------------------------
     #  Properties
@@ -406,6 +427,7 @@ class SessionController(QObject):
             self.toast_requested.emit(str(error), TOAST_ERROR)
             return
         self._handle_switch_session(cleaned)
+        self._bus.sessions_changed.emit()
 
     # ------------------------------------------------------------------
     #  Slot: Switch session
@@ -483,8 +505,10 @@ class SessionController(QObject):
             self._reconcile_panels(self.active_session_name)
             self._sync_panels()
             self._open_session_panels()
+            self._bus.sessions_changed.emit()
             return
         self._refresh_model()
+        self._bus.sessions_changed.emit()
 
     # ------------------------------------------------------------------
     #  Slot: Status color

@@ -19,6 +19,7 @@
 │                                                                              │
 │  ProcooQtUI (QObject orchestrator — composition, no inheritance)             │
 │    SessionController  → workspace panels + ChatState registry + session menu │
+│    SessionBus         → cross-window session-list change broadcast            │
 │    ChatController     → ChatListModel per chat, streaming, approval          │
 │    SkillController    → SkillTreeModel, ToolModeModel, presets, watcher      │
 │    EditorController   → FileTreeModel, CodeHighlighter                       │
@@ -104,6 +105,8 @@ history. See [`chat-agent`](modules/chat-agent.md).
   `context_snapshot`.
 - The title-bar **session selector** switches sessions; `SessionController`
   reconciles the stored layout against actual chat files and rebuilds the panels.
+  A shared `SessionBus` broadcasts create/delete so every open window's title-bar
+  list stays in sync.
 - Each visible panel gets a `ChatPanelModel` (active chat, tab model, runtime
   values); `ChatController` renders to every visible chat.
 

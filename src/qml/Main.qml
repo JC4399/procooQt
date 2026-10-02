@@ -5,7 +5,6 @@ import QtQuick.Window
 
 import "panels"
 import "components"
-import "windows"
 
 ApplicationWindow {
     id: root
@@ -19,8 +18,8 @@ ApplicationWindow {
     color: Theme.colors.pageBg
     flags: Qt.Window | Qt.FramelessWindowHint
 
-    // The primary window owns the shared editor / history windows and quits the
-    // app when closed; closing a secondary window only closes that window.
+    // Closing the primary window quits the app; the shared editor / history
+    // windows are owned by the Python WindowManager and close independently.
     onClosing: Qt.quit()
 
     // Active central content view: "chat", "automation", or "notification".
@@ -48,10 +47,7 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         visible: root.activeContent === "chat"
-        onOpenEditorRequested: {
-            editorWindow.show()
-            editorWindow.requestActivate()
-        }
+        onOpenEditorRequested: windows.show_editor()
     }
 
     AutomationPanel {
@@ -71,42 +67,8 @@ ApplicationWindow {
         visible: root.activeContent === "notification"
         onViewHistoryRequested: {
             notification._handle_view_history()
-            historyWindow.show()
-            historyWindow.requestActivate()
+            windows.show_history()
         }
-    }
-
-    EditorWindow {
-        id: editorWindow
-    }
-
-    // Opening a file from outside the workspace (e.g. notification Debug)
-    // requests the editor window to be shown.
-    Connections {
-        target: editor
-        function onEditor_open_requested() {
-            editorWindow.show()
-            editorWindow.requestActivate()
-        }
-    }
-
-    // Secondary windows route editor / history requests here (the singletons
-    // live in the primary window).
-    Connections {
-        target: windows
-        function onShow_editor_requested() {
-            editorWindow.show()
-            editorWindow.requestActivate()
-        }
-        function onShow_history_requested() {
-            notification._handle_view_history()
-            historyWindow.show()
-            historyWindow.requestActivate()
-        }
-    }
-
-    NotificationHistoryWindow {
-        id: historyWindow
     }
 
     ToastHost {

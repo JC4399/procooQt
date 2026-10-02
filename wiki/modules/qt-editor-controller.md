@@ -42,7 +42,7 @@ through the conflict slots. File reads and writes are offloaded with
 | `edit_mode_changed` | `bool` | Edit mode toggled; notifies `editing`. |
 | `file_conflict` | `str, str` | `(kind, path)` — the open file was deleted (`"deleted"`) or changed on disk (`"modified"`); QML prompts to keep the buffer or take the on-disk state. |
 | `toast_requested` | `str, str` | A message + toast level (`TOAST_INFO` / `TOAST_WARNING` / `TOAST_ERROR`). |
-| `editor_open_requested` | — | An external action (notification Debug, automation Edit) asked to show the editor window; `Main.qml` shows + activates it. |
+| `editor_open_requested` | — | An external action (notification Debug, automation Edit) asked to show the editor window; wired to `windows.show_editor` by [`qt-ui`](qt-ui.md). |
 
 | Property | Type | Notify | Meaning |
 |---|---|---|---|
@@ -148,8 +148,9 @@ files mid-edit is blocked in the controller (`_open_file_in_editor` warning).
 
 ### Editor window (QML)
 
-`src/qml/windows/EditorWindow.qml` is a hidden `Window` created by `Main.qml` and
-shown by the "Open Editor" button in `SkillDock.qml` (or when
+`src/qml/windows/EditorWindow.qml` is a standalone top-level `Window` lazily
+instantiated by [`qt-window-manager`](qt-window-manager.md) via
+`windows.show_editor()` (the "Open Editor" button in `SkillDock.qml`, or when
 `editor_open_requested` fires); it reports visibility via
 `editor._handle_window_visibility(visible)`. `EditorPanel.qml` is a `SplitView`
 placing the file tree pane (fuzzy search field + tree) on the left, the code pane

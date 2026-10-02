@@ -26,6 +26,7 @@ from .editor_chat_controller import EditorChatController
 from .editor_controller import EditorController
 from .error_handler import ErrorNotifier
 from .notification_controller import NotificationController
+from .session_bus import SessionBus
 from .session_controller import SessionController
 from .skill_controller import SkillController
 from .theme import Theme
@@ -48,6 +49,7 @@ class ProcooQtUI(QObject):
         engine: The QML application engine.
         theme: The theme registry (also exposed as ``Theme``).
         notifier: Toast/error notifier (also exposed as ``toasts``).
+        session_bus: Shared hub broadcasting session-list changes to every window.
         session: Primary window's session group and chat lifecycle controller.
         chat: Primary window's chat rendering and generation controller.
         skill: Primary window's skill tree, tool-mode, and preset controller.
@@ -79,14 +81,17 @@ class ProcooQtUI(QObject):
         self.engine = engine
         self.theme = Theme(self)
         self.notifier = ErrorNotifier(self)
-        self.session = SessionController(app, self)
+        self.session_bus = SessionBus(self)
+        self.session = SessionController(app, self.session_bus, self)
         self.chat = ChatController(app, self)
         self.skill = SkillController(app, self)
         self.editor = EditorController(app, self)
         self.editor_chat = EditorChatController(app, self)
         self.automation = AutomationController(app, self)
         self.notification = NotificationController(app, self)
-        self.windows = WindowManager(app, engine, self._build_window_bundle, qt_app, self)
+        self.windows = WindowManager(
+            app, engine, self._build_window_bundle, self.session_bus, qt_app, self
+        )
         self.control = ControlController(app, self.windows, self)
         self._wire_window(self.session, self.chat, self.skill)
         self._wire_editor_chat()
@@ -130,6 +135,7 @@ class ProcooQtUI(QObject):
         self.editor_chat.chat = self.chat
         self.chat.chat_state_changed.connect(self.editor_chat._handle_state_changed)
         self.chat.token_counts_changed.connect(self.editor_chat._handle_token_counts)
+        self.editor.editor_open_requested.connect(self.windows.show_editor)
 
     # ------------------------------------------------------------------
     #  Builder
@@ -155,7 +161,7 @@ class ProcooQtUI(QObject):
             ``(context, session, chat, skill)`` where *context* is a child of the
             engine root context carrying the window's three controllers.
         """
-        session = SessionController(self.app, self)
+        session = SessionController(self.app, self.session_bus, self)
         chat = ChatController(self.app, self)
         skill = SkillController(self.app, self)
         self._wire_window(session, chat, skill)

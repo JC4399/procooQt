@@ -9,6 +9,7 @@ Cross-module flow linking an Obsidian note line to a Procoo session.
 | Obsidian plugin (`obsidian-procoo/`) | Adds/reads the HTML marker, shows the context menu, calls HTTP |
 | [control-server](modules/control-server.md) | Validates and routes the HTTP request |
 | [qt-window-manager](modules/qt-window-manager.md) | Opens/focuses/closes the per-session window |
+| [qt-session-bus](modules/qt-session-bus.md) | Broadcasts session changes so every window resyncs |
 | [chat-store](modules/chat-store.md) | Holds the stable session UUID and layout |
 | [qt-session-controller](modules/qt-session-controller.md) | Builds the window's panels for the session |
 
@@ -42,7 +43,9 @@ reading view.
    builds a fresh `session`/`chat`/`skill` triple on a child context and shows
    `ChatWindow.qml`. The new session gets one empty chat (`session.ensure_chat`)
    so the per-chat skill/model dock is active immediately.
-5. Server returns `{id, name, created: true}`; the plugin wraps the selection in
+5. `WindowManager` emits [SessionBus](modules/qt-session-bus.md)
+   `sessions_changed`; every open window reloads its title-bar session list.
+6. Server returns `{id, name, created: true}`; the plugin wraps the selection in
    the marker (storing the returned `id`). The session starts empty (no seeded
    message).
 
@@ -62,4 +65,6 @@ reading view.
 2. Plugin `POST /sessions/delete` with `{id}`.
 3. Server resolves the id and calls `WindowManager.delete_session(name)`, which
    closes the window and removes the session + chats from `ChatStore`.
-4. Plugin strips only the marker from the line, leaving the inner text untouched.
+4. A [SessionBus](modules/qt-session-bus.md) `sessions_changed` broadcast makes
+   every other open window drop the deleted session from its title bar.
+5. Plugin strips only the marker from the line, leaving the inner text untouched.

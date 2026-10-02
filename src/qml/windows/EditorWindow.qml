@@ -3,10 +3,11 @@ import QtQuick.Window
 
 import "../panels"
 
-// Separate top-level code editor window bound to the shared `editor`
-// controller. Hidden at startup; Main.qml shows it on demand. Visibility is
-// reported to the controller so file/content conflicts are only prompted for
-// while the window is actually showing.
+// Standalone top-level code editor window bound to the shared `editor`
+// controller. Instantiated on demand by the Python `WindowManager` (exposed to
+// QML as `windows`) via `windows.show_editor()`; never created at startup.
+// Visibility is reported to the controller so file/content conflicts are only
+// prompted for while the window is actually showing.
 Window {
     id: editorWindow
 

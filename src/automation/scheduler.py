@@ -31,6 +31,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("procoo_qt")
 
+_EARLY_FIRE_TOLERANCE_SEC = 2.0
+
 
 class AutomationScheduler:
     """Fires enabled cron-scheduled automations and reports their results."""
@@ -106,8 +108,10 @@ class AutomationScheduler:
         """Wait for the next due time, then run due automations."""
         try:
             while not self._stopped.is_set():
+                self._wake.clear()
                 self._auto_disable_expired()
                 jobs = self._enabled_scheduled()
+                fire_times = self._fire_times(jobs)
                 next_time = self._nearest_time(jobs)
                 delay = (
                     None if next_time is None else max(0.0, next_time - datetime.now().timestamp())
@@ -115,19 +119,32 @@ class AutomationScheduler:
                 woken = await self._wait(delay)
                 if woken or self._stopped.is_set():
                     continue
-                await self._run_due()
+                await self._run_due(jobs, fire_times)
         except asyncio.CancelledError:
             pass
         except Exception as error:  # pragma: no cover - defensive
             logger.error("Automation scheduler crashed: %s", error)
 
-    async def _run_due(self) -> None:
-        """Run every enabled scheduled automation whose next time has passed."""
-        now = datetime.now().timestamp()
-        for automation in self._enabled_scheduled():
-            fire_time = self._next_time(automation)
-            if fire_time is not None and fire_time <= now:
-                await self._execute(automation)
+    async def _run_due(self, jobs: list[AutomationInfo], fire_times: dict[str, float]) -> None:
+        """Run automations whose planned fire time has arrived.
+
+        Fire times are the ones planned before the wait: recomputing them after
+        the wait would return the *next* occurrence and skip the current one.
+
+        Args:
+            jobs: The enabled scheduled automations considered before the wait.
+            fire_times: Planned fire timestamp per automation path.
+        """
+        for automation in jobs:
+            planned = fire_times.get(automation.path)
+            if planned is None or not self._manager.is_enabled(automation.path):
+                continue
+            remaining = planned - datetime.now().timestamp()
+            if remaining > _EARLY_FIRE_TOLERANCE_SEC:
+                continue
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+            await self._execute(automation)
 
     async def _execute(self, automation: AutomationInfo) -> AutomationResult:
         """Run one automation, record its run, and forward the result.
@@ -229,6 +246,18 @@ class AutomationScheduler:
             return datetime(start.year, start.month, start.day).timestamp()
         return self._next_time(automation)
 
+    def _fire_times(self, automations: list[AutomationInfo]) -> dict[str, float]:
+        """Return the planned next fire timestamp per automation path.
+
+        Args:
+            automations: The automations to evaluate.
+
+        Returns:
+            A mapping of automation path to its next fire timestamp
+            (automations outside their date window are omitted).
+        """
+        return {info.path: t for info in automations if (t := self._next_time(info)) is not None}
+
     def _nearest_time(self, automations: list[AutomationInfo]) -> float | None:
         """Return the earliest next wake time across automations, or ``None``."""
         times = [t for info in automations if (t := self._wake_time(info)) is not None]
@@ -243,7 +272,6 @@ class AutomationScheduler:
         Returns:
             ``True`` when woken by :meth:`notify_changed`, ``False`` on timeout.
         """
-        self._wake.clear()
         stop_waiter = asyncio.ensure_future(self._stopped.wait())
         wake_waiter = asyncio.ensure_future(self._wake.wait())
         try:

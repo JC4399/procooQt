@@ -9,7 +9,9 @@ Owns the **session** list (the title-bar menu), the **split-workspace layout**
 [`ChatState`](qt-chat-state.md) registry. Implements session creation,
 switching, deletion, the `Default` session, chat create/switch/delete, panel
 split/move, persistence, and hydration. Every panel exposes a
-[`ChatPanelModel`](qt-chat-panel-model.md) to QML.
+[`ChatPanelModel`](qt-chat-panel-model.md) to QML. Each controller subscribes to
+the shared [`SessionBus`](qt-session-bus.md) so a session created or deleted in
+any window refreshes every window's title-bar list.
 
 ## Deliverables
 
@@ -32,6 +34,8 @@ split/move, persistence, and hydration. Every panel exposes a
   (`_hydrate_chat`, `_create_manager_chat`).
 - Single-pass enrichment (`_collect_summaries` / `_apply_summaries`) with an
   off-thread `refresh_model_async` variant.
+- Cross-window sync: subscribes to [`SessionBus.sessions_changed`](qt-session-bus.md)
+  via the `refresh_sessions` slot; emits the bus after in-app create/delete.
 
 ## Signals
 
@@ -123,7 +127,17 @@ refresh; if the active chat was removed, open another panel's active chat.
 ### Delete session (`_handle_delete_session`)
 
 `chat_store.delete_session` (deletes its chats) → `_forget_chat` each → if it
-was active, fall back to `Default` and rebuild.
+was active, fall back to `Default` and rebuild → emit
+[`SessionBus.sessions_changed`](qt-session-bus.md) so every other window also
+refreshes its title-bar list.
+
+### Cross-window refresh (`refresh_sessions`)
+
+`build()` connects [`SessionBus.sessions_changed`](qt-session-bus.md) to
+`refresh_sessions`, which schedules `refresh_model_async` (off-thread disk scan)
+for that window. `_handle_create_session` also emits the bus after creating a
+session. This keeps the title-bar `SessionSelector.qml` list consistent across
+every open window whenever a session is created or deleted anywhere.
 
 ### Hydration (`_hydrate_chat` → `_create_manager_chat`)
 
@@ -159,7 +173,8 @@ chats fall back to it.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def build(self) -> None` | — | `None` | create menu model + panel lists → init `_states`/`_tasks` → `_refresh_model()` | Emits `sessions_changed` |
+| `def build(self) -> None` | — | `None` | create menu model + panel lists → init `_states`/`_tasks` → `_refresh_model()` → connect `SessionBus.sessions_changed` → `refresh_sessions` | Emits `sessions_changed`; subscribes to the bus |
+| `@Slot() def refresh_sessions(self) -> None` | — | `None` | off-thread `refresh_model_async` (`_spawn`) | Cross-window slot connected to `SessionBus.sessions_changed` |
 | `@Property(int, notify=panels_changed) def panelCount(self) -> int` | — | Panel count | `len(self._panels)` | — |
 | `@Slot(int, result=QObject) def panelAt(self, index: int) -> QObject` | `index` | `ChatPanelModel` | grows `_panel_models` and returns the one at `index` | May create a model |
 | `@Property(QObject, notify=sessions_changed) def sessionMenuModel(self)` | — | `SessionMenuModel` | returns `_session_menu_model` | — |
@@ -172,12 +187,12 @@ chats fall back to it.
 | `@Slot(str, int, str) def _handle_split(self, chat_id, target_index, side)` | chat, panel, `"left"`/`"right"` | `None` | remove chat → insert new panel adjacent to target → finalize → open | Max 4; saves |
 | `@Slot(str) def _handle_delete_chat(self, chat_id)` | chat | `None` | `_delete_chat_by_id` | Deletes store + panel tab |
 | `@Slot() def _handle_new_session(self)` | — | `None` | emit `new_session_requested` | QML opens dialog |
-| `@Slot(str) def _handle_create_session(self, name)` | name | `None` | strip → create session → switch | `ValueError` → toast |
+| `@Slot(str) def _handle_create_session(self, name)` | name | `None` | strip → create session → switch → emit bus | `ValueError` → toast; emits `SessionBus.sessions_changed` |
 | `@Slot(str) def _handle_switch_session(self, name)` | name | `None` | no-op if already active → `_activate_session` | Rebuilds all panels |
 | `@Slot(str) def open_session(self, name)` | name | `None` | `_activate_session` (no skip) | Used by new windows |
 | `@Slot(int) def ensure_chat(self, panel_index=0)` | panel | `None` | `_handle_new_chat` when the session has no chats | Seeds a fresh session with one chat |
 | `def _activate_session(self, name)` | name | `None` | set active → emit → refresh → reconcile → sync → open | Shared by switch/open |
-| `@Slot(str) def _handle_delete_session(self, name)` | name | `None` | delete session + chats → forget → fallback Default → rebuild | `ValueError` → toast |
+| `@Slot(str) def _handle_delete_session(self, name)` | name | `None` | delete session + chats → forget → fallback Default → rebuild → emit bus | `ValueError` → toast; emits `SessionBus.sessions_changed` |
 | `@Slot(str, result=str) def statusColor(self, status)` | status | Hex color | `_STATUS_COLORS.get(status, COLOR_CHAT_EMPTY)` | — |
 | `@Slot(str, result=str) def modelNameFor(self, chat_id)` | chat | Model name | `state.model_name` or the config default (in-memory) | May create a `ChatState` |
 | `@Slot(str, str) def _handle_model_changed(self, chat_id, model_name)` | chat, model | `None` | validate against `llm_models` → set `state.model_name` → persist → `Agent.set_model` if live → refresh panel | Writes store; toasts on unknown model |

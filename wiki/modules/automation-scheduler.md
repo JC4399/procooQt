@@ -33,12 +33,20 @@ and enabled automations whose end date has passed are auto-disabled through
    `is_enabled`.
 3. `_nearest_time(jobs)` → earliest `_wake_time` (or `None`). `_wake_time`
    returns the window start for a pending future automation so the loop wakes
-   the day it activates, and the cron next-fire otherwise.
+   the day it activates, and the cron next-fire otherwise. `_fire_times(jobs)`
+   records each job's planned fire timestamp for step 5.
 4. `_wait(delay)` sleeps until that time, or until `notify_changed()` / `stop()`
-   fires (via two waiter tasks + `asyncio.wait(FIRST_COMPLETED)`).
-5. If woken by a change, recompute. Else `_run_due()` runs every automation whose
-   `_next_time` has passed (sequentially). `_next_time` returns `None` outside
-   the date window, so out-of-window automations never fire.
+   fires (via two waiter tasks + `asyncio.wait(FIRST_COMPLETED)`). The wake flag
+   is cleared at the top of each `_loop` iteration, so a `notify_changed()`
+   arriving while schedules are computed is never lost.
+5. If woken by a change, recompute. Else `_run_due(jobs, fire_times)` runs,
+   sequentially, every automation whose *planned* fire time has arrived.
+   Recomputing after the wait would return the next occurrence and skip the
+   current one. A fire time up to 2 s ahead is waited out
+   (`_EARLY_FIRE_TOLERANCE_SEC`); anything further ahead is left for a later
+   iteration. Runs missed while the app is closed are skipped (no catch-up).
+   `_next_time` returns `None` outside the date window, so out-of-window
+   automations never fire.
 6. `_execute` runs the automation, `manager.record_run(...)`, then invokes
    `on_result(result)`.
 
@@ -65,12 +73,13 @@ local UTC offset.
 | Signature | Purpose |
 |---|---|
 | `async def _loop(self) -> None` | wait/run loop; swallows cancellation |
-| `async def _run_due(self) -> None` | run all due automations |
+| `async def _run_due(self, jobs: list[AutomationInfo], fire_times: dict[str, float]) -> None` | run jobs whose planned fire time has arrived |
 | `async def _execute(self, automation) -> AutomationResult` | run + record + callback |
 | `def _enabled_scheduled(self) -> list[AutomationInfo]` | enabled scheduled set |
 | `def _auto_disable_expired(self) -> None` | disable automations past `end_date` |
 | `def _in_window(self, automation) -> bool` | whether the date window covers today |
 | `def _next_time(self, automation) -> float \| None` | next cron fire (local); `None` out of window |
+| `def _fire_times(self, automations) -> dict[str, float]` | planned next fire per automation path |
 | `def _wake_time(self, automation) -> float \| None` | next wake; window start for pending automations |
 | `def _nearest_time(self, automations) -> float \| None` | earliest next wake |
 | `async def _wait(self, delay: float \| None) -> bool` | sleep/wake helper |
