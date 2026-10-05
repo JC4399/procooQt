@@ -86,6 +86,29 @@ clicks the header (`bodyHost.animateBody` gates the `Behavior`); creation and
 streaming-driven height growth apply instantly, so they do not churn the scroll
 position.
 
+### Body caret navigation
+
+The body `TextEdit` is always keyboard-selectable — there is no separate caret
+mode. Because it is `readOnly`, Qt would default `selectByKeyboard` to `false`,
+so `CardBase.qml` forces `selectByKeyboard: true`, giving caret movement and
+selection with arrows, `Shift`+arrows, `Ctrl`+arrows, `Home`/`End` and `Ctrl+A`
+(the browser-style interactions users expect). It is focusable by keyboard
+(`activeFocusOnTab: true`) and by click, keeps its highlight when focus leaves
+(`persistentSelection: true`), and shows the caret while focused
+(`cursorVisible: activeFocus`); `selectionColor` / `selectedTextColor` come from
+`Theme.colors.selectionBg` / `selectionFg`. Selection is confined to one card —
+the caret does not cross into the neighbouring card's editor.
+
+`TextEdit` never scrolls its parent, so `CardBase` exposes `scrollTarget` (the
+hosting `Flickable`, bound by the panel) and emits `caretMoved(contentY, height)`
+from `onCursorRectangleChanged` while focused (the caret rectangle is mapped into
+the flickable's `contentItem`). `ChatPanel.qml` and `EditorChatPanel.qml` connect
+`caretMoved` to a `chatList.ensureVisible(y, h)` helper that nudges `contentY`
+only when the caret would be clipped, keeping the caret on screen. That
+`contentY` change flows through the existing `onContentYChanged` handler, so
+moving the caret away from the bottom deactivates auto-scroll exactly like a
+manual scroll would.
+
 The chat list in `ChatPanel.qml` is a **non-virtualized** `Flickable` + `Column` +
 `Repeater`: every card is instantiated so `contentHeight` is exact. A virtualized
 `ListView` was tried and abandoned — with these variable-height cards its

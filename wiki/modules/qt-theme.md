@@ -16,7 +16,7 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
 - Module-level color constants grouped by UI region (backgrounds, text,
   accents, borders, buttons, bubbles, approval, context banner, chat border,
   toasts, chat status, cards, chips, tool-mode badges, toast, drag feedback,
-  split-drop, resize handle, inputs, automation/notification).
+  split-drop, resize handle, selection, inputs, automation/notification).
 - Sizing/font constants (`BUTTON_RADIUS`, `CARD_RADIUS`, `STATUS_DOT_RADIUS`,
   `CONTROL_INDICATOR_SIZE`, `CONTROL_INDICATOR_RADIUS`, `CONTROL_DOT_SIZE`,
   `FONT_MONO`, `FONT_SIZE_BASE`, `FONT_SIZE_MARKDOWN`, `FONT_SIZE_LATEX`,
@@ -49,6 +49,7 @@ property (`Theme.colors.pageBg`, `Theme.metrics.cardRadius`,
 | Automation / notification | `COLOR_NOTIFICATION_{LOG,INFO,ERROR}_BORDER` (grey/amber/red), `COLOR_NOTIFICATION_BG`, `COLOR_BADGE_{LOG,INFO,ERROR}_BG`, `COLOR_BADGE_FG`, `COLOR_CONTENT_TAB_ACTIVE` |
 | Markdown | `COLOR_MD_TEXT` (#eeeeee), `_HEADING`, `_BOLD`, `_ITALIC`, `_CODE`, `_LINK`, `_LIST_MARKER`, `_LIST_NUMBER`, `_QUOTE`, `_RULE`, `_MATH` |
 | Inputs | `INPUT_BORDER_COLOR`, `INPUT_FOCUSED_BORDER_COLOR`, `INPUT_FILL_COLOR`, `INPUT_CURSOR_COLOR`, `INPUT_TEXT_COLOR` |
+| Selection | `COLOR_SELECTION_BG` (#264f78), `COLOR_SELECTION_FG` (aliases `COLOR_TEXT_PRIMARY`) |
 | Frameless title bar | `TITLE_BAR_HEIGHT` (32), `TITLE_BAR_LOGO_SIZE` (20), `TITLE_BAR_BUTTON_WIDTH` (46) |
 
 Chat card surfaces (`COLOR_BUBBLE_USER`, `COLOR_BUBBLE_ASSISTANT`,

@@ -120,6 +120,19 @@ Rectangle {
                     contentY = Math.max(0, contentHeight - height)
                 }
 
+                // Scroll so a card body caret at content y / h is on screen,
+                // nudging only when it would otherwise be clipped. Auto-scroll
+                // reacts to the resulting contentY change (deactivating when we
+                // move away from the bottom).
+                function ensureVisible(y, h) {
+                    const margin = 8
+                    const maxY = Math.max(0, contentHeight - height)
+                    if (y - margin < contentY)
+                        contentY = Math.min(maxY, y - margin)
+                    else if (y + h + margin > contentY + height)
+                        contentY = Math.min(maxY, y + h + margin - height)
+                }
+
                 function scheduleScroll() {
                     if (autoScrollToggle.checked)
                         scrollDebounce.restart()
@@ -286,6 +299,12 @@ Rectangle {
                                     value: !(panel.panelModel && panel.panelModel.busy)
                                     when: cardLoader.item !== null && model.kind !== "context_banner"
                                 }
+                                Binding {
+                                    target: cardLoader.item
+                                    property: "scrollTarget"
+                                    value: chatList
+                                    when: cardLoader.item !== null && model.kind !== "context_banner"
+                                }
                             }
 
                             Connections {
@@ -297,6 +316,10 @@ Rectangle {
 
                                 function onRegenerateRequested(msgIndex) {
                                     chat._handle_regenerate_from_for(panel.activeChatId(), msgIndex)
+                                }
+
+                                function onCaretMoved(caretY, caretHeight) {
+                                    chatList.ensureVisible(caretY, caretHeight)
                                 }
                             }
                         }

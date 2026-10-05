@@ -199,6 +199,15 @@ COLOR_SPLIT_DROP_BORDER = COLOR_TEXT_PRIMARY
 COLOR_RESIZE_HANDLE = COLOR_BORDER_DEFAULT
 
 # ------------------------------------------------------------------
+# Text selection (chat card body caret / selection)
+# ------------------------------------------------------------------
+#: Highlight behind a keyboard/mouse selection in a read-only card body, matching
+#: GitHub's dark-theme selection blue; the selected glyphs keep the primary text
+#: colour for contrast against it.
+COLOR_SELECTION_BG = "#264f78"
+COLOR_SELECTION_FG = COLOR_TEXT_PRIMARY
+
+# ------------------------------------------------------------------
 # Input fields
 # ------------------------------------------------------------------
 INPUT_BORDER_COLOR = COLOR_BORDER_STRONG
@@ -365,6 +374,8 @@ COLORS: dict[str, str] = {
     "inputFill": INPUT_FILL_COLOR,
     "inputCursor": INPUT_CURSOR_COLOR,
     "inputText": INPUT_TEXT_COLOR,
+    "selectionBg": COLOR_SELECTION_BG,
+    "selectionFg": COLOR_SELECTION_FG,
 }
 
 #: Numeric registry exposed to QML as ``Theme.metrics.<name>``.

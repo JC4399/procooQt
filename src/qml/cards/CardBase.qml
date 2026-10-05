@@ -31,9 +31,16 @@ Rectangle {
     property int msgIndex: -1
     // False while the chat is generating, so the card actions are inert.
     property bool actionsEnabled: true
+    // Flickable whose ``contentItem`` the card scrolls to keep the body caret
+    // visible during keyboard navigation. Bound by the hosting panel; null when
+    // the card is unhosted.
+    property var scrollTarget: null
 
     signal deleteRequested(int msgIndex)
     signal regenerateRequested(int msgIndex)
+    // Emitted when the body caret moves while the editor is focused; the hosting
+    // panel scrolls ``scrollTarget`` so the caret stays on screen.
+    signal caretMoved(real caretY, real caretHeight)
     // Vertical breathing room applied by the ChatPanel delegate outside the card
     // border; UserCard overrides both to 24 px.
     property int padTop: 8
@@ -56,6 +63,11 @@ Rectangle {
         if (value === "block")
             return Theme.colors.toolModeBlockFg
         return Theme.colors.toolModeAskFg
+    }
+
+    // Focus the body rich-text editor so it receives keyboard caret navigation.
+    function focusBody() {
+        bodyText.forceActiveFocus()
     }
 
     implicitHeight: layout.implicitHeight
@@ -223,6 +235,7 @@ Rectangle {
                 }
 
                 TextEdit {
+                    id: bodyText
                     Layout.fillWidth: true
                     Layout.preferredHeight: contentHeight
                     // Collapsed bodies are not made visible, so Qt skips laying
@@ -239,6 +252,22 @@ Rectangle {
                     font.pointSize: Theme.metrics.fontSizeMarkdown
                     wrapMode: TextEdit.Wrap
                     selectByMouse: true
+                    // Read-only editors disable keyboard selection by default;
+                    // force it on so shift+arrow / ctrl+arrow / home/end select.
+                    selectByKeyboard: true
+                    activeFocusOnTab: true
+                    persistentSelection: true
+                    cursorVisible: activeFocus
+                    selectionColor: Theme.colors.selectionBg
+                    selectedTextColor: Theme.colors.selectionFg
+                    onCursorRectangleChanged: {
+                        if (!bodyText.activeFocus || card.scrollTarget === null
+                                || card.scrollTarget.contentItem === null)
+                            return
+                        const p = bodyText.mapToItem(
+                            card.scrollTarget.contentItem, cursorRectangle.x, cursorRectangle.y)
+                        card.caretMoved(p.y, cursorRectangle.height)
+                    }
                     onLinkActivated: function (link) {
                         Qt.openUrlExternally(link)
                     }
