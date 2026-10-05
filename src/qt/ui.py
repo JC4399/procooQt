@@ -95,6 +95,7 @@ class ProcooQtUI(QObject):
         self.control = ControlController(app, self.windows, self)
         self._wire_window(self.session, self.chat, self.skill)
         self._wire_editor_chat()
+        self._wire_automation()
         self._build_controllers()
         self._expose_to_qml()
 
@@ -136,6 +137,17 @@ class ProcooQtUI(QObject):
         self.chat.chat_state_changed.connect(self.editor_chat._handle_state_changed)
         self.chat.token_counts_changed.connect(self.editor_chat._handle_token_counts)
         self.editor.editor_open_requested.connect(self.windows.show_editor)
+
+    def _wire_automation(self) -> None:
+        """Wire automation results, toasts, and editor navigation across controllers."""
+        self.skill.skill_files_changed.connect(self.editor._handle_skill_files_changed)
+        self.automation.files_changed.connect(self.editor._handle_skill_files_changed)
+        self.editor.toast_requested.connect(self.notifier.toast_requested)
+        self.editor_chat.toast_requested.connect(self.notifier.toast_requested)
+        self.automation.toast_requested.connect(self.notifier.toast_requested)
+        self.automation.result_ready.connect(self.notification._handle_automation_result)
+        self.automation.edit_automation_requested.connect(self.editor._handle_open_automation)
+        self.notification.edit_automation_requested.connect(self.editor._handle_open_automation)
 
     # ------------------------------------------------------------------
     #  Builder

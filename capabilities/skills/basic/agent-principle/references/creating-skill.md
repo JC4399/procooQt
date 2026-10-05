@@ -65,8 +65,19 @@ The file starts with YAML frontmatter. Fill it in as follows:
   or wants to display company data, even if they do not say 'dashboard'."
 - **compatibility** — required tools or dependencies (optional, rarely needed).
 
-The description value is a YAML plain scalar: never put `": "` (colon + space)
-inside it, or the frontmatter fails to parse. Use a dash, or quote the value.
+The `description` value is a YAML plain scalar — never put `": "` (colon + space)
+inside it. A plain scalar containing `": "` parses as a nested mapping and the
+frontmatter fails with `mapping values are not allowed in this context`.
+
+```yaml
+# broken — the colon after "tools" starts a new key
+description: Umbrella for four independent utility tools: transcribe audio, …
+
+# fixed — use a dash instead
+description: Umbrella for four independent utility tools — transcribe audio, …
+# or wrap the whole value in double quotes (a quoted scalar is safe)
+description: "Umbrella for four independent utility tools: transcribe audio, …"
+```
 
 The body then contains:
 
@@ -134,4 +145,6 @@ Before shipping the skill, confirm:
   guess.
 - Each tool is callable on its own and returns clean output.
 - The skill loads through the app's `SkillManager` (`src/skill/manager.py`) with
-  no validation errors — this is what catches malformed frontmatter.
+  no validation errors — this is what catches malformed frontmatter, including a
+  `": "` inside an unquoted `description` scalar (`mapping values are not
+  allowed in this context`).
