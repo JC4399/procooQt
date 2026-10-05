@@ -66,8 +66,10 @@ Rectangle {
     }
 
     // Focus the body rich-text editor so it receives keyboard caret navigation.
+    // Collapsed or bodyless cards have no caret target.
     function focusBody() {
-        bodyText.forceActiveFocus()
+        if (card.hasBody && !card.bodyCollapsed)
+            bodyText.forceActiveFocus()
     }
 
     implicitHeight: layout.implicitHeight
@@ -75,6 +77,15 @@ Rectangle {
     border.color: card.borderAllSides ? card.accentColor : "transparent"
     border.width: card.borderAllSides ? card.accentWidth : 0
     radius: Theme.metrics.cardRadius
+
+    // Declared first (lowest z) so it only receives clicks on empty card areas
+    // the header row, action icons, and body editor do not consume. Clicking any
+    // such area hands the caret to the body, making the whole card feel like a
+    // selectable text surface.
+    MouseArea {
+        anchors.fill: parent
+        onClicked: card.focusBody()
+    }
 
     ColumnLayout {
         id: layout
@@ -101,6 +112,10 @@ Rectangle {
                 onClicked: {
                     bodyHost.animateBody = true
                     card.bodyCollapsed = !card.bodyCollapsed
+                    // Expanding a card hands the caret to its body so keyboard
+                    // navigation starts immediately; collapsing just hides it.
+                    if (!card.bodyCollapsed && card.hasBody)
+                        Qt.callLater(card.focusBody)
                 }
             }
 
@@ -257,9 +272,30 @@ Rectangle {
                     selectByKeyboard: true
                     activeFocusOnTab: true
                     persistentSelection: true
-                    cursorVisible: activeFocus
                     selectionColor: Theme.colors.selectionBg
                     selectedTextColor: Theme.colors.selectionFg
+                    // Set imperatively (not a binding) so Qt's blink timer can
+                    // toggle cursorVisible without clobbering the focus link.
+                    onActiveFocusChanged: bodyText.cursorVisible = bodyText.activeFocus
+                    // Read-only editors do not paint the built-in cursor, so a
+                    // custom delegate draws (and blinks) the caret instead.
+                    cursorDelegate: Component {
+                        Rectangle {
+                            objectName: "caretCursor"
+                            width: 2
+                            height: Math.max(1, bodyText.cursorRectangle.height)
+                            color: Theme.colors.textPrimary
+
+                            SequentialAnimation on opacity {
+                                loops: Animation.Infinite
+                                running: bodyText.activeFocus
+                                NumberAnimation { from: 1; to: 1; duration: 500 }
+                                NumberAnimation { from: 1; to: 0; duration: 0 }
+                                NumberAnimation { from: 0; to: 0; duration: 500 }
+                                NumberAnimation { from: 0; to: 1; duration: 0 }
+                            }
+                        }
+                    }
                     onCursorRectangleChanged: {
                         if (!bodyText.activeFocus || card.scrollTarget === null
                                 || card.scrollTarget.contentItem === null)

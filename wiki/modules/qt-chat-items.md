@@ -94,10 +94,22 @@ so `CardBase.qml` forces `selectByKeyboard: true`, giving caret movement and
 selection with arrows, `Shift`+arrows, `Ctrl`+arrows, `Home`/`End` and `Ctrl+A`
 (the browser-style interactions users expect). It is focusable by keyboard
 (`activeFocusOnTab: true`) and by click, keeps its highlight when focus leaves
-(`persistentSelection: true`), and shows the caret while focused
-(`cursorVisible: activeFocus`); `selectionColor` / `selectedTextColor` come from
-`Theme.colors.selectionBg` / `selectionFg`. Selection is confined to one card —
-the caret does not cross into the neighbouring card's editor.
+(`persistentSelection: true`), and shows the caret while focused (`cursorVisible`
+is set imperatively from `onActiveFocusChanged` rather than bound, so Qt's blink
+timer does not break the link). Because Qt does not paint a built-in cursor for a
+read-only editor, `CardBase` supplies a custom `cursorDelegate` — a 2 px
+`Rectangle` sized to `cursorRectangle.height` in `Theme.colors.textPrimary`,
+whose own `SequentialAnimation` blinks it while the editor has active focus.
+`selectionColor` / `selectedTextColor` come from `Theme.colors.selectionBg` /
+`selectionFg`. Selection is confined to one card — the caret does not cross into
+the neighbouring card's editor.
+
+Two click affordances route the caret to a card body: a full-card `MouseArea`
+declared first (lowest z, so it only receives clicks the header/actions/body do
+not consume) calls `focusBody()` for clicks on empty card space, and expanding a
+collapsed card through the header calls `focusBody()` via `Qt.callLater` so the
+newly visible body takes the caret. `focusBody()` is a no-op on collapsed or
+bodyless cards.
 
 `TextEdit` never scrolls its parent, so `CardBase` exposes `scrollTarget` (the
 hosting `Flickable`, bound by the panel) and emits `caretMoved(contentY, height)`
