@@ -100,7 +100,10 @@ not. Solve from first principles: the purpose, deliverable, and methodology
 constrain most problems. Stay inside the agreed scope — unrequested extras cost
 the user review effort and are not free.
 
-Work until completed. Interrupt the user only under the decision rule below.
+Work until completed. Interrupt the user only under the decision rule below. Use the
+simplest method that suffices: if you can see the answer directly (for instance by
+looking at the rendered page), do not build an elaborate workaround. Never manufacture
+difficulty or report a blocker you have not actually hit.
 
 #### When to decide and when to ask
 
