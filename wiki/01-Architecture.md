@@ -196,7 +196,7 @@ between panels.
 ## Data flow (one user message)
 
 ```
-user types / Enter → ChatPanel.submit
+user submits (Enter / Send button; Enter lock hides in input row) → ChatPanel.submit
   → chat._handle_send_for(chat_id, text)
   → _append_user_message → _launch_generation → _run_chat_loop
      → _hydrate_phase (build/restore Agent via session._hydrate_chat)

@@ -7,7 +7,8 @@ Related: [`chat-agent`](../modules/chat-agent.md), [`chat-llm`](../modules/chat-
 ## Sequence
 
 ```
-user types / presses Enter (ChatPanel.qml)
+user submits (ChatPanel.qml: Send button, or Enter unless the
+   input-row enter-lock checkbox is checked)
    │
    ▼
 ChatPanel.submit → chat._handle_send_for(chat_id, text)   [ChatController @Slot]

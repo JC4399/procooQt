@@ -371,62 +371,68 @@ Rectangle {
             Layout.rightMargin: editorSkillDock.railWidth + 8
             spacing: 8
 
-            ScrollView {
-                id: inputScroll
+            Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.min(140, Math.max(72, input.contentHeight + 12))
-                clip: true
 
-                background: Rectangle {
-                    color: Theme.colors.inputFill
-                    border.color: input.activeFocus
-                                  ? Theme.colors.inputFocusedBorder
-                                  : Theme.colors.inputBorder
-                    border.width: 1
-                    radius: 0
-                }
-
-                ScrollBar.vertical: ScrollBar {
-                    id: inputBar
-                    parent: inputScroll
-                    x: inputScroll.mirrored ? 0 : inputScroll.width - width
-                    y: inputScroll.topPadding
-                    height: inputScroll.availableHeight
-                    policy: ScrollBar.AsNeeded
+                ScrollView {
+                    id: inputScroll
+                    anchors.fill: parent
+                    clip: true
 
                     background: Rectangle {
                         color: Theme.colors.inputFill
+                        border.color: input.activeFocus
+                                      ? Theme.colors.inputFocusedBorder
+                                      : Theme.colors.inputBorder
+                        border.width: 1
+                        radius: 0
                     }
 
-                    contentItem: Rectangle {
-                        implicitWidth: 6
-                        implicitHeight: 6
-                        radius: 0
-                        color: Theme.colors.borderStrong
-                        opacity: inputBar.size < 1.0 ? 1 : 0
+                    // Wheel scrolling still works; the right-side bar is gone.
+                    ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+
+                    TextArea {
+                        id: input
+                        width: inputScroll.availableWidth
+                        placeholderText: qsTr("Ask to edit this file...")
+                        wrapMode: TextArea.Wrap
+                        enabled: !editorChat.busy
+                        color: Theme.colors.inputText
+                        placeholderTextColor: Theme.colors.textDisabled
+                        font.family: Theme.fontMono
+                        font.pointSize: Theme.metrics.fontSizeBase
+                        background: null
+
+                        Keys.onPressed: function (event) {
+                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                if (event.modifiers & Qt.ShiftModifier) {
+                                    event.accepted = false
+                                } else {
+                                    event.accepted = true
+                                    if (!enterLockToggle.checked)
+                                        panel.submit()
+                                }
+                            }
+                        }
                     }
                 }
 
-                TextArea {
-                    id: input
-                    width: inputScroll.availableWidth
-                    placeholderText: qsTr("Ask to edit this file...")
-                    wrapMode: TextArea.Wrap
-                    enabled: !editorChat.busy
-                    color: Theme.colors.inputText
-                    placeholderTextColor: Theme.colors.textDisabled
-                    font.family: Theme.fontMono
-                    font.pointSize: Theme.metrics.fontSizeBase
-                    background: null
-
-                    Keys.onPressed: function (event) {
-                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            if (event.modifiers & Qt.ShiftModifier) {
-                                event.accepted = false
-                            } else {
-                                event.accepted = true
-                                panel.submit()
-                            }
+                // Enter lock: hidden until hovered, stays visible while checked.
+                // When checked, Enter never sends; the Send button is the only
+                // way out. Shift+Enter still inserts a line break either way.
+                FlatCheckBox {
+                    id: enterLockToggle
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 6
+                    z: 2
+                    padding: 4
+                    hoverEnabled: true
+                    opacity: (checked || hovered) ? 1 : 0
+                    Behavior on opacity {
+                        NumberAnimation {
+                            duration: 120
                         }
                     }
                 }
