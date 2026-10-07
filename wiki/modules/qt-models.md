@@ -238,6 +238,7 @@ history paging (`append_notifications`).
 
 - [qt-qt-roles](qt-qt-roles.md) — the role enums these models expose.
 - [qt-markdown](qt-markdown.md) / [qt-yaml-highlight](qt-yaml-highlight.md) —
-  produce the `ChatRole.BODY_HTML` values stored in rows.
+  produce the `ChatRole.BODY_HTML` / `ChatRole.BODY_TAIL_HTML` values stored in
+  rows.
 - [qt-error-handler](qt-error-handler.md) — controllers surface failures via
   `toast_requested` when model rebuilds fail.

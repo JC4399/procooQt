@@ -43,6 +43,7 @@ class ChatRole(IntEnum):
     SECTIONS = 10
     IS_DELTA = 11
     MSG_INDEX = 12
+    BODY_TAIL_HTML = 13
 
 
 class SkillRole(IntEnum):

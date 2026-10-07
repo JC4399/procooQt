@@ -63,6 +63,7 @@ self._wire_editor_chat()
 | `session.chat_switch_started` | `chat._handle_chat_switch_started` |
 | `session.active_chat_changed` | `skill._handle_chat_activated` |
 | `chat.chat_state_changed` | `session.refresh_chat_panels` |
+| `chat.chat_tokens_changed` | `session.refresh_chat_tokens` |
 | `chat.toast_requested` | `notifier.toast_requested` |
 | `skill.toast_requested` | `notifier.toast_requested` |
 
@@ -96,7 +97,9 @@ The remaining shared connections are made in `__init__`:
 chat, and the chat and skill controllers react. `chat_switch_started` is emitted
 earlier (at the user action) so the panel loading overlay paints before the
 off-thread hydration. `chat.chat_state_changed` lets the session controller push
-per-panel runtime values as they change. `ErrorNotifier` fans every
+per-panel runtime values as they change, and `chat.chat_tokens_changed` pushes
+the token counts on every `token_usage` event (each LLM round-trip) without a
+full runtime rebuild. `ErrorNotifier` fans every
 `toast_requested` stream into the `toasts` context property consumed by
 `ToastHost.qml`. The [skill controller](qt-skill-controller.md)'s
 `skill_files_changed` and the [automation controller](qt-automation-controller.md)'s

@@ -126,6 +126,7 @@ class ProcooQtUI(QObject):
         session.chat_switch_started.connect(chat._handle_chat_switch_started)
         session.active_chat_changed.connect(skill._handle_chat_activated)
         chat.chat_state_changed.connect(session.refresh_chat_panels)
+        chat.chat_tokens_changed.connect(session.refresh_chat_tokens)
         chat.toast_requested.connect(self.notifier.toast_requested)
         skill.toast_requested.connect(self.notifier.toast_requested)
 

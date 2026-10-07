@@ -62,9 +62,11 @@ _resolve_tool_calls ───────────┘
    `state.approval_event` until approve/deny/stop.
 3. **tool_result** — appended to `state.tool_results`; `_swap_pending_result_card`
    replaces the pending card in place.
-4. **token_usage** — `state.true_input_tokens` / `state.true_output_cum`
-   update (true API counts only, no estimate); the panel's `ConfigTokenBar`
-   (via `ChatPanelModel`) refreshes. The counts persist across turns.
+4. **token_usage** — emitted after every `_reasoning` round (text or tool call);
+   `state.true_input_tokens` / `state.true_output_cum` update (true API counts
+   only, no estimate) and `_update_token_bar` emits `chat_tokens_changed`, so
+   `SessionController.refresh_chat_tokens` refreshes the panel's `ConfigTokenBar`
+   (via `ChatPanelModel.set_tokens`) immediately. The counts persist across turns.
 5. **done / error** — break out of the loop; an `error` also sets
    `state.has_error` so the chat's tab dot shows red until the next send.
 6. `finally: _finalize_turn` — rebuild the chat display, save the chat,
@@ -83,20 +85,24 @@ append the user message), which reconciles because
 while waiting. The first `thinking`/`message`/`tool_call_streaming` card diverges
 at that index and replaces the scanner via `ChatListModel.diff_update`.
 
-The drain loop uses `await asyncio.wait_for(chat.event_queue.get(), 0.1)`
-so it also exits once the `Agent.run` task is done and the queue is empty.
+The drain loop waits on the queue getter and the `Agent.run` task together
+(`asyncio.wait({getter, task}, FIRST_COMPLETED)`), so it wakes exactly when an
+event arrives or the turn ends — no periodic polling. When the task finishes
+first, any already-queued events are drained with `get_nowait()`.
 
 ## Live rendering (`_render_active_event` / `_update_live_assistant`)
 
 Structural changes (tool calls/results appearing, streaming tool calls first
 appearing) rebuild immediately; the rebuild reuses memoized items for every
 unchanged message, so only the changed trailing message is re-rendered.
-Content-only streaming updates are throttled (`_STREAM_UPDATE_INTERVAL`, 0.08 s)
-and applied in place via `ChatListModel.update_item`: thinking is written as
-escaped plain text, and the response is rendered through a per-card
-`IncrementalMarkdown` on a worker thread (`asyncio.to_thread`) so only the
-trailing Markdown block is re-rendered and the parse/highlight never blocks the
-GUI thread. A full rebuild computes content-hash render keys and calls
+Content-only streaming updates are throttled (`_stream_update_interval()`:
+0.08 s, or 0.12 s while more than one chat streams) and applied in place via
+`ChatListModel.update_item`. Each streaming body is split into a frozen
+committed prefix (`ChatRole.BODY_HTML`) and a live tail (`ChatRole.BODY_TAIL_HTML`):
+thinking via `thinking_body_parts` (escaped plain text), the response via
+`IncrementalMarkdown.render_parts`. Both run synchronously on the GUI thread
+(pure Python, GIL-bound, O(tail)), and only the tail is re-laid out in QML each
+tick. A full rebuild computes content-hash render keys and calls
 `ChatListModel.diff_update`, which removes and re-inserts rows from the first
 divergence only.
 

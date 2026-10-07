@@ -42,6 +42,7 @@ def make_item(
     *,
     title: str = "",
     body_html: str = "",
+    body_tail_html: str = "",
     token_text: str = "",
     collapsed: bool = False,
     is_pending: bool = False,
@@ -57,7 +58,10 @@ def make_item(
     Args:
         kind: One of the ``KIND_*`` constants.
         title: The card header title.
-        body_html: Pre-rendered rich-text HTML body.
+        body_html: Pre-rendered rich-text HTML body (the frozen prefix for a
+            streaming card, the whole body for a finalized card).
+        body_tail_html: Pre-rendered HTML for the streaming card's not-yet-
+            committed trailing block. Empty for finalized cards.
         token_text: Formatted token count (e.g. ``"123 tk"``).
         collapsed: Whether the card body starts collapsed.
         is_pending: Whether the card is a pending (streaming) placeholder.
@@ -77,6 +81,7 @@ def make_item(
         int(ChatRole.KIND): kind,
         int(ChatRole.TITLE): title,
         int(ChatRole.BODY_HTML): body_html,
+        int(ChatRole.BODY_TAIL_HTML): body_tail_html,
         int(ChatRole.TOKEN_TEXT): token_text,
         int(ChatRole.COLLAPSED): collapsed,
         int(ChatRole.IS_PENDING): is_pending,
@@ -111,6 +116,7 @@ def _card_item(
     *,
     title: str,
     body_html: str = "",
+    body_tail_html: str = "",
     token_count: int = 0,
     is_pending: bool = False,
     mode: str = "",
@@ -124,7 +130,9 @@ def _card_item(
     Args:
         kind: One of the ``KIND_*`` constants.
         title: The card header title.
-        body_html: Pre-rendered rich-text HTML body.
+        body_html: Pre-rendered rich-text HTML body (frozen prefix when
+            streaming, whole body when finalized).
+        body_tail_html: Pre-rendered HTML for a streaming card's live tail.
         token_count: Token count rendered in the header.
         is_pending: Whether the card is a pending (streaming) placeholder.
         mode: Tool permission mode for tool-call cards.
@@ -141,6 +149,7 @@ def _card_item(
         kind,
         title=title,
         body_html=body_html,
+        body_tail_html=body_tail_html,
         token_text=_token_text(token_count),
         is_pending=is_pending,
         mode=mode,
@@ -183,6 +192,30 @@ def thinking_body(text: str) -> str:
         An escaped HTML ``<pre>`` block.
     """
     return _plain_body(text)
+
+
+def thinking_body_parts(text: str) -> tuple[str, str]:
+    """Split thinking content into a frozen prefix and a live tail.
+
+    The prefix covers every complete line (up to the last newline, exclusive);
+    the tail is the trailing partial line. Rendering them separately lets the
+    view keep the prefix's layout cached and re-lay out only the tail on each
+    stream tick. The newline itself is dropped because the two editors stack
+    vertically, so including it would render an extra blank line.
+
+    Args:
+        text: Raw thinking content.
+
+    Returns:
+        A ``(prefix_html, tail_html)`` tuple whose rendered concatenation matches
+        :func:`thinking_body` of the whole text.
+    """
+    if not text:
+        return "", ""
+    newline = text.rfind("\n")
+    if newline < 0:
+        return "", _plain_body(text)
+    return _plain_body(text[:newline]), _plain_body(text[newline + 1 :])
 
 
 # ------------------------------------------------------------------
@@ -324,7 +357,9 @@ def build_response_pending_item(
 
     The body is rendered from the partial text so the card streams live; it stays
     ``is_pending`` until the message finalises. An empty ``text`` yields a
-    body-less card that QML shows as a spinner.
+    body-less card that QML shows as a spinner. The whole body starts in the
+    live-tail role; :meth:`ChatController._apply_streaming_item_updates` then
+    promotes committed blocks into the frozen-prefix role as they complete.
 
     Args:
         text: Partial response content to render as the streaming body.
@@ -337,7 +372,7 @@ def build_response_pending_item(
     return _card_item(
         KIND_RESPONSE,
         title="Response",
-        body_html=render_markdown(text),
+        body_tail_html=render_markdown(text),
         token_count=token_count,
         is_pending=True,
         msg_index=msg_index,

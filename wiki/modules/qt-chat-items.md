@@ -21,7 +21,7 @@ serializer for tool calls.
   `build_tool_call_pending_item`, `build_tool_result_item` /
   `build_tool_result_pending_item`.
 - Shared card helpers: `_card_item`, `_token_text`, `_plain_body`,
-  `thinking_body`.
+  `thinking_body`, `thinking_body_parts`.
 - Tool-argument helpers: `_parse_tool_arguments`, `_yaml_quote`,
   `_format_yaml_value`, `_to_yaml_string`.
 
@@ -59,12 +59,13 @@ scanner: a row of block cells whose brightest cell sweeps right, holds, sweeps
 left, then holds, leaving a fading alpha trail. It advances a precomputed frame
 index on a 40 ms `Timer`, derives each cell's glyph and colour from the frame,
 and takes `baseColor` from the hosting card's `accentColor` (magenta for tool
-cards, blue for thinking, amber for response). The body `TextEdit` uses
+cards, blue for thinking, amber for response). The body uses
 `Theme.colors.mdText` for markdown kinds (`thinking`/`response`) and
-`Theme.colors.textPrimary` otherwise, and opens clicked links with
-`Qt.openUrlExternally`. `ChatPanel.qml` binds each delegate
-from the `ChatListModel` roles (`kind`, `title`, `body_html`, `token_text`,
-`mode`, `is_pending`, `tool_name`, `sections`, `is_delta`, `msg_index`).
+`Theme.colors.textPrimary` otherwise (the `CardBase.bodyColor` readonly
+property), and opens clicked links with `Qt.openUrlExternally`. `ChatPanel.qml`
+binds each delegate from the `ChatListModel` roles (`kind`, `title`,
+`body_html`, `body_tail_html`, `token_text`, `mode`, `is_pending`, `tool_name`,
+`sections`, `is_delta`, `msg_index`).
 
 `CardBase` carries two header actions driven by `msgIndex` (the source message
 index, `-1` for derived cards): a delete icon on every message card
@@ -86,50 +87,71 @@ clicks the header (`bodyHost.animateBody` gates the `Behavior`); creation and
 streaming-driven height growth apply instantly, so they do not churn the scroll
 position.
 
+### Streaming body split
+
+A streaming card's body is rendered by two stacked `CardBodyText` editors
+(`src/qml/components/CardBodyText.qml`): a **frozen committed prefix** fed from
+`ChatRole.BODY_HTML` and a **live tail** fed from `ChatRole.BODY_TAIL_HTML`. The
+prefix only changes when a new Markdown block commits, so Qt keeps its rich-text
+layout cached; only the tail re-lays out on each stream tick. Finalized cards put
+their whole body in the prefix role with an empty tail. `CardBase.hasBody` is
+true when either part is non-empty; `bodyColor` selects the text colour.
+
+The split avoids an O(n) re-parse/re-layout of the whole accumulated document on
+every tick (the previous single-editor design was O(n²) over a response). The
+controller produces the parts via `IncrementalMarkdown.render_parts` (response)
+and `thinking_body_parts` (thinking), pushing the prefix only when it changes and
+the tail every tick (`ChatController._push_streaming_body`). The render runs
+synchronously on the GUI thread — it is pure Python (GIL-bound) and now O(tail),
+so an `asyncio.to_thread` worker would only add contention.
+
 ### Body caret navigation
 
-The body `TextEdit` is always keyboard-selectable — there is no separate caret
-mode. Because it is `readOnly`, Qt would default `selectByKeyboard` to `false`,
-so `CardBase.qml` forces `selectByKeyboard: true`, giving caret movement and
-selection with arrows, `Shift`+arrows, `Ctrl`+arrows, `Home`/`End` and `Ctrl+A`
-(the browser-style interactions users expect). It is focusable by keyboard
-(`activeFocusOnTab: true`) and by click, keeps its highlight when focus leaves
+The body `CardBodyText` editors are always keyboard-selectable — there is no
+separate caret mode. Because they are `readOnly`, Qt would default
+`selectByKeyboard` to `false`, so `CardBodyText.qml` forces
+`selectByKeyboard: true`, giving caret movement and selection with arrows,
+`Shift`+arrows, `Ctrl`+arrows, `Home`/`End` and `Ctrl+A` (the browser-style
+interactions users expect). It is focusable by keyboard (`activeFocusOnTab:
+caretActive`) and by click, keeps its highlight when focus leaves
 (`persistentSelection: true`), and shows the caret while focused (`cursorVisible`
 is set imperatively from `onActiveFocusChanged` rather than bound, so Qt's blink
 timer does not break the link). Because Qt does not paint a built-in cursor for a
-read-only editor, `CardBase` supplies a custom `cursorDelegate` — a 2 px
+read-only editor, `CardBodyText` supplies a custom `cursorDelegate` — a 2 px
 `Rectangle` sized to `cursorRectangle.height` in `Theme.colors.textPrimary`,
 whose own `SequentialAnimation` blinks it while the editor has active focus.
 `selectionColor` / `selectedTextColor` come from `Theme.colors.selectionBg` /
-`selectionFg`. Selection is confined to one card — the caret does not cross into
-the neighbouring card's editor.
+`selectionFg`. Selection is confined to one body segment (and one card) — the
+caret does not cross the prefix/tail boundary or into the neighbouring card.
 
 Two click affordances route the caret to a card body: a full-card `MouseArea`
 declared first (lowest z, so it only receives clicks the header/actions/body do
 not consume) calls `focusBody()` for clicks on empty card space, and expanding a
 collapsed card through the header calls `focusBody()` via `Qt.callLater` so the
 newly visible body takes the caret. `focusBody()` is a no-op on collapsed or
-bodyless cards.
+bodyless cards; it focuses the live tail when present, otherwise the frozen
+prefix.
 
-`TextEdit` never scrolls its parent, so `CardBase` exposes `scrollTarget` (the
-hosting `Flickable`, bound by the panel) and emits `caretMoved(contentY, height)`
-from `onCursorRectangleChanged` while focused (the caret rectangle is mapped into
-the flickable's `contentItem`). `ChatPanel.qml` and `EditorChatPanel.qml` connect
-`caretMoved` to a `chatList.ensureVisible(y, h)` helper that nudges `contentY`
-only when the caret would be clipped, keeping the caret on screen. That
-`contentY` change flows through the existing `onContentYChanged` handler, so
-moving the caret away from the bottom deactivates auto-scroll exactly like a
-manual scroll would.
+`CardBodyText` never scrolls its parent, so `CardBase` exposes `scrollTarget`
+(the hosting `Flickable`, bound by the panel) and re-emits
+`caretMoved(contentY, height)` from `onCursorRectangleChanged` while focused (the
+caret rectangle is mapped into the flickable's `contentItem`). `ChatPanel.qml`
+and `EditorChatPanel.qml` connect `caretMoved` to a `chatList.ensureVisible(y, h)`
+helper that nudges `contentY` only when the caret would be clipped, keeping the
+caret on screen. That `contentY` change flows through the existing
+`onContentYChanged` handler, so moving the caret away from the bottom deactivates
+auto-scroll exactly like a manual scroll would.
 
-The chat list in `ChatPanel.qml` is a **non-virtualized** `Flickable` + `Column` +
-`Repeater`: every card is instantiated so `contentHeight` is exact. A virtualized
-`ListView` was tried and abandoned — with these variable-height cards its
-`contentHeight` is only an estimate, and `positionViewAtEnd()` against that
-estimate shifted `originY` without bound (runaway scrolling, a jumping scrollbar,
-and a middle-of-viewport landing); a second attempt (ListView + per-delegate
-layer caching) rendered blank panels on flick, so it was reverted too.
-Auto-scroll sets `contentY = contentHeight - height` through a 30 ms debounce
-`Timer` guarded by `!moving && !flicking`, following the newest card whenever
+The chat list in `ChatPanel.qml` (and the editor panel) is a **non-virtualized**
+`Flickable` + `Column` + `Repeater`: every card is instantiated so
+`contentHeight` is exact. A virtualized `ListView` was tried and abandoned —
+with these variable-height cards its `contentHeight` is only an estimate, and
+`positionViewAtEnd()` against that estimate shifted `originY` without bound
+(runaway scrolling, a jumping scrollbar, and a middle-of-viewport landing); a
+second attempt (ListView + per-delegate layer caching) rendered blank panels on
+flick, so it was reverted too. Auto-scroll sets
+`contentY = contentHeight - height` through a 30 ms debounce `Timer` guarded by
+`!moving && !flicking`, following the newest card whenever
 `autoScrollToggle.checked` is true. That flag is the single source of truth:
 `onContentYChanged` compares `contentY` against `Math.max(0, contentHeight -
 height)` and, on reaching the bottom, calls `activateWithFade()` (button fades
@@ -153,7 +175,7 @@ feedback and drag-scroll.
 
 Because the list is not virtualized, **older cards are built collapsed** to bound
 scroll cost. `ChatController._COLLAPSE_OLDER_THAN` (12) marks every message older
-than the last 12 as collapsed; `CardBase`'s body `TextEdit` uses
+than the last 12 as collapsed; `CardBase`'s body editors use
 `visible: hasBody && !bodyCollapsed`, so Qt never lays out or renders the rich
 text of a collapsed body. The card stays in the list as its header, and clicking
 the header expands it. Collapsed cards carry a `:c` key suffix so a message
@@ -195,8 +217,9 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
    QML `TextEdit.RichText` (terminal-style colours, CSS bordered tables,
    clickable links, in-memory LaTeX math images; see
    [`qt-markdown`](qt-markdown.md) and [`qt-latex`](qt-latex.md)). During streaming the
-   controller uses [`IncrementalMarkdown`](qt-markdown.md#incremental-streaming-renderer-incrementalmarkdown),
-   which re-renders only the trailing block.
+   controller uses [`IncrementalMarkdown`](qt-markdown.md#incremental-streaming-renderer-incrementalmarkdown)
+   `render_parts`, which re-renders only the trailing block and returns the
+   committed prefix and live tail separately.
 3. **Tool call** — `_to_yaml_string` serializes `{name, mode, arguments}` and
    `highlight_yaml_html` colourises it into a `<pre>` HTML block.
 
@@ -206,11 +229,12 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `make_item(kind, *, title="", body_html="", token_text="", collapsed=False, is_pending=False, mode="", tool_name="", tool_call_id="", sections="", is_delta=False, msg_index=-1) -> dict[int, object]` | `kind` — `KIND_*`; `title`/`body_html`/`token_text` — header and body; `collapsed`/`is_pending` — defaults; `mode`/`tool_name`/`tool_call_id`/`sections`/`is_delta` — tool and banner fields; `msg_index` — source message index | role-keyed dict (`int(ChatRole.*)` → value) | Maps every argument onto its `ChatRole` key | None |
-| `_card_item(kind, *, title, body_html="", token_count=0, is_pending=False, mode="", tool_name="", tool_call_id="", collapsed=False, msg_index=-1) -> dict[int, object]` | Card fields with a raw `token_count`; `msg_index` | role-keyed dict | Calls `make_item` with `token_text=_token_text(token_count)` | None |
+| `make_item(kind, *, title="", body_html="", body_tail_html="", token_text="", collapsed=False, is_pending=False, mode="", tool_name="", tool_call_id="", sections="", is_delta=False, msg_index=-1) -> dict[int, object]` | `kind` — `KIND_*`; `title`/`body_html`/`body_tail_html`/`token_text` — header and body; `collapsed`/`is_pending` — defaults; `mode`/`tool_name`/`tool_call_id`/`sections`/`is_delta` — tool and banner fields; `msg_index` — source message index | role-keyed dict (`int(ChatRole.*)` → value) | Maps every argument onto its `ChatRole` key | None |
+| `_card_item(kind, *, title, body_html="", body_tail_html="", token_count=0, is_pending=False, mode="", tool_name="", tool_call_id="", collapsed=False, msg_index=-1) -> dict[int, object]` | Card fields with a raw `token_count`; `msg_index` | role-keyed dict | Calls `make_item` with `token_text=_token_text(token_count)` | None |
 | `_token_text(token_count: int) -> str` | `token_count` | `"42 tk"` | f-string format | None |
 | `_plain_body(text: str) -> str` | `text` | escaped `<pre>` block | Normalise CR/CRLF → LF, then `html.escape` into `<pre style="white-space:pre-wrap;margin:0;font-family:…;line-height:125%">` | None |
 | `thinking_body(text: str) -> str` | `text` — raw thinking | escaped `<pre>` block | Named wrapper over `_plain_body`; thinking never runs Markdown | None |
+| `thinking_body_parts(text: str) -> tuple[str, str]` | `text` — raw thinking | `(prefix_html, tail_html)` | Split at the last newline; each half wrapped by `_plain_body` | None |
 
 ### Item builders
 
@@ -221,7 +245,7 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 | `build_thinking_item(text: str, *, token_count=0, collapsed=False, msg_index=-1) -> dict[int, object]` | `text`; `token_count`; `collapsed`; `msg_index` | role-keyed dict | Body = `thinking_body(text)` (escaped plain text), title "Thinking" | None |
 | `build_thinking_pending_item(text="", *, token_count=0, msg_index=-1) -> dict[int, object]` | `text` — partial streamed content; `token_count`; `msg_index` | role-keyed dict | Body = `thinking_body(text)`, title "Thinking", `is_pending=True` | None |
 | `build_response_item(text: str, *, token_count=0, collapsed=False, msg_index=-1) -> dict[int, object]` | `text`; `token_count`; `collapsed`; `msg_index` | role-keyed dict | Body = `render_markdown(text)`, title "Response" | None |
-| `build_response_pending_item(text="", *, token_count=0, msg_index=-1) -> dict[int, object]` | `text` — partial streamed content; `token_count`; `msg_index` | role-keyed dict | Body = `render_markdown(text)`, title "Response", `is_pending=True` | None |
+| `build_response_pending_item(text="", *, token_count=0, msg_index=-1) -> dict[int, object]` | `text` — partial streamed content; `token_count`; `msg_index` | role-keyed dict | Body tail = `render_markdown(text)`, empty prefix, title "Response", `is_pending=True` | None |
 | `build_tool_call_item(entry: dict, *, token_count=0, collapsed=False, msg_index=-1) -> dict[int, object]` | `entry` — `{name, mode, arguments}`; `collapsed`; `msg_index` | role-keyed dict | `_to_yaml_string` → `highlight_yaml_html`; stores `mode` + `tool_name` | None |
 | `build_tool_call_pending_item(name: str, mode: str, token_count=0, msg_index=-1) -> dict[int, object]` | `name`; `mode`; `token_count`; `msg_index` | role-keyed dict | `is_pending=True`, keeps `mode`/`tool_name` | None |
 | `build_tool_result_item(name: str, content: str, *, token_count=0, collapsed=False, msg_index=-1) -> dict[int, object]` | `name`; `content`; `token_count`; `collapsed`; `msg_index` | role-keyed dict | Body = `_plain_body(content)`, stores `tool_name` | None |

@@ -235,6 +235,12 @@ Rectangle {
                                 }
                                 Binding {
                                     target: cardLoader.item
+                                    property: "bodyTailHtml"
+                                    value: model.body_tail_html
+                                    when: cardLoader.item !== null
+                                }
+                                Binding {
+                                    target: cardLoader.item
                                     property: "tokenText"
                                     value: model.token_text
                                     when: cardLoader.item !== null

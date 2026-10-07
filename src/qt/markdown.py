@@ -1051,8 +1051,28 @@ class IncrementalMarkdown:
         Returns:
             A sanitized HTML fragment equivalent to ``render_markdown(text)``.
         """
+        prefix, tail = self.render_parts(text)
+        return prefix + tail
+
+    def render_parts(self, text: str) -> tuple[str, str]:
+        """Return the committed-prefix and live-tail HTML for ``text``.
+
+        The prefix covers every complete top-level block already scanned and is
+        stable across ticks (it only grows when a new block boundary is
+        committed). The tail is the not-yet-committed trailing partial block,
+        which changes on every call. Splitting them lets the view keep the
+        prefix's rich-text layout cached and re-lay out only the tail, avoiding
+        an O(n) re-parse/re-layout of the whole document on every stream tick.
+
+        Args:
+            text: The full current Markdown source.
+
+        Returns:
+            A ``(prefix_html, tail_html)`` tuple whose concatenation equals
+            ``render_markdown(text)``.
+        """
         if not text:
-            return ""
+            return "", ""
         if not text.startswith(self._committed_text):
             self.reset()
         boundary = self._scan(text)
@@ -1061,7 +1081,7 @@ class IncrementalMarkdown:
             self._committed_html += render_markdown(segment)
             self._committed_text = text[:boundary]
         tail = text[len(self._committed_text) :]
-        return self._committed_html + render_markdown(tail)
+        return self._committed_html, render_markdown(tail)
 
     def _scan(self, text: str) -> int:
         """Advance the boundary scan over newly completed lines.

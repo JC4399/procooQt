@@ -14,6 +14,9 @@ Rectangle {
     property string title: ""
     property string subtitle: ""
     property string bodyHtml: ""
+    // Live streaming tail, rendered in its own editor after ``bodyHtml``. Empty
+    // for finalized cards (whose whole body is in ``bodyHtml``).
+    property string bodyTailHtml: ""
     property string tokenText: ""
     property string mode: ""
     property bool isPending: false
@@ -47,7 +50,12 @@ Rectangle {
     property int padBottom: 8
     // True once a body exists. Pending thinking/response cards stream their body
     // in; the spinner is shown only while pending with no body yet.
-    readonly property bool hasBody: card.bodyHtml !== ""
+    readonly property bool hasBody: card.bodyHtml !== "" || card.bodyTailHtml !== ""
+    // Body text colour: markdown cards use the markdown text colour, all other
+    // cards use the primary text colour.
+    readonly property color bodyColor: (card.kind === "thinking" || card.kind === "response")
+                                        ? Theme.colors.mdText
+                                        : Theme.colors.textPrimary
 
     function modeBg(value) {
         if (value === "allow")
@@ -66,10 +74,15 @@ Rectangle {
     }
 
     // Focus the body rich-text editor so it receives keyboard caret navigation.
-    // Collapsed or bodyless cards have no caret target.
+    // Collapsed or bodyless cards have no caret target. The live tail takes
+    // focus when present, otherwise the frozen prefix.
     function focusBody() {
-        if (card.hasBody && !card.bodyCollapsed)
-            bodyText.forceActiveFocus()
+        if (!card.hasBody || card.bodyCollapsed)
+            return
+        if (bodyText.bodyHtml !== "")
+            bodyText.focusEditor()
+        else
+            prefixText.focusEditor()
     }
 
     implicitHeight: layout.implicitHeight
@@ -249,63 +262,34 @@ Rectangle {
                     baseColor: card.accentColor
                 }
 
-                TextEdit {
-                    id: bodyText
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: contentHeight
-                    // Collapsed bodies are not made visible, so Qt skips laying
-                    // out and rendering their rich text. Older cards are built
-                    // collapsed; clicking the header expands them.
-                    visible: card.hasBody && !card.bodyCollapsed
-                    readOnly: true
-                    textFormat: TextEdit.RichText
-                    text: card.bodyHtml
-                    color: (card.kind === "thinking" || card.kind === "response")
-                           ? Theme.colors.mdText
-                           : Theme.colors.textPrimary
-                    font.family: Theme.fontMono
-                    font.pointSize: Theme.metrics.fontSizeMarkdown
-                    wrapMode: TextEdit.Wrap
-                    selectByMouse: true
-                    // Read-only editors disable keyboard selection by default;
-                    // force it on so shift+arrow / ctrl+arrow / home/end select.
-                    selectByKeyboard: true
-                    activeFocusOnTab: true
-                    persistentSelection: true
-                    selectionColor: Theme.colors.selectionBg
-                    selectedTextColor: Theme.colors.selectionFg
-                    // Set imperatively (not a binding) so Qt's blink timer can
-                    // toggle cursorVisible without clobbering the focus link.
-                    onActiveFocusChanged: bodyText.cursorVisible = bodyText.activeFocus
-                    // Read-only editors do not paint the built-in cursor, so a
-                    // custom delegate draws (and blinks) the caret instead.
-                    cursorDelegate: Component {
-                        Rectangle {
-                            objectName: "caretCursor"
-                            width: 2
-                            height: Math.max(1, bodyText.cursorRectangle.height)
-                            color: Theme.colors.textPrimary
+                // Frozen committed prefix. Its text only changes when a new
+                // Markdown block commits, so Qt keeps its rich-text layout
+                // cached across stream ticks. Collapsed bodies are not made
+                // visible, so Qt skips laying out their rich text entirely;
+                // older cards are built collapsed and expand on header click.
+                CardBodyText {
+                    id: prefixText
+                    bodyHtml: card.bodyHtml
+                    textColor: card.bodyColor
+                    scrollTarget: card.scrollTarget
+                    // Only the tail takes focus when a live tail follows.
+                    caretActive: bodyText.bodyHtml === ""
+                    visible: card.bodyHtml !== "" && !card.bodyCollapsed
+                    onCaretMoved: function (caretY, caretHeight) {
+                        card.caretMoved(caretY, caretHeight)
+                    }
+                }
 
-                            SequentialAnimation on opacity {
-                                loops: Animation.Infinite
-                                running: bodyText.activeFocus
-                                NumberAnimation { from: 1; to: 1; duration: 500 }
-                                NumberAnimation { from: 1; to: 0; duration: 0 }
-                                NumberAnimation { from: 0; to: 0; duration: 500 }
-                                NumberAnimation { from: 0; to: 1; duration: 0 }
-                            }
-                        }
-                    }
-                    onCursorRectangleChanged: {
-                        if (!bodyText.activeFocus || card.scrollTarget === null
-                                || card.scrollTarget.contentItem === null)
-                            return
-                        const p = bodyText.mapToItem(
-                            card.scrollTarget.contentItem, cursorRectangle.x, cursorRectangle.y)
-                        card.caretMoved(p.y, cursorRectangle.height)
-                    }
-                    onLinkActivated: function (link) {
-                        Qt.openUrlExternally(link)
+                // Live streaming tail. Re-laid out every tick, but now only the
+                // uncommitted trailing block rather than the whole document.
+                CardBodyText {
+                    id: bodyText
+                    bodyHtml: card.bodyTailHtml
+                    textColor: card.bodyColor
+                    scrollTarget: card.scrollTarget
+                    visible: card.bodyTailHtml !== "" && !card.bodyCollapsed
+                    onCaretMoved: function (caretY, caretHeight) {
+                        card.caretMoved(caretY, caretHeight)
                     }
                 }
             }

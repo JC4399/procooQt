@@ -791,6 +791,25 @@ class SessionController(QObject):
             if panel["active_chat_id"] == chat_id:
                 panel_model.set_runtime(*self._panel_runtime(chat_id))
 
+    @Slot(str)
+    def refresh_chat_tokens(self, chat_id: str) -> None:
+        """Push a chat's token counts to the panel currently showing it.
+
+        Called on every ``token_usage`` event so the token bar updates live
+        during a turn, without rebuilding the full runtime state.
+
+        Args:
+            chat_id: The chat whose token counts changed.
+        """
+        if not chat_id:
+            return
+        state = self._states.get(chat_id)
+        input_tokens = state.true_input_tokens if state else 0
+        output_tokens = state.true_output_cum if state else 0
+        for panel_model, panel in zip(self._panel_models, self._panels, strict=False):
+            if panel["active_chat_id"] == chat_id:
+                panel_model.set_tokens(input_tokens, output_tokens)
+
     def _open_chat(self, chat_id: str) -> None:
         """Activate and hydrate a chat, then rebuild its display.
 

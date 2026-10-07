@@ -29,11 +29,11 @@ approval bar.
 - File-context injection (`_file_context`), refreshed whenever the open file or
   its content changes.
 - `state_changed` signal (from `chat.chat_state_changed` / `token_counts_changed`).
-- The QML panel mirrors `ChatPanel.qml`: the same streaming cards, `AutoScrollToggle`,
-  `ConfigTokenBar`, tool-approval bar, and the per-chat `SkillDock` (bound to
-  `"editor-chat"`). The input row likewise uses `ScrollBar.AlwaysOff` (no right-side
-  bar) and a hover-revealed `FlatCheckBox` enter lock that suppresses Enter-to-send
-  while checked.
+- The QML panel mirrors `ChatPanel.qml`: the same streaming cards (with the
+  split body), `AutoScrollToggle`, `ConfigTokenBar`, tool-approval bar, and the
+  per-chat `SkillDock` (bound to `"editor-chat"`). The input row likewise uses
+  `ScrollBar.AlwaysOff` (no right-side bar) and a hover-revealed `FlatCheckBox`
+  enter lock that suppresses Enter-to-send while checked.
 
 ## Steps / Flow
 

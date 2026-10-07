@@ -21,6 +21,9 @@ QML UI on a fused `qasync` + Qt event loop.
   window, title-bar, and taskbar icon.
 - `main()` — Qt entry point that builds the `QApplication`, `qasync` event
   loop, and `QQmlApplicationEngine`, then loads `src/qml/Main.qml`.
+- Installation of the qasync Qt-timer leak workaround via
+  [`qt-qasync-timer-fix`](qt-qasync-timer-fix.md)
+  (`install_qasync_timer_patch`), called before the event loop is created.
 - Native frame installation for the frameless main window via
   [`qt-native-frame`](qt-native-frame.md) (`native_frame.install`), restoring
   edge resize and Aero Snap while keeping the custom QML title bar.
@@ -33,13 +36,16 @@ QML UI on a fused `qasync` + Qt event loop.
    `sys.exit(1)`.
 3. `QQuickStyle.setStyle("Basic")` → `QApplication(sys.argv)` →
    `_set_app_icon(qt_app)` → `_register_fonts()`.
-4. Create `qasync.QEventLoop(qt_app)` and `asyncio.set_event_loop(loop)`.
-5. Build `QQmlApplicationEngine()` → `ProcooQtUI(backend, engine)`; load
+4. `install_qasync_timer_patch()` — patch `_SimpleTimer` so cancelled timers
+   free their Win32 timer immediately; see
+   [`qt-qasync-timer-fix`](qt-qasync-timer-fix.md).
+5. Create `qasync.QEventLoop(qt_app)` and `asyncio.set_event_loop(loop)`.
+6. Build `QQmlApplicationEngine()` → `ProcooQtUI(backend, engine)`; load
    `src/qml/Main.qml`; exit if the engine produced no root objects.
-6. Install the frameless-window native frame filter on the loaded root window
+7. Install the frameless-window native frame filter on the loaded root window
    (`native_frame.install(qt_app, root_window)`), keeping the returned filter
    referenced; see [`qt-native-frame`](qt-native-frame.md).
-7. `ui.start()`; then `loop.run_forever()`.
+8. `ui.start()`; then `loop.run_forever()`.
 
 ## Function Reference
 
@@ -98,4 +104,4 @@ QML UI on a fused `qasync` + Qt event loop.
 |---|---|
 | Signature | `def main() -> None` |
 | Output | `None` |
-| Flow | logging + AppUserModelID → backend → `QApplication` + app icon → qasync loop → QML engine + `ProcooQtUI` → load `Main.qml` → `native_frame.install(qt_app, root_window)` → `ui.start()` → `loop.run_forever()`. |
+| Flow | logging + AppUserModelID → backend → `QApplication` + app icon → `install_qasync_timer_patch()` → qasync loop → QML engine + `ProcooQtUI` → load `Main.qml` → `native_frame.install(qt_app, root_window)` → `ui.start()` → `loop.run_forever()`. |

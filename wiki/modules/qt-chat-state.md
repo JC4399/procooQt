@@ -25,12 +25,13 @@ never holds a QML object.
 | `item_index` | `int \| None` | Row index of the card in `ChatListModel`, or `None` |
 | `token_count` | `int` | Last rendered token count for the card |
 | `markdown` | `IncrementalMarkdown` | Per-card streaming Markdown renderer that reuses the committed prefix HTML across ticks |
+| `last_prefix_html` | `str` | Frozen-prefix HTML last pushed to the model; the prefix is re-pushed only when it changes |
 
 ### `reset`
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def reset(self) -> None` | — | `None` | `item_index = None`; `token_count = 0`; `markdown.reset()` | Clears the card tracking state |
+| `def reset(self) -> None` | — | `None` | `item_index = None`; `token_count = 0`; `markdown.reset()`; `last_prefix_html = ""` | Clears the card tracking state |
 
 ## `ChatState`
 

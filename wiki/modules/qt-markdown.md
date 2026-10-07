@@ -23,7 +23,10 @@ reaches QML.
 
 - `render_markdown(text) -> str` — sanitized, terminal-styled HTML fragment.
 - `IncrementalMarkdown` — a per-card renderer that caches the committed HTML of
-  a growing streaming document and re-renders only the trailing block.
+  a growing streaming document and re-renders only the trailing block. Its
+  `render_parts(text)` returns the committed prefix and the live tail
+  separately, so the view can keep the prefix's rich-text layout cached and
+  re-lay out only the tail on each stream tick.
 - `_TerminalRenderer(RendererHTML)` — the token renderer implementing the
   terminal look.
 - `_MarkdownCodeStyle(Style)` and `_FORMATTER` — pygments style matching the
@@ -57,17 +60,18 @@ run on an `asyncio.to_thread` worker. `_parser()` lazily builds and caches one
 
 ### Incremental streaming renderer (`IncrementalMarkdown`)
 
-1. `render(text)` — if `text` does not start with the committed prefix (e.g. a
-   regeneration), `reset()`.
+1. `render_parts(text)` — if `text` does not start with the committed prefix
+   (e.g. a regeneration), `reset()`.
 2. `_scan(text)` advances a persisted cursor (`_scan_pos`, `_fence`,
    `_prev_blank`) over only the newly completed lines, returning the last safe
    commit offset: the start of a line that follows a blank line at top level
    (outside a fence) and begins an independent block.
 3. When a new boundary exists, render only the newly committed segment and
    append it to `_committed_html`; then render the trailing partial block.
-4. Return `committed_html + render_markdown(tail)` — equal to
-   `render_markdown(text)` but O(delta) per tick instead of O(total): each
-   source character is boundary-scanned once.
+4. Return `(_committed_html, render_markdown(tail))` — whose concatenation
+   equals `render_markdown(text)` but is O(delta) per tick instead of O(total):
+   each source character is boundary-scanned once. `render(text)` is a thin
+   wrapper returning the concatenation for callers that need a single string.
 
 `_is_fresh_block_line` is deliberately conservative: a line with leading
 whitespace, a list marker, or a block quote is never a boundary, because
@@ -193,8 +197,9 @@ plugin, so math spans render as images rather than the plugin's literal
 | `def render_markdown(text: str) -> str` | `text` — Markdown source | Sanitized HTML fragment | Empty check → `_parser().render` → `_sanitize` | None; pure |
 | `def _build_parser() -> MarkdownIt` | — | Configured parser | `MarkdownIt` → `enable(table, strikethrough)` → tasklists → footnotes | Expensive; cached per thread |
 | `def _parser() -> MarkdownIt` | — | Thread-local parser | Lazy build into `_PARSER_TLS` | None |
-| `class IncrementalMarkdown` | — | Streaming renderer | `render` commits safe prefixes, renders only the tail | Caches committed source + HTML + scan cursor |
-| `def IncrementalMarkdown.render(text: str) -> str` | `text` — full growing source | Sanitized HTML fragment | reset-on-rewrite → `_scan` → render segment + tail | Mutates committed prefix + scan state |
+| `class IncrementalMarkdown` | — | Streaming renderer | `render_parts` commits safe prefixes, renders only the tail | Caches committed source + HTML + scan cursor |
+| `def IncrementalMarkdown.render(text: str) -> str` | `text` — full growing source | Sanitized HTML fragment | Concatenate `render_parts` | Mutates committed prefix + scan state |
+| `def IncrementalMarkdown.render_parts(text: str) -> tuple[str, str]` | `text` — full growing source | `(prefix_html, tail_html)` | reset-on-rewrite → `_scan` → render segment + tail | Mutates committed prefix + scan state |
 | `def IncrementalMarkdown._scan(text: str) -> int` | `text` — full growing source | Commit offset or `0` | Walk only newly completed lines, tracking fence/blank state | Advances `_scan_pos`/`_fence`/`_prev_blank` |
 | `def IncrementalMarkdown.reset() -> None` | — | `None` | blank committed source/HTML and scan cursor | — |
 | `def _is_fresh_block_line(line: str) -> bool` | source line | Bool | Reject indented/list/quote lines | None; pure |
@@ -243,4 +248,5 @@ plugin, so math spans render as images rather than the plugin's literal
 - [qt-yaml-highlight](qt-yaml-highlight.md) — the sibling tokenizer for tool-call
   argument YAML.
 - [qt-models](qt-models.md) — `ChatListModel` stores the rendered HTML in
-  `ChatRole.BODY_HTML`.
+  `ChatRole.BODY_HTML` (frozen prefix) and `ChatRole.BODY_TAIL_HTML` (live
+  streaming tail).

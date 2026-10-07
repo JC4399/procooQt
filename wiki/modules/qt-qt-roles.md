@@ -51,7 +51,7 @@ enum into the `{role id: bytes}` mapping Qt expects.
 |---|---|---|
 | `KIND` | 1 | Card kind (user/thinking/response/tool/result) |
 | `TITLE` | 2 | Card header label |
-| `BODY_HTML` | 3 | Inline-styled rendered HTML body |
+| `BODY_HTML` | 3 | Inline-styled rendered HTML body (frozen committed prefix while streaming) |
 | `TOKEN_TEXT` | 4 | Token-count label |
 | `COLLAPSED` | 5 | Initial body collapse state (bound to `bodyCollapsed` for context banners) |
 | `IS_PENDING` | 6 | `True` for a streaming placeholder card |
@@ -61,6 +61,7 @@ enum into the `{role id: bytes}` mapping Qt expects.
 | `SECTIONS` | 10 | Structured body sections |
 | `IS_DELTA` | 11 | `True` for an incremental append |
 | `MSG_INDEX` | 12 | Index of the source message in `chat.messages` (`-1` for derived cards); drives the card delete/regenerate actions |
+| `BODY_TAIL_HTML` | 13 | Live streaming tail appended after `BODY_HTML` in a separate rich-text editor |
 
 ### `SkillRole` — `SkillTreeModel`
 

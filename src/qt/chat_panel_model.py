@@ -199,3 +199,19 @@ class ChatPanelModel(QObject):
         self._block_count = block_count
         self._model_name = model_name
         self.changed.emit()
+
+    def set_tokens(self, input_tokens: int, output_tokens: int) -> None:
+        """Update only the active chat's token counts.
+
+        Used for the per-round ``token_usage`` refresh so the token bar updates
+        live without rebuilding the rest of the runtime state.
+
+        Args:
+            input_tokens: Context (input) token count.
+            output_tokens: Cumulative output token count.
+        """
+        if self._input_tokens == input_tokens and self._output_tokens == output_tokens:
+            return
+        self._input_tokens = input_tokens
+        self._output_tokens = output_tokens
+        self.changed.emit()

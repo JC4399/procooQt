@@ -12,8 +12,10 @@ clipped into the model. Approval blocks the loop on an `asyncio.Event`. Because
 the app runs a single qasync loop on the GUI thread, streaming keeps work small
 and off the critical path: per-message items are memoized by content hash,
 incremental Markdown re-renders only the trailing block (response) or writes
-escaped plain text (thinking), the response render runs on a worker thread, and
-the sidebar refresh is debounced and offloaded.
+escaped plain text (thinking), each streaming body is split into a frozen
+committed prefix and a live tail so only the tail re-lays out in QML, and the
+sidebar refresh is debounced and offloaded. The event consumer wakes exactly when
+an event arrives or the turn ends — no polling.
 
 ## Deliverables
 
@@ -38,6 +40,8 @@ the sidebar refresh is debounced and offloaded.
   regenerates.
 - `chat_state_changed(chat_id)` — emitted whenever a chat's runtime state
   changes so `SessionController.refresh_chat_panels` can update its panel.
+- `chat_tokens_changed(chat_id)` — emitted on every `token_usage` event so
+  `SessionController.refresh_chat_tokens` can update the token bar live.
 
 ## Signals
 
@@ -50,6 +54,7 @@ the sidebar refresh is debounced and offloaded.
 | `busy_changed` | `bool` | Focused generation running state (legacy) |
 | `loading_changed` | `bool` | Focused switch rebuild in progress (legacy) |
 | `chat_state_changed` | `str` | A chat's runtime state changed (per-panel refresh) |
+| `chat_tokens_changed` | `str` | A chat's true token counts changed (per-panel token-bar refresh) |
 
 The `*_changed`/`busy`/`loading`/`activeModel`/tokens members are kept for the
 focused chat; per-panel QML reads `ChatPanelModel` instead.
@@ -90,24 +95,29 @@ state tracking always run.
    `state.active_task`.
 3. `await asyncio.sleep(0)`; rebuild the display when visible to reconcile the
    `u:<hash>` + `w:pending` keys.
-4. **Consume** — `await _consume_events(chat, chat_id, state, task)`; then
-   `await task` if pending. `asyncio.CancelledError` cancels the task.
-5. **Cleanup** — `finally: _finalize_turn(...)` clears busy, rebuilds, resets
-   the turn, saves the chat, refreshes, emits `chat_state_changed`.
+4. **Consume** — increment `_active_streams`; `await _consume_events(chat,
+   chat_id, state, task)`; then `await task` if pending.
+   `asyncio.CancelledError` cancels the task.
+5. **Cleanup** — `finally:` decrement `_active_streams`, then
+   `_finalize_turn(...)` clears busy, rebuilds, resets the turn, saves the chat,
+   refreshes, emits `chat_state_changed`.
 6. If `chat.check_limit_exceeded() is not None`, run `_compact_chat`.
 
 ### Consume events (`_consume_events`)
 
-Drains `chat.event_queue` while the task is pending or the queue is non-empty,
-reading with `asyncio.wait_for(..., timeout=0.1)`. By `event["type"]`:
+Waits on the queue getter and the turn task together
+(`asyncio.wait({getter, task}, FIRST_COMPLETED)`), so the loop wakes exactly when
+an event arrives or the turn ends — no periodic polling. When the task finishes
+first, any already-queued events are drained with `get_nowait()`. Each dequeued
+event is handled by `_consume_one_event`, which by `event["type"]`:
 
 | Event type | Handling |
 |---|---|
 | `tool_call` (mode `ask`) | `await _handle_approval(chat_id, event, state)` — blocks |
 | `tool_result` | Append to `state.tool_results` |
-| `token_usage` | Set `true_input_tokens` / `true_output_cum`; when visible, `_update_token_bar` refreshes the bar |
-| `done` | Break out of the loop |
-| `error` | Set `state.has_error`, toast the `brief` (when visible), and break |
+| `token_usage` | Set `true_input_tokens` / `true_output_cum`; when visible, `_update_token_bar` refreshes the bar and emits `chat_tokens_changed` |
+| `done` | Stop the loop |
+| `error` | Set `state.has_error`, toast the `brief` (when visible), and stop |
 
 After each event, a change in `len(chat.messages)` triggers `_refresh_sidebar()`,
 and when visible `_render_active_event(...)` updates the display.
@@ -118,8 +128,8 @@ and when visible `_render_active_event(...)` updates the display.
   pending result card in place via `_swap_pending_result_card(chat_id, ...)`.
 - Otherwise rebuild the display.
 - If unchanged and the last message is not an assistant message, rebuild; else
-  `await _update_live_assistant(chat_id, state)` (throttled, and for the response
-  body offloaded to a worker thread).
+  `_update_live_assistant(chat_id, state)` (throttled, split-body in-place
+  update).
 
 ### Rebuild pipeline
 
@@ -151,12 +161,17 @@ toward a 0.6 s target). The plan is computed off-thread.
 - A pending thinking/response card whose row does not exist yet rebuilds
   immediately.
 - **Content-only** updates and streaming-tool-call argument changes are throttled
-  to `_STREAM_UPDATE_INTERVAL` (0.08 s) and applied in place by
+  to `_stream_update_interval()` — `_STREAM_UPDATE_INTERVAL` (0.08 s), raised to
+  `_STREAM_UPDATE_INTERVAL_MULTI` (0.12 s) while more than one chat is generating
+  (`_active_streams > 1`) — and applied in place by
   `_apply_streaming_item_updates`. Thinking is escaped via
-  [`thinking_body`](qt-chat-items.md); the response is rendered through the
-  card's [`IncrementalMarkdown`](qt-markdown.md#incremental-streaming-renderer-incrementalmarkdown)
-  on a worker thread (`asyncio.to_thread`), so parse/highlight/sanitize never
-  block the GUI thread.
+  [`thinking_body_parts`](qt-chat-items.md); the response is rendered through the
+  card's [`IncrementalMarkdown.render_parts`](qt-markdown.md#incremental-streaming-renderer-incrementalmarkdown).
+  Both run synchronously on the GUI thread (pure Python, GIL-bound, now O(tail)),
+  and `_push_streaming_body` pushes the frozen prefix only when it changes and
+  the live tail every tick. A rebuilt pending row resets the prefix tracking
+  (`_apply_render_indices`) so the next tick re-pushes the prefix into the fresh
+  row.
 
 ### Sidebar refresh (`_refresh_sidebar`)
 
@@ -228,10 +243,13 @@ That generates a new id, copies `skills_config`, `session`, `model_name`, and
 `_update_token_bar(chat_id, state)` shows only the true API counts reported by
 `token_usage` (`state.true_input_tokens` / `state.true_output_cum`); it never
 falls back to a word-count estimate, so a chat with no response yet shows zero.
-`ChatPanelModel` reads the same values through `SessionController._panel_runtime`;
-`_set_token_counts` emits `token_counts_changed` for the focused chat.
-`_accumulate_tokens` counts only the appended suffix of each text field and feeds
-the per-card `tk` estimate, which is independent of the token bar.
+It emits `chat_tokens_changed(chat_id)` so `SessionController.refresh_chat_tokens`
+pushes the counts to the panel's `ChatPanelModel` on every LLM round-trip
+(including tool-call rounds, since each round ends with a usage chunk), and
+`_set_token_counts` emits the legacy `token_counts_changed` for the focused chat
+(the editor chat). `_accumulate_tokens` counts only the appended suffix of each
+text field and feeds the per-card `tk` estimate, which is independent of the
+token bar.
 
 ## Function Reference
 
@@ -259,10 +277,11 @@ the per-card `tk` estimate, which is independent of the token bar.
 | `@Slot(str) def _handle_chat_activated(self, chat_id)` | chat (may be `""`) | `None` | set focused id → clear caches → emit → `_set_loading(chat_id, True)` → `_spawn(_rebuild_after_switch)` | Emits `active_model_changed` |
 | `async def _rebuild_after_switch(self, chat_id)` | chat | `None` | sleep(0) → visible check → staged rebuild → `_set_loading(chat_id, False)` → emit `chat_state_changed` | — |
 | `def _launch_generation(self, chat_id, message)` | chat, text | `None` | clear `has_error` + busy + bump `generation_id` → append scanner → refresh → emit state → spawn loop | Mutates state |
-| `async def _run_chat_loop(self, message, gen_id, chat_id)` | message, generation, chat | `None` | hydrate → run → reconcile → consume → finalize → compact on limit | Cancellable; persists |
+| `async def _run_chat_loop(self, message, gen_id, chat_id)` | message, generation, chat | `None` | hydrate → run → reconcile → consume (tracking `_active_streams`) → finalize → compact on limit | Cancellable; persists |
 | `async def _hydrate_phase(self, chat_id, gen_id)` | chat, generation | Live chat or `None` | `_hydrate_chat`; on failure clear busy + set `has_error`/rebuild | Side effects on failure |
-| `async def _consume_events(self, chat, chat_id, state, task)` | live chat, id, state, task | `None` | 0.1s poll → per-type branches (`error` sets `has_error`) | May block on approval |
-| `async def _render_active_event(self, event, chat, chat_id, state, msg_count, last_rendered)` | event + render context | New count | swap result vs rebuild vs live | May mutate model; awaits worker render |
+| `async def _consume_events(self, chat, chat_id, state, task)` | live chat, id, state, task | `None` | `asyncio.wait` on queue getter + task; drain queued events when the task ends first | May block on approval |
+| `async def _consume_one_event(self, event, chat, chat_id, state, last_count, last_rendered)` | event + render context | `(last_count, last_rendered, stop)` | per-type branches; `error` sets `has_error`; `done`/`error` set `stop` | May mutate model/state |
+| `async def _render_active_event(self, event, chat, chat_id, state, msg_count, last_rendered)` | event + render context | New count | swap result vs rebuild vs live | May mutate model |
 | `def _finalize_turn(self, chat_id, state, gen_id)` | chat, state, generation | `None` | clear busy (`has_error` left as-is) → rebuild → reset → save → refresh → emit state | Persists |
 | `async def _stop_generation(self, chat_id)` | chat | `None` | mark `has_error` → deny pending → set event → cancel task | Cancels task |
 | `async def _approve(self, chat_id)` | chat | `None` | `approve_tool` → set event → emit state | Releases approval |
@@ -278,7 +297,7 @@ the per-card `tk` estimate, which is independent of the token bar.
 | `async def _create_compacted_chat(self, chat_id, summary)` | old id, summary | `None` | new record seeded with summary → `session.open_chat_after` | Writes store |
 | `@Slot(str) def rebuild_chat_display(self, chat_id)` | chat | `None` | no-op on empty → `_rebuild_chat_display` | Public entry for skill sync |
 | `def _compute_render_plan(self, chat_id)` | chat | `(keys, items, snapshot, indices)` | live chat reuses cached snapshot + item cache; else load stored → `_build_plan` | Pure; worker-thread safe |
-| `def _apply_render_indices(self, state, indices)` | state, indices | `None` | copy row indices onto state | GUI thread only |
+| `def _apply_render_indices(self, state, indices)` | state, indices | `None` | copy row indices onto state; clear `last_prefix_html` on both streaming cards | GUI thread only |
 | `def _rebuild_chat_display(self, chat_id)` | chat | `None` | skip staged → plan → indices → `diff_update` → keys → tokens | Mutates model/state |
 | `async def _rebuild_chat_display_staged(self, chat_id)` | chat | `None` | off-thread plan → indices → `_StagedBuildState` → batched inserts | Aborts on cancel/visibility change |
 | `def _skip_staged_build(self)` / `def _cancel_staged_build(self)` | — | `None` | flush / drop the staged build | — |
@@ -288,10 +307,12 @@ the per-card `tk` estimate, which is independent of the token bar.
 | `def _append_user_message(self, chat_id, text)` | chat, text | `None` | `append_item(user item, key)` | Inserts a row |
 | `def _append_waiting_placeholder(self, chat_id)` | chat | `None` | `append_item(waiting item, "w:pending")` | Inserts scanner |
 | `def _swap_pending_result_card(self, chat_id, tool_call_id, tool_name, content)` | chat, tool call, content | `None` | find pending row → replace; else rebuild | Replaces a row |
+| `def _stream_update_interval(self) -> float` | — | Throttle seconds | `_STREAM_UPDATE_INTERVAL_MULTI` when `_active_streams > 1`, else `_STREAM_UPDATE_INTERVAL` | None |
 | `async def _update_live_assistant(self, chat_id, state)` | chat, state | `None` | structural rebuild vs throttled body update | Mutates model/state |
-| `async def _apply_streaming_item_updates(self, chat_id, state, ...)` | chat, state, texts, flags | `None` | accumulate tokens → plain thinking / threaded incremental response → `update_item` | Updates rows/state |
+| `def _apply_streaming_item_updates(self, chat_id, state, ...)` | chat, state, texts, flags | `None` | accumulate tokens → split thinking/response bodies → `_push_streaming_body` per card | Updates rows/state |
+| `def _push_streaming_body(self, model, row, parts, card, token_count)` | model, row, `(prefix, tail)`, card, count | `None` | push tail every tick, prefix only when it changed; `update_item` | Updates a row |
 | `def _track_rendered_state(self, chat_id, state)` | chat, state | `None` | snapshot last assistant text/counts | Mutates state |
-| `def _update_token_bar(self, chat_id, state=None)` | chat, optional state | `None` | true counts or estimate → `_set_token_counts` | Emits signal |
+| `def _update_token_bar(self, chat_id, state=None)` | chat, optional state | `None` | true counts or estimate → `_set_token_counts` → emit `chat_tokens_changed` | Emits signals |
 | `def _set_loading(self, chat_id, loading)` | chat, flag | `None` | dedupe → `state.is_loading` → emit `chat_state_changed` | Emits signal |
 
 ## Module-level helpers

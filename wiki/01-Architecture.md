@@ -35,7 +35,7 @@
 │    Main.qml — ApplicationWindow: TitleBar (content tabs) + content stack      │
 │    components/ TitleBar · SessionSelector · ChatTabBar · SkillDock ·          │
 │                ConfigTokenBar · ApprovalBar · PresetBar · ToastHost ·         │
-│                FlatButton · …                                                 │
+│                CardBodyText · KnightRiderSpinner · …                          │
 │    panels/     SplitWorkspace · ChatPanel · EditorPanel · EditorChatPanel ·   │
 │                AutomationPanel · NotificationPanel                            │
 │    cards/      User · Thinking · Response · ToolCall · ToolResult ·          │

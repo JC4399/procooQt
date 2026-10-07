@@ -21,6 +21,7 @@ from .chat.store import ChatStore
 from .config.manager import ConfigManager
 from .notification.manager import NotificationManager
 from .qt import native_frame
+from .qt.qasync_timer_fix import install_qasync_timer_patch
 from .qt.ui import ProcooQtUI
 from .skill.manager import SkillManager
 from .skill.preset import PresetStore
@@ -149,6 +150,10 @@ def main() -> None:
     qt_app.styleHints().setColorScheme(Qt.ColorScheme.Dark)
     _set_app_icon(qt_app)
     _register_fonts()
+
+    # Free Qt timers as soon as an asyncio callback is cancelled; qasync 0.28.0
+    # otherwise leaks a Win32 USER timer per streamed HTTP chunk (see module doc).
+    install_qasync_timer_patch()
 
     loop = qasync.QEventLoop(qt_app)
     asyncio.set_event_loop(loop)

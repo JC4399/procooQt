@@ -197,6 +197,7 @@ chats fall back to it.
 | `@Slot(str, result=str) def modelNameFor(self, chat_id)` | chat | Model name | `state.model_name` or the config default (in-memory) | May create a `ChatState` |
 | `@Slot(str, str) def _handle_model_changed(self, chat_id, model_name)` | chat, model | `None` | validate against `llm_models` → set `state.model_name` → persist → `Agent.set_model` if live → refresh panel | Writes store; toasts on unknown model |
 | `@Slot(str) def refresh_chat_panels(self, chat_id)` | chat | `None` | derive live status/blink → push `update_tab` to every panel owning the chat → `set_runtime` for the panel showing it | Updates `ChatPanelModel`/`ChatTabModel`; runs on every `chat_state_changed` |
+| `@Slot(str) def refresh_chat_tokens(self, chat_id)` | chat | `None` | read true counts from `ChatState` → `set_tokens` on the panel showing the chat | Updates `ChatPanelModel` only; runs on every `chat_tokens_changed` |
 | `def _chat_display_status(self, chat_id)` | chat | `ChatStatus` | live `ChatState` + live agent messages (fallback enriched summary) → `_status_from_state` | Disk-free; GUI thread only |
 | `@staticmethod def _status_from_state(state, has_messages)` | state; message presence | `ChatStatus` | busy → `WAITING`/`RUNNING`; error → `ERROR`; else `FINISHED`/`EMPTY` | Pure |
 | `def _reconcile_panels(self, name)` | session | `None` | stored layout vs session chats → `_panels` | Saves layout |

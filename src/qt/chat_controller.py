@@ -32,7 +32,7 @@ from .chat_items import (
     build_tool_result_pending_item,
     build_user_item,
     build_waiting_item,
-    thinking_body,
+    thinking_body_parts,
 )
 from .context_banner import build_context_banner_item, build_context_sections_from_snapshot
 from .error_handler import TOAST_ERROR
@@ -42,7 +42,7 @@ from .qt_roles import ChatRole
 if TYPE_CHECKING:
     from ..app import ProcooApp
     from ..chat.agent import Agent
-    from .chat_state import ChatState
+    from .chat_state import ChatState, StreamingCardState
     from .session_controller import SessionController
 
 logger = logging.getLogger("procoo_qt")
@@ -51,6 +51,11 @@ logger = logging.getLogger("procoo_qt")
 #: cards. Structural changes rebuild immediately; this only paces text re-renders
 #: of the accumulated markdown so long outputs do not thrash the rich-text layout.
 _STREAM_UPDATE_INTERVAL = 0.08
+
+#: Streaming body update interval used while more than one chat is generating.
+#: Slightly slower to keep the single GUI thread responsive when several streams
+#: compete for it.
+_STREAM_UPDATE_INTERVAL_MULTI = 0.12
 
 #: Staged chat build after a chat switch. The plan computation (hashing,
 #: markdown rendering, token counting) runs on a worker thread; rows are inserted
@@ -357,6 +362,7 @@ class ChatController(QObject):
     busy_changed = Signal(bool)
     loading_changed = Signal(bool)
     chat_state_changed = Signal(str)
+    chat_tokens_changed = Signal(str)
 
     if TYPE_CHECKING:
         # Attributes provided by ui.py orchestrator
@@ -410,6 +416,7 @@ class ChatController(QObject):
         self._staged_build = None
         self._sidebar_dirty = False
         self._sidebar_task = None
+        self._active_streams = 0
 
     # ------------------------------------------------------------------
     #  Builder
@@ -797,6 +804,7 @@ class ChatController(QObject):
             return
         task = asyncio.ensure_future(chat.run(message))
         state.active_task = task
+        self._active_streams += 1
         await asyncio.sleep(0)
         if self._is_visible(chat_id):
             self._rebuild_chat_display(chat_id)
@@ -808,6 +816,7 @@ class ChatController(QObject):
             if not task.done():
                 task.cancel()
         finally:
+            self._active_streams = max(0, self._active_streams - 1)
             self._finalize_turn(chat_id, state, gen_id)
         if chat.check_limit_exceeded() is not None:
             await self._compact_chat(chat_id, chat)
@@ -840,6 +849,9 @@ class ChatController(QObject):
     ) -> None:
         """Drain the chat event queue until the turn task finishes.
 
+        Waits on the queue getter and the turn task together, so the loop wakes
+        exactly when an event arrives or the turn ends — no periodic polling.
+
         Args:
             chat: The live agent chat.
             chat_id: The chat id being rendered.
@@ -848,40 +860,77 @@ class ChatController(QObject):
         """
         last_count = 0
         last_rendered = 0
-        while not task.done() or not chat.event_queue.empty():
-            try:
-                event = await asyncio.wait_for(chat.event_queue.get(), timeout=0.1)
-            except TimeoutError:
-                if not task.done():
-                    continue
-                break
-            etype = event.get("type", "")
-            if etype == "tool_call" and event.get("mode", "ask") == "ask":
-                await self._handle_approval(chat_id, event, state)
-            elif etype == "tool_result":
-                state.tool_results.append(event)
-            elif etype == "token_usage":
-                state.true_input_tokens = event.get("input", 0)
-                state.true_output_cum = event.get("output_cumulative", 0)
-                if self._is_visible(chat_id):
-                    self._update_token_bar(chat_id, state)
-            elif etype == "done":
-                break
-            elif etype == "error":
-                brief = event.get("brief", event.get("message", "Unknown error"))
-                state.has_error = True
-                if self._is_visible(chat_id):
-                    self.toast_requested.emit(brief, TOAST_ERROR)
-                break
-
-            msg_count = len(chat.messages)
-            if msg_count != last_count:
-                last_count = msg_count
-                self._refresh_sidebar()
-            if self._is_visible(chat_id):
-                last_rendered = await self._render_active_event(
-                    event, chat, chat_id, state, msg_count, last_rendered
+        getter: asyncio.Task[dict] = asyncio.ensure_future(chat.event_queue.get())
+        try:
+            while True:
+                await asyncio.wait({getter, task}, return_when=asyncio.FIRST_COMPLETED)
+                if getter.done():
+                    event = getter.result()
+                    getter = asyncio.ensure_future(chat.event_queue.get())
+                elif chat.event_queue.empty():
+                    break
+                else:
+                    event = chat.event_queue.get_nowait()
+                last_count, last_rendered, stop = await self._consume_one_event(
+                    event, chat, chat_id, state, last_count, last_rendered
                 )
+                if stop:
+                    break
+        finally:
+            if not getter.done():
+                getter.cancel()
+
+    async def _consume_one_event(
+        self,
+        event: dict,
+        chat: Agent,
+        chat_id: str,
+        state: ChatState,
+        last_count: int,
+        last_rendered: int,
+    ) -> tuple[int, int, bool]:
+        """Process one agent event and render it if the chat is visible.
+
+        Args:
+            event: The event just dequeued.
+            chat: The live agent chat.
+            chat_id: The chat id being rendered.
+            state: The chat's UI state.
+            last_count: Message count at the previous event.
+            last_rendered: Message count at the last render.
+
+        Returns:
+            ``(last_count, last_rendered, stop)`` where ``stop`` is ``True`` when
+            the event ends the turn (``done`` or ``error``).
+        """
+        etype = event.get("type", "")
+        if etype == "tool_call" and event.get("mode", "ask") == "ask":
+            await self._handle_approval(chat_id, event, state)
+        elif etype == "tool_result":
+            state.tool_results.append(event)
+        elif etype == "token_usage":
+            state.true_input_tokens = event.get("input", 0)
+            state.true_output_cum = event.get("output_cumulative", 0)
+            if self._is_visible(chat_id):
+                self._update_token_bar(chat_id, state)
+        elif etype == "done":
+            return last_count, last_rendered, True
+        elif etype == "error":
+            brief = event.get("brief", event.get("message", "Unknown error"))
+            state.has_error = True
+            if self._is_visible(chat_id):
+                self.toast_requested.emit(brief, TOAST_ERROR)
+            return last_count, last_rendered, True
+
+        msg_count = len(chat.messages)
+        if msg_count != last_count:
+            last_count = msg_count
+            self._refresh_sidebar()
+        if self._is_visible(chat_id):
+            last_rendered = await self._render_active_event(
+                event, chat, chat_id, state, msg_count, last_rendered
+            )
+        return last_count, last_rendered, False
 
     async def _render_active_event(
         self,
@@ -1315,6 +1364,10 @@ class ChatController(QObject):
     def _apply_render_indices(self, state: ChatState, indices: _RenderIndices) -> None:
         """Apply a render plan's streaming-card row indices to the chat state.
 
+        The prefix-tracking is cleared because a rebuilt pending card starts
+        with its whole body in the live tail; the next tick must re-push the
+        committed prefix into the fresh row.
+
         Args:
             state: The chat's UI state.
             indices: The indices produced by :meth:`_build_plan`.
@@ -1322,6 +1375,8 @@ class ChatController(QObject):
         state.thinking.item_index = indices.thinking_index
         state.response.item_index = indices.response_index
         state.tool_call_indices = list(indices.tool_call_indices)
+        state.thinking.last_prefix_html = ""
+        state.response.last_prefix_html = ""
 
     def _rebuild_chat_display(self, chat_id: str) -> None:
         """Rebuild the chat model from the chat's message list.
@@ -1702,6 +1757,19 @@ class ChatController(QObject):
         )
         model.replace_item(row, item, f"tr:{msg_index}:{tool_name}:{_content_hash(content)}")
 
+    def _stream_update_interval(self) -> float:
+        """Return the streaming body update throttle for the current load.
+
+        Slower while several chats stream at once, so the single GUI thread
+        stays responsive when concurrent streams compete for it.
+
+        Returns:
+            The minimum seconds between content-only streaming updates.
+        """
+        if self._active_streams > 1:
+            return _STREAM_UPDATE_INTERVAL_MULTI
+        return _STREAM_UPDATE_INTERVAL
+
     async def _update_live_assistant(self, chat_id: str, state: ChatState) -> None:
         """Live render the streaming assistant message with a short throttle.
 
@@ -1757,11 +1825,11 @@ class ChatController(QObject):
         streaming_active = streaming_tc_changed and bool(state.tool_call_indices)
         if not (content_only or streaming_active):
             return
-        if now - state.last_content_update_time < _STREAM_UPDATE_INTERVAL:
+        if now - state.last_content_update_time < self._stream_update_interval():
             self._track_rendered_state(chat_id, state)
             return
         state.last_content_update_time = now
-        await self._apply_streaming_item_updates(
+        self._apply_streaming_item_updates(
             chat_id,
             state,
             thinking_text,
@@ -1772,7 +1840,7 @@ class ChatController(QObject):
         )
         self._track_rendered_state(chat_id, state)
 
-    async def _apply_streaming_item_updates(
+    def _apply_streaming_item_updates(
         self,
         chat_id: str,
         state: ChatState,
@@ -1785,8 +1853,11 @@ class ChatController(QObject):
         """Apply throttled content-only updates to the streaming card rows.
 
         Thinking is escaped as plain text; the response is rendered through the
-        card's incremental Markdown renderer on a worker thread so the parse,
-        highlight, and sanitize work never blocks the GUI thread.
+        card's incremental Markdown renderer. Both bodies are split into a
+        frozen committed prefix and a live tail so only the tail re-lays out in
+        QML on each tick. The render runs synchronously on the GUI thread: it is
+        pure Python (GIL-bound) and now O(tail), so a worker thread would only
+        add contention without parallelising.
 
         Args:
             chat_id: The chat being rendered.
@@ -1806,12 +1877,12 @@ class ChatController(QObject):
             )
             state.last_tok_counted_thinking = thinking_text
             if state.thinking.item_index is not None:
-                model.update_item(
+                self._push_streaming_body(
+                    model,
                     state.thinking.item_index,
-                    {
-                        int(ChatRole.BODY_HTML): thinking_body(thinking_text),
-                        int(ChatRole.TOKEN_TEXT): f"{state.thinking.token_count} tk",
-                    },
+                    thinking_body_parts(thinking_text),
+                    state.thinking,
+                    state.thinking.token_count,
                 )
         if content_changed:
             state.response.token_count = _accumulate_tokens(
@@ -1819,13 +1890,12 @@ class ChatController(QObject):
             )
             state.last_tok_counted_response = content_text
             if state.response.item_index is not None:
-                html = await asyncio.to_thread(state.response.markdown.render, content_text)
-                model.update_item(
+                self._push_streaming_body(
+                    model,
                     state.response.item_index,
-                    {
-                        int(ChatRole.BODY_HTML): html,
-                        int(ChatRole.TOKEN_TEXT): f"{state.response.token_count} tk",
-                    },
+                    state.response.markdown.render_parts(content_text),
+                    state.response,
+                    state.response.token_count,
                 )
         if streaming_tcs:
             for idx, tc in enumerate(streaming_tcs):
@@ -1836,6 +1906,37 @@ class ChatController(QObject):
                     state.tool_call_indices[idx],
                     {int(ChatRole.TOKEN_TEXT): f"{count_tokens(args_str)} tk"},
                 )
+
+    def _push_streaming_body(
+        self,
+        model: ChatListModel,
+        row: int,
+        parts: tuple[str, str],
+        card: StreamingCardState,
+        token_count: int,
+    ) -> None:
+        """Push a streaming card's split body, updating only what changed.
+
+        The frozen prefix is pushed only when a new block commits; the live tail
+        is pushed every tick. Keeping the prefix stable lets QML cache its
+        rich-text layout instead of re-laying out the whole body each tick.
+
+        Args:
+            model: The chat model owning the row.
+            row: The card's row index.
+            parts: ``(prefix_html, tail_html)`` for the current source text.
+            card: The streaming card state tracking the last pushed prefix.
+            token_count: The card's current token count.
+        """
+        prefix_html, tail_html = parts
+        values: dict[int, object] = {
+            int(ChatRole.BODY_TAIL_HTML): tail_html,
+            int(ChatRole.TOKEN_TEXT): f"{token_count} tk",
+        }
+        if prefix_html != card.last_prefix_html:
+            card.last_prefix_html = prefix_html
+            values[int(ChatRole.BODY_HTML)] = prefix_html
+        model.update_item(row, values)
 
     def _track_rendered_state(self, chat_id: str, state: ChatState) -> None:
         """Store the currently rendered streaming state for diff detection.
@@ -1878,6 +1979,7 @@ class ChatController(QObject):
         ctx = state.true_input_tokens if state else 0
         out = state.true_output_cum if state else 0
         self._set_token_counts(ctx, out)
+        self.chat_tokens_changed.emit(chat_id)
 
     def _set_token_counts(self, input_tokens: int, output_tokens: int) -> None:
         """Store and emit new token counts.

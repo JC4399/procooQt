@@ -23,17 +23,22 @@ class StreamingCardState:
         token_count: Last rendered token count for the card.
         markdown: Incremental renderer that reuses the card's committed HTML
             across stream ticks (only the trailing block is re-rendered).
+        last_prefix_html: The frozen-prefix HTML last pushed to the model. The
+            prefix only changes when a new block commits, so re-pushing it on
+            every tick would needlessly re-lay out the whole body in QML.
     """
 
     item_index: int | None = None
     token_count: int = 0
     markdown: IncrementalMarkdown = field(default_factory=IncrementalMarkdown)
+    last_prefix_html: str = ""
 
     def reset(self) -> None:
         """Clear the card tracking state."""
         self.item_index = None
         self.token_count = 0
         self.markdown.reset()
+        self.last_prefix_html = ""
 
 
 @dataclass
