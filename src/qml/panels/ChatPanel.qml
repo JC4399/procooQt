@@ -18,6 +18,15 @@ Rectangle {
     // Height of the tab bar region (used by the workspace to detect "move" drops).
     readonly property real tabBarHeight: 30
 
+    // Mirrors the active chat id so a genuine switch (not every panel-model
+    // update, whose notify signal is shared) can re-arm auto-scroll.
+    property string trackedChatId: panelModel ? panelModel.activeChatId : ""
+
+    onTrackedChatIdChanged: {
+        if (autoScrollToggle)
+            autoScrollToggle.activateWithFade()
+    }
+
     signal openEditorRequested()
     signal dragStarted(string chatId, string title, real sceneX, real sceneY)
     signal dragMoved(real sceneX, real sceneY)
@@ -364,7 +373,13 @@ Rectangle {
                         holdVisible = true
                         minShowTimer.restart()
                     } else {
-                        chatList.scrollToBottom()
+                        // Pin to the newest card once the transcript is built.
+                        // Re-arm auto-scroll so the debounced contentHeight
+                        // handler keeps following any late delegate layout, and
+                        // defer the immediate scroll one frame so the Repeater
+                        // has realized the final batch.
+                        autoScrollToggle.activateWithFade()
+                        Qt.callLater(chatList.scrollToBottom)
                     }
                 }
 

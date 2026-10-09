@@ -73,6 +73,12 @@ _RENDER_TICK_TARGET = 0.6
 #: a single off-thread disk scan.
 _SIDEBAR_REFRESH_DEBOUNCE = 0.3
 
+#: Delay (seconds) after a chat switch before the transcript rebuild starts.
+#: Guarantees the loading overlay's spinner paints at least one frame before the
+#: first card delegate is instantiated, so a split/move never freezes on a blank
+#: panel.
+_REBUILD_PAINT_DELAY = 0.05
+
 #: Messages older than this many from the end are built with their card bodies
 #: collapsed. Collapsed bodies set ``TextEdit.visible = false`` in QML, so Qt
 #: never lays out or renders their rich text; this keeps scroll cost bounded in
@@ -381,7 +387,8 @@ class ChatController(QObject):
         _loading: bool
         _input_tokens: int
         _output_tokens: int
-        _staged_build: _StagedBuildState | None
+        _staged_builds: dict[str, _StagedBuildState]
+        _switch_generations: dict[str, int]
         _sidebar_dirty: bool
         _sidebar_task: asyncio.Task[Any] | None
 
@@ -413,7 +420,8 @@ class ChatController(QObject):
         self._loading = False
         self._input_tokens = 0
         self._output_tokens = 0
-        self._staged_build = None
+        self._staged_builds = {}
+        self._switch_generations = {}
         self._sidebar_dirty = False
         self._sidebar_task = None
         self._active_streams = 0
@@ -427,6 +435,8 @@ class ChatController(QObject):
         self._models = {}
         self._visible_chat_ids = set()
         self._extra_visible_chats = set()
+        self._staged_builds = {}
+        self._switch_generations = {}
         self.active_chat_id = None
 
     # ------------------------------------------------------------------
@@ -626,7 +636,7 @@ class ChatController(QObject):
         if state.is_busy:
             self.toast_requested.emit("Please wait for the current response.", TOAST_ERROR)
             return
-        self._skip_staged_build()
+        self._skip_staged_build(chat_id)
         self._append_user_message(chat_id, message)
         self._launch_generation(chat_id, message)
 
@@ -716,6 +726,28 @@ class ChatController(QObject):
         self._spawn(self._deny(chat_id, reason))
 
     # ------------------------------------------------------------------
+    #  Public: Panel rebuild
+    # ------------------------------------------------------------------
+
+    def prepare_rebuild(self, chat_id: str) -> None:
+        """Blank a chat's model and show its loading overlay before a panel rebuild.
+
+        Called by the session controller immediately before a split or move
+        recreates a panel. Blanking the model makes the freshly instantiated
+        panel create zero card delegates and paint its loading spinner straight
+        away; the transcript is then rebuilt once, behind the overlay, instead of
+        being built, torn down, and rebuilt again.
+
+        Args:
+            chat_id: The chat whose panel is being recreated.
+        """
+        if not chat_id:
+            return
+        self._cancel_staged_build(chat_id)
+        self.model_for(chat_id).set_items([], [])
+        self._set_loading(chat_id, True)
+
+    # ------------------------------------------------------------------
     #  Slot: Chat activated
     # ------------------------------------------------------------------
 
@@ -728,7 +760,7 @@ class ChatController(QObject):
         """
         if not chat_id:
             return
-        self._cancel_staged_build()
+        self._cancel_staged_build(chat_id)
         self._set_loading(chat_id, True)
 
     @Slot(str)
@@ -738,7 +770,7 @@ class ChatController(QObject):
         Args:
             chat_id: The newly activated chat id (empty when none).
         """
-        self._cancel_staged_build()
+        self._cancel_staged_build(chat_id)
         self.active_chat_id = chat_id or None
         if not chat_id:
             self._set_approval_visible(False)
@@ -750,22 +782,44 @@ class ChatController(QObject):
         state.tool_call_indices.clear()
         self.active_model_changed.emit()
         self._set_loading(chat_id, True)
-        self._spawn(self._rebuild_after_switch(chat_id))
+        generation = self._switch_generations.get(chat_id, 0) + 1
+        self._switch_generations[chat_id] = generation
+        self._spawn(self._rebuild_after_switch(chat_id, generation))
 
-    async def _rebuild_after_switch(self, chat_id: str) -> None:
+    async def _rebuild_after_switch(self, chat_id: str, generation: int) -> None:
         """Rebuild a chat's display after it becomes visible.
+
+        The loading flag is cleared only when this rebuild actually completed
+        and no newer activation of the same chat has superseded it. When it is
+        superseded (e.g. two panels activating in the same burst, or the same
+        chat re-opened), the newer rebuild owns the flag, so this one must not
+        hide the overlay over a partial transcript.
 
         Args:
             chat_id: The chat that was activated.
+            generation: The switch generation this rebuild belongs to.
         """
-        await asyncio.sleep(0)
+        await asyncio.sleep(_REBUILD_PAINT_DELAY)
         if not self._is_visible(chat_id):
+            self._finish_switch_loading(chat_id, generation)
             return
-        await self._rebuild_chat_display_staged(chat_id)
-        if not self._is_visible(chat_id):
+        completed = await self._rebuild_chat_display_staged(chat_id)
+        self._finish_switch_loading(chat_id, generation)
+        if completed:
+            self.chat_state_changed.emit(chat_id)
+
+    def _finish_switch_loading(self, chat_id: str, generation: int) -> None:
+        """Clear a chat's switch loading flag unless a newer rebuild owns it.
+
+        Args:
+            chat_id: The chat whose overlay should be hidden.
+            generation: The switch generation of the finishing rebuild.
+        """
+        if not chat_id or chat_id in self._staged_builds:
+            return
+        if self._switch_generations.get(chat_id, 0) != generation:
             return
         self._set_loading(chat_id, False)
-        self.chat_state_changed.emit(chat_id)
 
     # ------------------------------------------------------------------
     #  Generation lifecycle
@@ -998,7 +1052,7 @@ class ChatController(QObject):
         Args:
             chat_id: The chat to stop.
         """
-        self._skip_staged_build()
+        self._skip_staged_build(chat_id)
         if not chat_id:
             return
         state = self.session.state(chat_id)
@@ -1136,7 +1190,7 @@ class ChatController(QObject):
         if state.is_busy:
             self.toast_requested.emit("Please wait for the current response.", TOAST_ERROR)
             return
-        self._skip_staged_build()
+        self._skip_staged_build(chat_id)
         live = chat_manager.get_chat(chat_id)
         if live is not None:
             messages = live.messages
@@ -1388,7 +1442,7 @@ class ChatController(QObject):
         Args:
             chat_id: The chat to render.
         """
-        self._skip_staged_build()
+        self._skip_staged_build(chat_id)
         state = self.session.state(chat_id)
         model = self.model_for(chat_id)
         keys, items, snapshot, indices = self._compute_render_plan(chat_id)
@@ -1400,7 +1454,7 @@ class ChatController(QObject):
         if self._is_visible(chat_id):
             self._update_token_bar(chat_id, state)
 
-    async def _rebuild_chat_display_staged(self, chat_id: str) -> None:
+    async def _rebuild_chat_display_staged(self, chat_id: str) -> bool:
         """Build a chat's chat model in batches while its overlay is shown.
 
         The list is virtualized, so only viewport delegates are realized and the
@@ -1413,25 +1467,34 @@ class ChatController(QObject):
         (:meth:`_skip_staged_build`) or a new switch (:meth:`_cancel_staged_build`)
         ends the build early.
 
+        Builds are tracked per chat, so a rebuild in one panel never clobbers a
+        concurrent rebuild in another.
+
         Args:
             chat_id: The chat to render.
+
+        Returns:
+            ``True`` when the build ran to completion; ``False`` when it was
+            superseded by a newer build or the chat stopped being visible.
         """
         state = self.session.state(chat_id)
         plan = await asyncio.to_thread(self._compute_render_plan, chat_id)
         if not self._is_visible(chat_id):
-            return
+            return False
         keys, items, snapshot, indices = plan
         self._apply_render_indices(state, indices)
         model = self.model_for(chat_id)
         build = _StagedBuildState(chat_id, model, state, items, keys)
-        self._staged_build = build
+        self._staged_builds[chat_id] = build
         model.set_items([], [])
         total = len(items)
         batch_count = max(1, (total + _RENDER_INSERT_BATCH - 1) // _RENDER_INSERT_BATCH)
         tick = min(_RENDER_TICK_MAX, max(_RENDER_TICK_MIN, _RENDER_TICK_TARGET / batch_count))
         while not build.done and build.next_index < total:
-            if self._staged_build is not build or not self._is_visible(chat_id):
-                return
+            if self._staged_builds.get(chat_id) is not build or not self._is_visible(chat_id):
+                if self._staged_builds.get(chat_id) is build:
+                    del self._staged_builds[chat_id]
+                return False
             end = min(build.next_index + _RENDER_INSERT_BATCH, total)
             model.append_items(items[build.next_index : end], keys[build.next_index : end])
             build.next_index = end
@@ -1441,18 +1504,22 @@ class ChatController(QObject):
             state.rendered_item_keys = keys
             if snapshot:
                 state.init_banner_displayed = True
-        if self._staged_build is build:
-            self._staged_build = None
+        if self._staged_builds.get(chat_id) is build:
+            del self._staged_builds[chat_id]
             if not build.done and self._is_visible(chat_id):
                 self._update_token_bar(chat_id, state)
+        return True
 
-    def _skip_staged_build(self) -> None:
-        """Flush any in-progress staged build immediately.
+    def _skip_staged_build(self, chat_id: str) -> None:
+        """Flush a chat's in-progress staged build immediately.
 
         Called before a user action (send/regenerate/stop) or a synchronous
         rebuild so the remaining cards never interleave with the new rows.
+
+        Args:
+            chat_id: The chat whose staged build to flush.
         """
-        build = self._staged_build
+        build = self._staged_builds.get(chat_id)
         if build is None or build.done:
             return
         start = build.next_index
@@ -1460,9 +1527,13 @@ class ChatController(QObject):
         build.next_index = len(build.items)
         build.done = True
 
-    def _cancel_staged_build(self) -> None:
-        """Drop an in-progress staged build without flushing (a rebuild replaces it)."""
-        self._staged_build = None
+    def _cancel_staged_build(self, chat_id: str) -> None:
+        """Drop a chat's in-progress staged build without flushing.
+
+        Args:
+            chat_id: The chat whose staged build to drop (a rebuild replaces it).
+        """
+        self._staged_builds.pop(chat_id, None)
 
     def _build_plan(
         self, state: ChatState, messages: list[dict], snapshot: dict | None

@@ -67,6 +67,15 @@ if the chat isn't live, then emits `active_chat_changed`, which
 transcript in batches behind the opaque loading overlay
 (`_rebuild_chat_display_staged`, 400 ms minimum).
 
+Startup (`_open_session_panels`) opens **every** panel's active chat in one
+synchronous burst, and closing the active chat auto-opens another, so several
+`_rebuild_after_switch` coroutines can overlap. Staged builds are therefore
+tracked **per chat** (`ChatController._staged_builds`), and each switch clears the
+loading flag only when its own build completed (`_finish_switch_loading`); a
+superseded build never hides the overlay over a partial transcript. On the QML
+side the loading overlay re-arms auto-scroll and re-pins to the newest card when
+it hides, so the freshly built transcript always scrolls to the bottom.
+
 ## Split / move (`SplitWorkspace` drag)
 
 - **Split** (`_handle_split(chat_id, target_index, side)`): the target panel is
@@ -75,7 +84,11 @@ transcript in batches behind the opaque loading overlay
   limit.
 - **Move** (`_handle_move_chat(chat_id, target_index)`): the chat is removed
   from its panel and appended to the target's tabs; empty source panels collapse.
-- Both persist the layout and open the moved chat.
+- Both call `chat.prepare_rebuild(chat_id)` before recreating the panel: the
+  moved chat's `ChatListModel` is blanked and its loading flag set, so the new
+  panel instantiates with no card delegates and paints its spinner immediately.
+  They then persist the layout and `_open_chat`, which rebuilds the transcript
+  once behind the overlay.
 
 ## Hydrate (`SessionController._hydrate_chat`)
 

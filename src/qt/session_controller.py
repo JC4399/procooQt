@@ -323,6 +323,7 @@ class SessionController(QObject):
             target["active_chat_id"] = chat_id
         else:
             self._panels.append({"chat_ids": [chat_id], "active_chat_id": chat_id})
+        self.chat.prepare_rebuild(chat_id)
         self._finalize_panel_change()
         self._open_chat(chat_id)
 
@@ -354,6 +355,7 @@ class SessionController(QObject):
         position = target_pos if side == "left" else target_pos + 1
         position = max(0, min(position, len(self._panels)))
         self._panels.insert(position, {"chat_ids": [chat_id], "active_chat_id": chat_id})
+        self.chat.prepare_rebuild(chat_id)
         self._finalize_panel_change()
         self._open_chat(chat_id)
 

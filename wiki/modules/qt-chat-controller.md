@@ -24,6 +24,9 @@ an event arrives or the turn ends — no polling.
 - `set_visible_chats(ids)` — the set of chats currently shown in a panel.
 - `add_visible_chat(chat_id)` / `remove_visible_chat(chat_id)` — chats rendered
   outside a panel (the editor chat), so streaming is still painted.
+- `prepare_rebuild(chat_id)` — blank a chat's model and show its loading overlay
+  before a panel is recreated (split/move), so the new panel instantiates empty
+  and paints its spinner before the transcript is rebuilt once.
 - Per-chat action slots (`_handle_send_for`, `_handle_stop_for`,
   `_handle_regenerate_for`, `_handle_approve_for`, `_handle_deny_for`) plus
   focused-chat wrappers.
@@ -150,9 +153,24 @@ The plan does not mutate Qt models, so it is safe on a worker thread.
 `_rebuild_chat_display(chat_id)` applies the plan synchronously; after a panel
 switch `_rebuild_chat_display_staged(chat_id)` builds it behind the loading
 overlay, inserting `_RENDER_INSERT_BATCH` (8) rows per tick (clamped 6–20 ms
-toward a 0.6 s target). The plan is computed off-thread.
-`_skip_staged_build()` flushes the remainder before a user action;
-`_cancel_staged_build()` drops it on a new activation.
+toward a 0.6 s target). The plan is computed off-thread. Staged builds are
+tracked **per chat** in `_staged_builds`, so a rebuild in one panel never
+clobbers a concurrent rebuild in another; the method returns `True` only when it
+ran to completion, `False` when superseded or the chat stopped being visible.
+`_skip_staged_build(chat_id)` flushes the remainder before a user action;
+`_cancel_staged_build(chat_id)` drops it on a new activation.
+
+`prepare_rebuild(chat_id)` is the split/move entry point: it cancels that chat's
+staged build, blanks the chat's `ChatListModel` (`set_items([], [])`), and sets
+the loading flag. `SessionController` calls it just before recreating a panel, so
+the freshly instantiated panel's `Repeater` creates zero card delegates and its
+loading spinner paints immediately; the transcript is then built once behind the
+overlay instead of being built, torn down, and rebuilt. `_rebuild_after_switch`
+waits `_REBUILD_PAINT_DELAY` (0.05 s) before starting the rebuild, guaranteeing
+the spinner paints at least one frame before the first delegate is instantiated.
+It clears the loading flag only when its own build completed — `_finish_switch_loading`
+no-ops while a newer build for the same chat is still pending — so a superseded
+build never hides the overlay over a partial transcript.
 
 ### Live update throttling (`_update_live_assistant`)
 
@@ -255,10 +273,11 @@ token bar.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def build(self) -> None` | — | `None` | reset `_models`, `_visible_chat_ids`, `_extra_visible_chats`, `active_chat_id` | — |
+| `def build(self) -> None` | — | `None` | reset `_models`, `_visible_chat_ids`, `_extra_visible_chats`, `_staged_builds`, `_switch_generations`, `active_chat_id` | — |
 | `def set_visible_chats(self, chat_ids: set[str]) -> None` | visible chat ids | `None` | store `_visible_chat_ids` | Gates rendering |
 | `def add_visible_chat(self, chat_id: str) -> None` | chat id | `None` | add to `_extra_visible_chats` | Keeps a non-panel chat (editor chat) visible |
 | `def remove_visible_chat(self, chat_id: str) -> None` | chat id | `None` | discard from `_extra_visible_chats` | — |
+| `def prepare_rebuild(self, chat_id: str) -> None` | chat id | `None` | `_cancel_staged_build(chat_id)` → `model_for(chat_id).set_items([], [])` → `_set_loading(chat_id, True)` | Called before a split/move recreates a panel; emits `chat_state_changed` |
 | `def _is_visible(self, chat_id: str) -> bool` | chat id | Bool | `chat_id in _visible_chat_ids or _extra_visible_chats` | — |
 | `@Property(QObject, notify=active_model_changed) def activeModel(self)` | — | Focused model or `None` | `_models.get(active_chat_id)` | Legacy |
 | `def model_for(self, chat_id: str) -> ChatListModel` | chat id | Chat model | create on demand | Inserts into `_models` |
@@ -273,9 +292,10 @@ token bar.
 | `@Slot(str, int) def _handle_regenerate_from_for(self, chat_id, msg_index)` | chat, source user index | `None` | `_spawn(_regenerate_from(chat_id, msg_index))` | Busy guard + toast |
 | `@Slot(str) def _handle_approve_for(self, chat_id)` | chat | `None` | `_spawn(_approve(chat_id))` | — |
 | `@Slot(str, str) def _handle_deny_for(self, chat_id, reason)` | chat, reason | `None` | `_spawn(_deny(chat_id, reason))` | — |
-| `@Slot(str) def _handle_chat_switch_started(self, chat_id)` | chat | `None` | `_cancel_staged_build()` → `_set_loading(chat_id, True)` | Shows the overlay at the user action |
-| `@Slot(str) def _handle_chat_activated(self, chat_id)` | chat (may be `""`) | `None` | set focused id → clear caches → emit → `_set_loading(chat_id, True)` → `_spawn(_rebuild_after_switch)` | Emits `active_model_changed` |
-| `async def _rebuild_after_switch(self, chat_id)` | chat | `None` | sleep(0) → visible check → staged rebuild → `_set_loading(chat_id, False)` → emit `chat_state_changed` | — |
+| `@Slot(str) def _handle_chat_switch_started(self, chat_id)` | chat | `None` | `_cancel_staged_build(chat_id)` → `_set_loading(chat_id, True)` | Shows the overlay at the user action |
+| `@Slot(str) def _handle_chat_activated(self, chat_id)` | chat (may be `""`) | `None` | set focused id → clear caches → emit → `_set_loading(chat_id, True)` → bump switch generation → `_spawn(_rebuild_after_switch)` | Emits `active_model_changed` |
+| `async def _rebuild_after_switch(self, chat_id, generation)` | chat, switch generation | `None` | sleep(`_REBUILD_PAINT_DELAY`) → visible check → staged rebuild → `_finish_switch_loading` → emit `chat_state_changed` when completed | Clears loading only if its build completed and was not superseded |
+| `def _finish_switch_loading(self, chat_id, generation)` | chat, switch generation | `None` | no-op while a newer staged build or switch generation is pending; else `_set_loading(chat_id, False)` | Hides the overlay |
 | `def _launch_generation(self, chat_id, message)` | chat, text | `None` | clear `has_error` + busy + bump `generation_id` → append scanner → refresh → emit state → spawn loop | Mutates state |
 | `async def _run_chat_loop(self, message, gen_id, chat_id)` | message, generation, chat | `None` | hydrate → run → reconcile → consume (tracking `_active_streams`) → finalize → compact on limit | Cancellable; persists |
 | `async def _hydrate_phase(self, chat_id, gen_id)` | chat, generation | Live chat or `None` | `_hydrate_chat`; on failure clear busy + set `has_error`/rebuild | Side effects on failure |
@@ -299,8 +319,8 @@ token bar.
 | `def _compute_render_plan(self, chat_id)` | chat | `(keys, items, snapshot, indices)` | live chat reuses cached snapshot + item cache; else load stored → `_build_plan` | Pure; worker-thread safe |
 | `def _apply_render_indices(self, state, indices)` | state, indices | `None` | copy row indices onto state; clear `last_prefix_html` on both streaming cards | GUI thread only |
 | `def _rebuild_chat_display(self, chat_id)` | chat | `None` | skip staged → plan → indices → `diff_update` → keys → tokens | Mutates model/state |
-| `async def _rebuild_chat_display_staged(self, chat_id)` | chat | `None` | off-thread plan → indices → `_StagedBuildState` → batched inserts | Aborts on cancel/visibility change |
-| `def _skip_staged_build(self)` / `def _cancel_staged_build(self)` | — | `None` | flush / drop the staged build | — |
+| `async def _rebuild_chat_display_staged(self, chat_id)` | chat | Bool (completed) | off-thread plan → indices → per-chat `_StagedBuildState` → batched inserts | Returns `False` when superseded/visibility changes |
+| `def _skip_staged_build(self, chat_id)` / `def _cancel_staged_build(self, chat_id)` | chat | `None` | flush / drop that chat's staged build | Per-chat |
 | `def _build_plan(self, state, messages, snapshot)` | state, messages, snapshot | `_PlanBuilder` | banners → user/assistant/tool → trailing `w:pending`, each item memoized by key with its message index embedded (`u:{i}:…` etc.) and set as the `msg_index` role; messages older than `_COLLAPSE_OLDER_THAN` get `collapsed=True` + `:c` key suffix | Populates `state.item_cache` |
 | `def _build_assistant_plan(self, builder, msg, messages, idx, is_last_busy, collapsed)` | builder, message, messages, index, busy, collapsed | `None` | completed assistant: thinking/response/tool-call items | Emits cacheable items |
 | `def _build_streaming_assistant_plan(self, builder, msg, d, messages, idx)` | builder, message, decision, messages, index | `None` | busy assistant: pending/completed cards, records indices | Emits non-cacheable items |

@@ -3,9 +3,11 @@
 import asyncio
 import difflib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import traceback
 
 
@@ -35,6 +37,37 @@ def _compute_diff(
         n=3,
     )
     return "".join(lines)
+
+
+def _atomic_write(target: Path, content: str) -> None:
+    """Write ``content`` to ``target`` atomically.
+
+    A temp file is written in the same directory (so it lives on the same
+    filesystem) and then moved into place with ``os.replace``, which is
+    atomic on POSIX and on Windows/NTFS. Readers therefore never observe a
+    truncated or half-written file, and an interrupted write cannot corrupt
+    the original.
+    """
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(target.parent), prefix=f".{target.name}.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", errors="replace") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        # Preserve the original file's permissions where the platform allows.
+        try:
+            os.chmod(tmp_name, os.stat(target).st_mode)
+        except OSError:
+            pass
+        os.replace(tmp_name, target)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -99,8 +132,18 @@ async def _edit(
 
     updated = original[:start] + new_string + original[end:]
 
-    with open(target, "w", encoding="utf-8", errors="replace") as f:
-        f.write(updated)
+    # Compare-and-swap: re-read immediately before writing. If the file has
+    # changed since we read it, another writer got there first — refuse to
+    # write rather than clobber their change from our now-stale snapshot.
+    with open(target, encoding="utf-8", errors="replace") as f:
+        current = f.read()
+    if current != original:
+        return (
+            "File changed on disk since it was read; edit not applied to avoid "
+            f"overwriting a concurrent change. Re-read the file and retry: {file_path}"
+        )
+
+    _atomic_write(target, updated)
 
     diff = _compute_diff(target, original, updated)
 

@@ -1453,7 +1453,7 @@ def _combine_thumbnails(
 
 
 async def run(
-    mode: str = "text",
+    mode: str | None = None,
     file_path: str = "",
     offset: int | None = None,
     limit: int | None = None,
@@ -1478,7 +1478,8 @@ async def run(
 
     Args:
         mode: Operation mode — "text", "pdf-text", "docx", "pptx", "xlsx",
-            "pdf-image", "pdf-ocr", or "image". Defaults to "text".
+            "pdf-image", "pdf-ocr", or "image". Required: there is no default;
+            omitting it returns an error.
         file_path: Absolute path to the file to read.
         offset: (text modes) 1-indexed line number to start reading from.
         limit: (text modes) Maximum number of lines to return.
@@ -1498,6 +1499,13 @@ async def run(
         thumb_size: (image thumbnail) Longest side in px. Defaults to 500.
         target: (test-resolution) Real submode to report size for.
     """
+    if mode is None:
+        return (
+            "Error: 'mode' is required and was not provided. "
+            "Valid modes: text, pdf-text, docx, pptx, xlsx, pdf-image, pdf-ocr, image. "
+            "Note: 'submode', 'pages', 'bbox', 'dpi' and 'target' only apply to visual "
+            "modes (pdf-image / pdf-ocr / image) and are ignored without an explicit mode."
+        )
     try:
         if convert:
             return await _convert_and_write(mode, file_path, pages, sheet, output_dir, dpi)

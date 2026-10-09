@@ -119,6 +119,11 @@ is no source) → append to that panel's tabs + set active → refresh/save →
 - **Move** (`chat_id, target_index`): remove the chat, append it to the target
   panel's tabs and activate it; empty source panels collapse.
 
+Both call `chat.prepare_rebuild(chat_id)` **before** `_finalize_panel_change()`.
+This blanks the moved chat's `ChatListModel` and sets its loading flag, so the
+panel QML instantiates with zero card delegates and paints its loading spinner
+immediately; `_open_chat` then rebuilds the transcript once behind the overlay.
+
 ### Delete chat (`_delete_chat_by_id`)
 
 Forget state (`_forget_chat`) → delete from `ChatStore` → remove from panels →
@@ -183,8 +188,8 @@ chats fall back to it.
 | `@Slot() def start(self) -> None` | — | `None` | ensure Default → refresh → reconcile → sync → open panels | Toasts; emits activation |
 | `@Slot(int) def _handle_new_chat(self, panel_index: int)` | panel index | `None` | capture source chat → unique id → store (inheriting config/model) → append tab → refresh/save → open | Writes store; emits signals |
 | `@Slot(int, str) def _handle_panel_activate(self, panel_index, chat_id)` | panel index, chat | `None` | set panel active → save → sync → open | Emits activation |
-| `@Slot(str, int) def _handle_move_chat(self, chat_id, target_index)` | chat, panel | `None` | remove chat → append to target → finalize → open | Mutates layout; saves |
-| `@Slot(str, int, str) def _handle_split(self, chat_id, target_index, side)` | chat, panel, `"left"`/`"right"` | `None` | remove chat → insert new panel adjacent to target → finalize → open | Max 4; saves |
+| `@Slot(str, int) def _handle_move_chat(self, chat_id, target_index)` | chat, panel | `None` | remove chat → append to target → `chat.prepare_rebuild` → finalize → open | Mutates layout; saves |
+| `@Slot(str, int, str) def _handle_split(self, chat_id, target_index, side)` | chat, panel, `"left"`/`"right"` | `None` | remove chat → insert new panel adjacent to target → `chat.prepare_rebuild` → finalize → open | Max 4; saves |
 | `@Slot(str) def _handle_delete_chat(self, chat_id)` | chat | `None` | `_delete_chat_by_id` | Deletes store + panel tab |
 | `@Slot() def _handle_new_session(self)` | — | `None` | emit `new_session_requested` | QML opens dialog |
 | `@Slot(str) def _handle_create_session(self, name)` | name | `None` | strip → create session → switch → emit bus | `ValueError` → toast; emits `SessionBus.sessions_changed` |

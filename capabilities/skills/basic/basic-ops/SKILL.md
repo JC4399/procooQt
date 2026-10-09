@@ -130,7 +130,7 @@ read_file dispatches on the ``mode`` parameter.
 
 #### Text Modes (fast, local; return formatted text)
 
-- **mode="text"** (default): Returns file content with cat -n style line numbers (right-aligned number + tab + content) and optional line-range slicing via ``offset``/``limit``.
+- **mode="text"**: Returns file content with cat -n style line numbers (right-aligned number + tab + content) and optional line-range slicing via ``offset``/``limit``.
 
 - **mode="pdf-text"**: Extracts text from PDF files using PyMuPDF (fast, local). Output includes cat -n style line numbers and supports ``offset``/``limit``.
 
@@ -156,8 +156,9 @@ read_file dispatches on the ``mode`` parameter.
 # read_file parameters
 file_path:    # required · string
     Absolute path to the file.
-mode:         # optional · string (default: "text")
+mode:         # required · string (no default)
     text | pdf-text | docx | pptx | xlsx | pdf-image | pdf-ocr | image
+    Omitting mode returns an error — it is NOT silently defaulted to "text".
 submode:      # optional · string (visual modes only)
     Effort level. Defaults: pdf-image="full", pdf-ocr="full", image="full".
 pages:        # optional · string (pdf-image / pdf-ocr)
