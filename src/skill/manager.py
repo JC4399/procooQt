@@ -557,10 +557,11 @@ class SkillManager:
             return result
 
         lines = args_text.split("\n")
+        body = textwrap.dedent("\n".join(lines[1:]))
         current_param: str | None = None
         current_desc: list[str] = []
 
-        for line in lines[1:]:
+        for line in body.split("\n"):
             stripped = line.strip()
             if not stripped:
                 continue

@@ -261,6 +261,42 @@ async def _skill(script: str, params: dict | None, timeout: int) -> str:
         return f"Skill script execution error: {e}"
 
 
+def _first_str(*values: object) -> str:
+    """Return the first non-empty string among *values*.
+
+    Args:
+        *values: Candidate values; non-strings and empty strings are skipped.
+
+    Returns:
+        The first non-empty string, or ``""`` when none is found.
+    """
+    for value in values:
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
+def _is_script_path(value: str) -> bool:
+    """Return whether *value* looks like a path to a Python script, not inline code.
+
+    Args:
+        value: The candidate source string.
+
+    Returns:
+        ``True`` for a single-line ``.py`` path (with a directory separator or an
+        existing file); ``False`` for inline source code.
+    """
+    stripped = value.strip()
+    if "\n" in stripped or not stripped.endswith(".py"):
+        return False
+    return os.sep in stripped or "/" in stripped or Path(stripped).is_file()
+
+
+# ------------------------------------------------------------------
+#  Public entry point
+# ------------------------------------------------------------------
+
+
 async def run(
     mode: str,
     code: str = "",
@@ -275,17 +311,34 @@ async def run(
         mode: Execution mode — "python", "shell", or "skill".
         code: (python) Python source code to execute.
         command: (shell) Shell command string to run.
-        script: (skill) Absolute path to the skill's ``.py`` script.
-        params: (skill) Argument object forwarded to the script's ``run(**params)``.
+        script: (skill) Absolute path to the skill's ``.py`` script. For
+            python mode it is accepted as an alias for ``code``.
+        params: (skill only) Argument object forwarded to the skill script's
+            ``run(**params)``. Do not nest ``code``/``command``/``script``
+            inside it — the top-level arguments are the canonical form.
         timeout: Maximum execution time in seconds. Defaults to 600 (10 minutes).
     """
     try:
+        nested = params if isinstance(params, dict) else {}
+        src_code = _first_str(code, nested.get("code"))
+        src_command = _first_str(command, nested.get("command"))
+        src_script = _first_str(script, nested.get("script"))
+
         if mode == "python":
-            return await _python(code, timeout)
+            source = src_code or src_script
+            if not source:
+                return "python mode requires 'code' (Python source to execute)."
+            if _is_script_path(source):
+                return await _skill(source, params, timeout)
+            return await _python(source, timeout)
         elif mode == "shell":
-            return await _shell(command, timeout)
+            shell_command = src_command or src_script or src_code
+            if not shell_command:
+                return "shell mode requires 'command' (shell command string to run)."
+            return await _shell(shell_command, timeout)
         elif mode == "skill":
-            return await _skill(script, params, timeout)
+            path = src_script or src_code
+            return await _skill(path, params, timeout)
         else:
             return f"Unknown mode: {mode}. Valid modes: python, shell, skill."
     except Exception:

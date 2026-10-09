@@ -48,7 +48,9 @@ A directory with no `SKILL.md` is treated as a grouping folder.
 
 1. Read + `ast.parse` the `.py` (cache result).
 2. Find top-level `run` / `async def run`.
-3. `ast.get_docstring` → first paragraph = description; `Args:` → param docs.
+3. `ast.get_docstring` → first paragraph = description; `Args:` body dedented, then
+   indented `name: description` entries (deeper-indented lines continue the previous
+   entry) → param docs.
 4. For each arg: map type annotation → JSON Schema type; no-default ⇒ `required`.
 5. Cache and return `{description, parameters}`.
 

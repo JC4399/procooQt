@@ -65,7 +65,12 @@ cards, blue for thinking, amber for response). The body uses
 property), and opens clicked links with `Qt.openUrlExternally`. `ChatPanel.qml`
 binds each delegate from the `ChatListModel` roles (`kind`, `title`,
 `body_html`, `body_tail_html`, `token_text`, `mode`, `is_pending`, `tool_name`,
-`sections`, `is_delta`, `msg_index`).
+`sections`, `is_delta`, `msg_index`). Because `ContextBanner.qml` is a plain
+`Rectangle` (not a `CardBase`), the delegate guards the `CardBase`-only bindings
+and signals with `model.kind !== "context_banner"`: the `bodyTailHtml` binding is
+skipped, and the `Connections` target is nulled for banners so the
+`deleteRequested` / `regenerateRequested` / `caretMoved` handlers are not
+attached. `EditorChatPanel.qml` mirrors the same guards.
 
 `CardBase` carries two header actions driven by `msgIndex` (the source message
 index, `-1` for derived cards): a delete icon on every message card

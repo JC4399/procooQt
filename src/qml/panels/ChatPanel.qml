@@ -252,7 +252,7 @@ Rectangle {
                                     target: cardLoader.item
                                     property: "bodyTailHtml"
                                     value: model.body_tail_html
-                                    when: cardLoader.item !== null
+                                    when: cardLoader.item !== null && model.kind !== "context_banner"
                                 }
                                 Binding {
                                     target: cardLoader.item
@@ -323,7 +323,7 @@ Rectangle {
                             }
 
                             Connections {
-                                target: cardLoader.item
+                                target: model.kind !== "context_banner" ? cardLoader.item : null
 
                                 function onDeleteRequested(msgIndex) {
                                     chat._handle_delete_turn_for(panel.activeChatId(), msgIndex)
