@@ -133,6 +133,50 @@ class ListModel(QAbstractListModel):
             self.endInsertRows()
         return divergence
 
+    def merge_items(self, items: list[Item], keys: list[str]) -> int:
+        """Align rows to ``items`` by identity key, updating matched rows in place.
+
+        Structural changes (add/remove/reorder) use the same divergence logic as
+        :meth:`diff_update`, but rows whose key matches at the same index have
+        their changed roles merged via :meth:`update_item` instead of being
+        removed and re-inserted. This preserves delegates (and any running QML
+        animations) for rows that only changed value.
+
+        Args:
+            items: The new list of role-keyed rows.
+            keys: Per-row identity keys, one per item.
+
+        Returns:
+            The divergence index, or ``-1`` if the model was already up to date.
+
+        Raises:
+            ValueError: If ``keys`` and ``items`` differ in length.
+        """
+        if len(keys) != len(items):
+            raise ValueError("keys length must match items length")
+        divergence = self.find_divergence(keys)
+        if divergence < 0:
+            divergence = len(keys)
+        changed = divergence < len(self._items) or divergence < len(items)
+        for row in range(divergence):
+            new = items[row]
+            old = self._items[row]
+            changed_roles = {role: value for role, value in new.items() if old.get(role) != value}
+            if changed_roles:
+                self.update_item(row, changed_roles)
+                changed = True
+        if divergence < len(self._items):
+            self.beginRemoveRows(QModelIndex(), divergence, len(self._items) - 1)
+            del self._items[divergence:]
+            del self._keys[divergence:]
+            self.endRemoveRows()
+        if divergence < len(items):
+            self.beginInsertRows(QModelIndex(), divergence, len(items) - 1)
+            self._items.extend(items[divergence:])
+            self._keys.extend(keys[divergence:])
+            self.endInsertRows()
+        return divergence if changed else -1
+
     def find_divergence(self, keys: list[str]) -> int:
         """Return the first index at which ``keys`` differs from stored keys.
 

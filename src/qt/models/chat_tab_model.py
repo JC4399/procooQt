@@ -42,6 +42,11 @@ class ChatTabModel(ListModel):
     ) -> None:
         """Replace rows with the given chats.
 
+        Uses :meth:`ListModel.merge_items` so unchanged tabs keep their delegate
+        (and any running blink animation) and only genuinely changed rows emit a
+        role-scoped ``dataChanged``; a panel whose tabs did not change emits
+        nothing at all.
+
         Args:
             chats: Enriched chat summary dicts in tab order.
             active_id: The currently active chat id, or ``None``.
@@ -64,7 +69,7 @@ class ChatTabModel(ListModel):
                 }
             )
             keys.append(f"chat:{chat_id}")
-        self.set_items(rows, keys)
+        self.merge_items(rows, keys)
 
     # ------------------------------------------------------------------
     #  Public: mutation

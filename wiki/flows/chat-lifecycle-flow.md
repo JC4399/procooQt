@@ -40,6 +40,8 @@ every visible chat (`set_visible_chats`). Each panel's values reach QML through 
    panels (min 1), and saves.
 5. `_sync_panels()` pushes each panel's active chat, `ChatListModel`, tabs, and
    runtime into its `ChatPanelModel`, then calls `chat.set_visible_chats(...)`.
+   The setters are compare-and-emit and the tab model merges incrementally, so
+   panels whose chat did not change are not disturbed.
 6. `_open_session_panels()` opens each panel's active chat (`_open_chat`:
    `chat_switch_started` → off-thread load/hydrate → `active_chat_changed`).
 

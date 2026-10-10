@@ -23,7 +23,7 @@ stream token.
 - `get(row)` returns a **string-keyed** map (`{str(role): value}`) for QML, via
   a `QVariantMap` slot.
 - Identity keys (`keys`) are per-row strings (e.g. `f"chat:{id}"`) used by
-  `diff_update`/`find_divergence` to locate the first changed row.
+  `diff_update`/`merge_items`/`find_divergence` to locate the first changed row.
 
 ## Deliverables
 
@@ -53,6 +53,16 @@ stream token.
 5. `beginInsertRows` and extend with `items[divergence:]` / `keys[divergence:]`.
 6. Return the divergence index.
 
+### `merge_items` (incremental alignment with in-place updates)
+
+1. Raise `ValueError` if `keys` and `items` differ in length.
+2. `find_divergence(keys)` → first mismatching index, or `-1` when the keys are
+   identical; treat `-1` as `len(keys)` so the value-merge pass still runs.
+3. For every index before the divergence, merge the changed roles into the
+   existing row via `update_item` (role-scoped `dataChanged`, delegate survives).
+4. Truncate/insert the suffix from the divergence index exactly as `diff_update`.
+5. Return the divergence index, or `-1` if neither structure nor values changed.
+
 ### `find_divergence`
 
 1. Walk `keys`; return the first index whose stored key is missing or differs.
@@ -76,6 +86,7 @@ stream token.
 |---|---|---|---|---|
 | `def set_items(self, items: list[Item], keys: list[str] \| None = None) -> None` | `items`; optional `keys` (defaults to `""` per row) | `None` | `beginResetModel` → replace lists → `endResetModel` | Full model reset |
 | `def diff_update(self, items: list[Item], keys: list[str]) -> int` | `items`, `keys` | divergence index or `-1` | `find_divergence` → remove suffix → insert suffix | Raises `ValueError`; emits row removed/inserted |
+| `def merge_items(self, items: list[Item], keys: list[str]) -> int` | `items`, `keys` | divergence index or `-1` | `find_divergence` → update matched prefix rows in place → remove/insert suffix | Raises `ValueError`; emits role-scoped `dataChanged` for matched rows + row removed/inserted |
 | `def find_divergence(self, keys: list[str]) -> int` | `keys` | first differing index, else `-1` | linear scan | — |
 | `def append_item(self, item: Item, key: str = "") -> int` | `item`, `key` | new row index | `beginInsertRows` → append | Emits row inserted |
 | `def append_items(self, items: list[Item], keys: list[str] \| None = None) -> None` | `items`; optional `keys` | `None` | one `beginInsertRows` for the whole batch → extend | Emits one rows-inserted batch; no-op when empty |
@@ -107,7 +118,7 @@ filtered to the panel's chats and ordered. Summaries must be pre-enriched with
 | Signature | Inputs | Output | Flow / Side effects |
 |---|---|---|---|
 | `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `ChatTabRole` |
-| `def set_chats(self, chats: list[dict[str, Any]], active_id: str \| None, states: dict[str, ChatState]) -> None` | summaries, active id, per-chat states | `None` | build rows+keys → `set_items`; full reset |
+| `def set_chats(self, chats: list[dict[str, Any]], active_id: str \| None, states: dict[str, ChatState]) -> None` | summaries, active id, per-chat states | `None` | build rows+keys → `merge_items`; incremental, no reset when unchanged |
 | `def update_chat(self, chat_id: str, status: str, blinking: bool) -> None` | chat id, `ChatStatus`, blink flag | `None` | find row by chat id → `update_item`; role-scoped `dataChanged`, no reset |
 
 ### `SessionMenuModel`

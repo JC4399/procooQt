@@ -99,6 +99,8 @@ maps a `ChatState` + message presence to `RUNNING`/`WAITING` (busy),
 1. Ensure the panel-model list matches `_panels`.
 2. For each panel, set its active chat, `ChatModel`, and tab rows
    (enriched chats in layout order), plus runtime values from `_panel_runtime`.
+   The `ChatPanelModel` setters are compare-and-emit and `ChatTabModel.set_chats`
+   merges incrementally, so panels whose data did not change emit nothing.
 3. `chat.set_visible_chats(...)` so the chat controller only paints visible
    chats; emit `panels_changed` and `tabs_changed`.
 

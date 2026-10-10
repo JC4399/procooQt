@@ -17,7 +17,9 @@ from .models.chat_tab_model import ChatTabModel
 class ChatPanelModel(QObject):
     """View model for one chat panel (active chat, tabs, and runtime state)."""
 
-    changed = Signal()
+    active_chat_changed = Signal()
+    chat_model_changed = Signal()
+    runtime_changed = Signal()
 
     def __init__(self, index: int, parent: QObject | None = None) -> None:
         """Initialise the panel model.
@@ -52,72 +54,72 @@ class ChatPanelModel(QObject):
         """Return the panel's workspace index."""
         return self._index
 
-    @Property(str, notify=changed)
+    @Property(str, notify=active_chat_changed)
     def activeChatId(self) -> str:  # noqa: N802
         """Return the panel's active chat id."""
         return self._active_chat_id
 
-    @Property(QObject, notify=changed)
+    @Property(QObject, notify=chat_model_changed)
     def chatModel(self) -> QObject | None:  # noqa: N802
         """Return the chat list model for the active chat, or ``None``."""
         return self._chat_model
 
-    @Property(QObject, notify=changed)
+    @Property(QObject, constant=True)
     def tabModel(self) -> ChatTabModel:  # noqa: N802
         """Return the panel's chat tab model."""
         return self._tab_model
 
-    @Property(bool, notify=changed)
+    @Property(bool, notify=runtime_changed)
     def busy(self) -> bool:
         """Return whether the active chat is generating."""
         return self._busy
 
-    @Property(bool, notify=changed)
+    @Property(bool, notify=runtime_changed)
     def approvalVisible(self) -> bool:  # noqa: N802
         """Return whether the approval bar is shown for the active chat."""
         return self._approval_visible
 
-    @Property(str, notify=changed)
+    @Property(str, notify=runtime_changed)
     def approvalText(self) -> str:  # noqa: N802
         """Return the approval prompt text for the active chat."""
         return self._approval_text
 
-    @Property(int, notify=changed)
+    @Property(int, notify=runtime_changed)
     def inputTokens(self) -> int:  # noqa: N802
         """Return the active chat's context (input) token count."""
         return self._input_tokens
 
-    @Property(int, notify=changed)
+    @Property(int, notify=runtime_changed)
     def outputTokens(self) -> int:  # noqa: N802
         """Return the active chat's cumulative output token count."""
         return self._output_tokens
 
-    @Property(bool, notify=changed)
+    @Property(bool, notify=runtime_changed)
     def loading(self) -> bool:
         """Return whether the active chat's rebuild overlay is showing."""
         return self._loading
 
-    @Property(int, notify=changed)
+    @Property(int, notify=runtime_changed)
     def primaryCount(self) -> int:  # noqa: N802
         """Return the active chat's primary skill count."""
         return self._primary_count
 
-    @Property(int, notify=changed)
+    @Property(int, notify=runtime_changed)
     def allowCount(self) -> int:  # noqa: N802
         """Return the active chat's allow-mode tool count."""
         return self._allow_count
 
-    @Property(int, notify=changed)
+    @Property(int, notify=runtime_changed)
     def askCount(self) -> int:  # noqa: N802
         """Return the active chat's ask-mode tool count."""
         return self._ask_count
 
-    @Property(int, notify=changed)
+    @Property(int, notify=runtime_changed)
     def blockCount(self) -> int:  # noqa: N802
         """Return the active chat's block-mode tool count."""
         return self._block_count
 
-    @Property(str, notify=changed)
+    @Property(str, notify=runtime_changed)
     def modelName(self) -> str:  # noqa: N802
         """Return the LLM model name selected for the active chat."""
         return self._model_name
@@ -136,6 +138,9 @@ class ChatPanelModel(QObject):
     ) -> None:
         """Update the active chat, its model, and the tab rows.
 
+        Only emits when the active chat or its model actually changed; the tab
+        model self-dedupes, so re-pushing an unchanged panel is a no-op.
+
         Args:
             active_chat_id: The panel's active chat id, or an empty string.
             chat_model: The chat list model for the active chat, or ``None``.
@@ -143,10 +148,15 @@ class ChatPanelModel(QObject):
             tabs_active_id: The active chat id within the tab model.
             states: Per-chat states used to derive blink flags.
         """
+        active_changed = self._active_chat_id != active_chat_id
+        model_changed = self._chat_model is not chat_model
         self._active_chat_id = active_chat_id
         self._chat_model = chat_model
         self._tab_model.set_chats(tabs, tabs_active_id, states)
-        self.changed.emit()
+        if active_changed:
+            self.active_chat_changed.emit()
+        if model_changed:
+            self.chat_model_changed.emit()
 
     def update_tab(self, chat_id: str, status: str, blinking: bool) -> None:
         """Update one tab's status/blink without rebuilding the panel.
@@ -174,6 +184,9 @@ class ChatPanelModel(QObject):
     ) -> None:
         """Update the runtime display values for the active chat.
 
+        Emits ``runtime_changed`` only when at least one value differs, so an
+        untouched panel is not invalidated by another panel's refresh.
+
         Args:
             busy: Whether the active chat is generating.
             approval_visible: Whether the approval bar is shown.
@@ -187,6 +200,20 @@ class ChatPanelModel(QObject):
             block_count: Number of block-mode tools.
             model_name: LLM model name selected for the active chat.
         """
+        if (
+            self._busy == busy
+            and self._approval_visible == approval_visible
+            and self._approval_text == approval_text
+            and self._input_tokens == input_tokens
+            and self._output_tokens == output_tokens
+            and self._loading == loading
+            and self._primary_count == primary_count
+            and self._allow_count == allow_count
+            and self._ask_count == ask_count
+            and self._block_count == block_count
+            and self._model_name == model_name
+        ):
+            return
         self._busy = busy
         self._approval_visible = approval_visible
         self._approval_text = approval_text
@@ -198,7 +225,7 @@ class ChatPanelModel(QObject):
         self._ask_count = ask_count
         self._block_count = block_count
         self._model_name = model_name
-        self.changed.emit()
+        self.runtime_changed.emit()
 
     def set_tokens(self, input_tokens: int, output_tokens: int) -> None:
         """Update only the active chat's token counts.
@@ -214,4 +241,4 @@ class ChatPanelModel(QObject):
             return
         self._input_tokens = input_tokens
         self._output_tokens = output_tokens
-        self.changed.emit()
+        self.runtime_changed.emit()
