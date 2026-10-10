@@ -13,7 +13,7 @@ import json
 import logging
 from pathlib import Path
 import traceback
-from typing import cast
+from typing import Any, cast
 
 from .llm import (
     LLMResponse,
@@ -21,6 +21,28 @@ from .llm import (
 )
 
 logger = logging.getLogger("procoo_qt")
+
+
+def _strip_internal_keys(value: Any) -> Any:
+    """Recursively drop internal ``_``-prefixed keys from a message payload.
+
+    Strict providers (e.g. Mistral via OpenRouter) reject unknown fields
+    inside ``tool_calls``, so internal metadata such as ``_mode`` and
+    ``_streaming_tool_calls`` must be removed before the request is sent.
+    The input is never mutated; nested dicts and lists are deep-copied.
+
+    Args:
+        value: A message dict, list, or scalar from ``self.messages``.
+
+    Returns:
+        A deep copy with all ``_``-prefixed keys removed.
+    """
+    if isinstance(value, dict):
+        return {k: _strip_internal_keys(v) for k, v in value.items() if not k.startswith("_")}
+    if isinstance(value, list):
+        return [_strip_internal_keys(item) for item in value]
+    return value
+
 
 # ------------------------------------------------------------------
 #  Agent
@@ -33,8 +55,8 @@ class Agent:
     Conversation state is a single ``self.messages`` list of
     OpenAI-compatible dicts with ``_``-prefixed metadata keys
     (``reasoning_content`` on assistant, ``_mode`` on tool_calls).  The UI
-    renders from it directly; the LLM receives it verbatim (``_`` keys
-    are ignored by the API).
+    renders from it directly; before each LLM call the ``_``-prefixed keys
+    are stripped so strict providers accept the request.
 
     Attributes:
         chat_id: Unique identifier for this chat.
@@ -689,9 +711,11 @@ class Agent:
             suffix: Optional user message appended after the history.
 
         Returns:
-            List of role/content dicts ready for the model.
+            List of role/content dicts ready for the model, with internal
+            ``_``-prefixed keys stripped.
         """
-        prompt = [{"role": "system", "content": self.sys_prompt}, *messages]
+        prompt = [{"role": "system", "content": self.sys_prompt}]
+        prompt.extend(_strip_internal_keys(m) for m in messages)
         if suffix:
             prompt.append({"role": "user", "content": suffix})
         return prompt

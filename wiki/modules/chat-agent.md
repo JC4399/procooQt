@@ -12,7 +12,7 @@ layers.
 
 - `self.messages` — OpenAI-compatible conversation history with `_`-prefixed
   metadata (`reasoning_content` on assistant, `_mode` + `_streaming_tool_calls`
-  on tool_calls).
+  on tool_calls). Internal `_`-prefixed keys are stripped before each LLM call.
 - `event_queue` — `asyncio.Queue` of UI events.
 - `run(message_content)` — executes one user turn.
 - `approve_tool` / `deny_tool` — release pending approvals.
@@ -144,7 +144,8 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 | `_resolve_tool_calls` | register/decide/execute tools |
 | `_process_blocks` | emit thinking/message events, write `_streaming_tool_calls` |
 | `_record_tool_result` | emit `tool_result`, append `role: tool` message |
-| `_build_prompt` | system prompt + history (+ suffix) |
+| `_build_prompt` | system prompt + history (+ suffix), internal `_` keys stripped |
+| `_strip_internal_keys` | recursively drop `_`-prefixed keys from a message payload |
 | `_build_tool_schemas` | OpenAI tool schema from `_tools` |
 | `_parse_tool_media` | detect `_media` marker in tool output |
 | `_inject_media_user_message` | inject image content as user message |
