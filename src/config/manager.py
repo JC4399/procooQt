@@ -160,9 +160,9 @@ class ConfigManager:
 
     @property
     def agent_system_prompt(self) -> str:
-        """Base system prompt for new agents."""
-        default = "You are a helpful assistant."
-        return str(self._get_optional("agent", "system_prompt", default=default))
+        """Base system prompt for new agents (empty string when unset in config)."""
+        value = self._get_optional("agent", "system_prompt")
+        return "" if value is None else str(value)
 
     @property
     def agent_summary_prompt(self) -> str:
