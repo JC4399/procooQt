@@ -101,7 +101,7 @@ See also: [Configuration overview](../02-Configuration.md).
 | `chat_max_mb` | `int` | `_get_optional("limits", "max_chat_mb", default=70)` |
 | `chat_max_bytes` | `int` | `chat_max_mb * 1024 * 1024` |
 | `chat_max_tokens` | `int` | `_get_optional("limits", "max_chat_tokens", default=150000)` |
-| `agent_system_prompt` | `str` | `_get_optional("agent", "system_prompt", default=...)` |
+| `agent_system_prompt` | `str` | `_get_optional("agent", "system_prompt")`; returns `""` when unset, null, or empty |
 | `agent_summary_prompt` | `str` | `_get_optional("agent", "summary_prompt", default=...)` |
 | `llm_models` | `list[str]` | `model_name` of every `llm` entry |
 | `llm_model_name` | `str` | default LLM `model_name` |

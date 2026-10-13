@@ -122,7 +122,7 @@ class Agent:
         self._committed_primary: set[str] = set(self.primary_skills)
         self._committed_secondary: set[str] = set(self.secondary_skills)
 
-        self.sys_prompt = system_message or "You are a helpful assistant."
+        self.sys_prompt = system_message
         for skill in primary_skill_contents:
             self.sys_prompt += f"\n\n{skill.get('instructions', '')}"
             spath = skill.get("path", "")

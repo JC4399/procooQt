@@ -105,7 +105,8 @@ config sets `max_chat_tokens: 0` to disable the token limit.
 
 ### Agent prompts (`agent`)
 
-- `system_prompt` — base system prompt for every agent.
+- `system_prompt` — base system prompt for every agent. Defaults to an empty
+  string when the key is absent, null, or empty (no hardcoded fallback).
 - `summary_prompt` — instruction sent to the LLM when summarizing an
   over-limit chat.
 
