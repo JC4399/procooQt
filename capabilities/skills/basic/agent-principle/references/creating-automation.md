@@ -146,6 +146,21 @@ The same split as a skill: `scripts/` holds deterministic, reusable tools
 (`creating-script.md`), and `references/` holds detail, rules, and guides opened
 only when needed. Most automations need neither.
 
+## Pitfalls
+
+Two traps seen when turning an existing script into an automation:
+
+- **Keep the code self-standing.** Copy every file the script needs (its modules,
+  config, data) into the automation folder — do not import them from the original
+  project location. The user expects the automation folder to be the whole
+  program. If the copied code needs packages the app venv lacks, give the
+  automation its own `.venv` and run the work as a subprocess under it.
+- **Preserve process-level parallelism.** If the original script ran its work in
+  separate processes (e.g. `ProcessPoolExecutor`, one process per module), keep
+  that. Running the same work in one `asyncio` event loop serialises every
+  blocking call (slow network-drive scans, CPU work) and can be many times
+  slower — async concurrency only helps the parts that actually `await`.
+
 ## Testing
 
 Test each path before shipping:

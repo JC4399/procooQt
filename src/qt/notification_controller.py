@@ -44,7 +44,7 @@ class NotificationController(QObject):
         _history_offset: int
         _history_total: int
         _history_search: str
-        _page_open: bool
+        _page_log_ids: set[str]
 
     # ------------------------------------------------------------------
     #  Setup
@@ -71,7 +71,7 @@ class NotificationController(QObject):
         self._history_offset = 0
         self._history_total = 0
         self._history_search = ""
-        self._page_open = False
+        self._page_log_ids = set()
         self._rebuild_page()
         self._reload_history()
 
@@ -145,8 +145,8 @@ class NotificationController(QObject):
     @Slot()
     def _handle_page_opened(self) -> None:
         """Mark success logs read and keep them visible (dimmed) until closed."""
-        self._page_open = True
-        if self.app.notification_manager.mark_logs_read():
+        self._page_log_ids = set(self.app.notification_manager.mark_logs_read())
+        if self._page_log_ids:
             self.counts_changed.emit()
         self._rebuild_page()
         self._reload_history()
@@ -154,7 +154,7 @@ class NotificationController(QObject):
     @Slot()
     def _handle_page_closed(self) -> None:
         """Drop the dimmed success logs once the notification page is left."""
-        self._page_open = False
+        self._page_log_ids.clear()
         self._rebuild_page()
 
     @Slot(str)
@@ -231,15 +231,14 @@ class NotificationController(QObject):
     def _rebuild_page(self) -> None:
         """Rebuild the bell-page model.
 
-        Unread notifications always appear. While the page is open, success
-        logs marked read by the open itself stay listed so the user can still
+        Unread notifications always appear. While the page is open, the success
+        logs marked read by the current open stay listed so the user can still
         see them (the card renders them dimmed); they are dropped on close.
         """
         items = [
             item
             for item in self.app.notification_manager.items
-            if not item.read
-            or (self._page_open and item.kind is NotificationKind.LOG)
+            if not item.read or item.id in self._page_log_ids
         ]
         self._model.set_notifications(items)
         self.notifications_changed.emit()

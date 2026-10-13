@@ -97,17 +97,17 @@ class NotificationManager:
                 counts[item.kind] += 1
         return counts
 
-    def mark_logs_read(self) -> bool:
+    def mark_logs_read(self) -> list[str]:
         """Mark every unread ``log`` notification as read.
 
         Returns:
-            ``True`` when at least one item changed.
+            The ids of the notifications that changed (empty when none did).
         """
-        changed = False
+        changed: list[str] = []
         for item in self.items:
             if item.kind == NotificationKind.LOG and not item.read:
                 item.read = True
-                changed = True
+                changed.append(item.id)
         if changed:
             self._persist()
         return changed

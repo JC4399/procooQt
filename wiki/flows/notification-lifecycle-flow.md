@@ -29,8 +29,9 @@ whenever `counts_changed` is emitted.
 | `error` | User presses **Confirm** | Confirm, Debug |
 
 - Page shown → `notification._handle_page_opened()` → `mark_logs_read()`; the
-  page model is rebuilt **keeping the just-read logs**, so the cards remain
-  visible (dimmed via `NotificationCard.read`) until the page closes.
+  page model is rebuilt **keeping only the logs this open just marked read**, so
+  those cards remain visible (dimmed via `NotificationCard.read`) until the page
+  closes.
 - Page hidden → `notification._handle_page_closed()` → rebuild unread-only;
   the dimmed logs leave the page.
 - Confirm → `_handle_confirm(id)` → `mark_read(id)`.

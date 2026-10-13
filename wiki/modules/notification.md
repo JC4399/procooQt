@@ -32,7 +32,7 @@ UI signals.
 
 - `add(result)` → build a `NotificationItem` (new `uuid` id, `read=False`),
   insert at the front, persist.
-- `mark_logs_read()` → set every unread `log` to read; returns whether anything
+- `mark_logs_read()` → set every unread `log` to read; returns the ids that
   changed (drives the page-open behaviour).
 - `mark_read(id)` → acknowledge one item (Confirm).
 - `history(offset, limit, search)` / `total(search)` → paged, case-insensitive
@@ -48,7 +48,7 @@ UI signals.
 | `def add(self, result: AutomationResult) -> NotificationItem` | result | new item | map kind → insert front → persist | Writes `notifications.json` |
 | `def get(self, item_id: str) -> NotificationItem \| None` | id | item or `None` | linear scan | — |
 | `def unread_counts(self) -> dict[NotificationKind, int]` | — | per-kind counts (zeros included) | iterate unread | — |
-| `def mark_logs_read(self) -> bool` | — | changed? | mark unread logs read | Persists when changed |
+| `def mark_logs_read(self) -> list[str]` | — | ids marked read | mark unread logs read | Persists when changed |
 | `def mark_read(self, item_id: str) -> bool` | id | changed? | mark one read | Persists when changed |
 | `def history(self, *, offset=0, limit=20, search="") -> list[NotificationItem]` | paging + search | page | `_filter` → slice | — |
 | `def total(self, search: str = "") -> int` | search | match count | `len(_filter(...))` | — |
