@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from ..chat.manager import chat_manager
+from .chat_worker import remove_worker
 from .error_handler import TOAST_ERROR
 
 if TYPE_CHECKING:
@@ -188,8 +189,9 @@ class EditorChatController(QObject):
             if agent is None:
                 return
             context = self._file_context()
+            worker = self.chat.attach_worker(self._chat_id, agent)
             if context:
-                agent.messages.append({"role": "system", "content": context})
+                worker.append_message({"role": "system", "content": context})
             self.chat._handle_send_for(self._chat_id, message)
         finally:
             self._refresh()
@@ -230,6 +232,7 @@ class EditorChatController(QObject):
     def _handle_clear(self) -> None:
         """Discard the editor conversation and start fresh."""
         self.chat._handle_stop_for(self._chat_id)
+        remove_worker(self._chat_id)
         chat_manager.remove_chat(self._chat_id)
         stored = self.app.chat_store.load_chat(self._chat_id) or {"id": self._chat_id}
         stored["messages"] = []
@@ -239,10 +242,9 @@ class EditorChatController(QObject):
         stored["skills_config"] = self._active_skill_config()
         self.app.chat_store.save_chat(self._chat_id, stored)
         state = self._state()
-        state.rendered_item_keys = []
-        state.tool_call_indices.clear()
         state.true_input_tokens = 0
         state.true_output_cum = 0
+        state.message_count = 0
         self.chat.model_for(self._chat_id).clear()
         self._last_context_key = ""
         self._refresh()

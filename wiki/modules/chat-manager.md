@@ -43,7 +43,7 @@ singleton `chat_manager` is shared across the app.
 | | |
 |---|---|
 | Signature | `def update_chat_config(self, chat_id, primary_skill_contents, secondary_skill_contents, tool_functions, tool_config) -> dict` |
-| Output | `Agent.update_skill_config` result (or `{"warnings": []}` if no chat). |
+| Output | `Agent.update_skill_config` result (or `{"warnings": []}` if no chat). Live chats are now updated through their [`ChatWorker`](chat-worker.md) instead of this method. |
 
 ### `remove_chat`
 

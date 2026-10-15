@@ -45,7 +45,8 @@ QML UI on a fused `qasync` + Qt event loop.
 7. Install the frameless-window native frame filter on the loaded root window
    (`native_frame.install(qt_app, root_window)`), keeping the returned filter
    referenced; see [`qt-native-frame`](qt-native-frame.md).
-8. `ui.start()`; then `loop.run_forever()`.
+8. `ui.start()`; then `loop.run_forever()`; after the loop exits,
+   `ui.shutdown()` stops the per-chat [`ChatWorker`](chat-worker.md) threads.
 
 ## Function Reference
 

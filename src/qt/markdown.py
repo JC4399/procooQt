@@ -82,7 +82,23 @@ class _MarkdownCodeStyle(Style):
     }
 
 
-_FORMATTER = HtmlFormatter(nowrap=True, noclasses=True, style=_MarkdownCodeStyle)
+#: One formatter per thread. Pygments formatters are not guaranteed
+#: thread-safe, and each chat renders on its own worker thread, so the
+#: formatter must not be shared across threads.
+_FORMATTER_TLS = threading.local()
+
+
+def _formatter() -> HtmlFormatter:
+    """Return this thread's pygments formatter, creating it on first use.
+
+    Returns:
+        A thread-local ``HtmlFormatter``.
+    """
+    formatter: HtmlFormatter | None = getattr(_FORMATTER_TLS, "formatter", None)
+    if formatter is None:
+        formatter = HtmlFormatter(nowrap=True, noclasses=True, style=_MarkdownCodeStyle)
+        _FORMATTER_TLS.formatter = formatter
+    return formatter
 
 
 def _highlight_code(code: str, lang: str, _attrs: str) -> str:
@@ -107,7 +123,7 @@ def _highlight_code(code: str, lang: str, _attrs: str) -> str:
             lexer = guess_lexer(code)
         except ClassNotFound:
             return ""
-    return str(highlight(code, lexer, _FORMATTER))
+    return str(highlight(code, lexer, _formatter()))
 
 
 # ------------------------------------------------------------------

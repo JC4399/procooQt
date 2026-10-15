@@ -18,6 +18,9 @@ Item {
     property real dragY: -1000
     property int hoverIndex: -1
     property string hoverSide: ""
+    // Panel rectangles captured once at drag start; geometry is fixed mid-drag,
+    // so hit-testing avoids a per-move mapFromItem over every panel.
+    property var panelRects: []
 
     RowLayout {
         id: workspaceRow
@@ -58,6 +61,10 @@ Item {
         border.color: Theme.colors.dragFeedbackBorder
         border.width: 1
         radius: 0
+        // Rendered to its own texture so following the cursor composites a
+        // cached layer instead of re-rasterizing the ghost every move.
+        layer.enabled: true
+        layer.smooth: false
 
         Text {
             anchors.centerIn: parent
@@ -79,7 +86,29 @@ Item {
         workspace.dragChatId = chatId
         workspace.dragTitle = title
         workspace.dragging = true
+        workspace.panelRects = workspace.capturePanelRects()
         workspace.updateDrag(sx, sy)
+    }
+
+    // Snapshot each panel's rect (workspace coords) for fast hit-testing.
+    function capturePanelRects() {
+        var rects = []
+        var kids = workspaceRow.children
+        for (var i = 0; i < kids.length; i++) {
+            var child = kids[i]
+            if (child.panelIndex === undefined)
+                continue
+            var tl = child.mapToItem(workspace, 0, 0)
+            rects.push({
+                "index": child.panelIndex,
+                "x": tl.x,
+                "y": tl.y,
+                "w": child.width,
+                "h": child.height,
+                "tabBarHeight": child.tabBarHeight
+            })
+        }
+        return rects
     }
 
     function toLocal(sx, sy) {
@@ -118,23 +147,20 @@ Item {
 
     // Return {index, side} for the panel under a workspace-local point.
     function panelAtPoint(x, y) {
-        var kids = workspaceRow.children
-        for (var i = 0; i < kids.length; i++) {
-            var child = kids[i]
-            if (child.panelIndex === undefined)
+        var rects = workspace.panelRects
+        for (var i = 0; i < rects.length; i++) {
+            var r = rects[i]
+            if (x < r.x || y < r.y || x > r.x + r.w || y > r.y + r.h)
                 continue
-            var lp = child.mapFromItem(workspace, x, y)
-            if (lp.x < 0 || lp.y < 0 || lp.x > child.width || lp.y > child.height)
-                continue
-            if (lp.y <= child.tabBarHeight)
-                return { "index": child.panelIndex, "side": "move" }
+            if (y - r.y <= r.tabBarHeight)
+                return { "index": r.index, "side": "move" }
             // At the four-panel limit no new panel can be created, so suppress
             // the split hint; only grouping onto a tab bar is allowed.
             if (session.panelCount >= 4)
                 return { "index": -1, "side": "" }
             return {
-                "index": child.panelIndex,
-                "side": lp.x < child.width / 2 ? "left" : "right"
+                "index": r.index,
+                "side": (x - r.x) < r.w / 2 ? "left" : "right"
             }
         }
         return { "index": -1, "side": "" }

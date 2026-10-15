@@ -32,20 +32,20 @@ _apply_live_config (only when a live chat exists)
    │  await asyncio.to_thread(_load_config_payloads)
    │     load_skill_contents + load_tool_functions + build_tool_config
    ▼
-chat_manager.update_chat_config(sid, ...)
+worker.update_config(...)   [call_soon_threadsafe to the chat's thread]
    │  -> Agent.update_skill_config
    │     - compute removed/demoted -> warnings
    │     - accumulate new instructions -> _pending_sys_message
    │     - register new tools, set tool_config
    │     - return {warnings, added_primary, added_secondary, added_tools}
-   ▼
+   ▼ (worker emits config_updated → chat.config_updated)
 if warnings: toast each
    │
    ▼
-_append_delta_banner (pops the previous delta, appends the new one)
+worker.append_banner(...) (pops the previous delta, appends the new one)
    │
    ▼
-chat.rebuild_chat_display(chat_id)
+worker.request_rebuild()
 ```
 
 ## Key detail: `_pending_sys_message`
@@ -67,9 +67,9 @@ content already in the conversation history cannot be withdrawn.
 - **Tool Mode Changes** (`old → new`)
 
 The banner appears in the chat as a distinct orange "Context Update" block.
-Only one delta banner is kept: `_append_delta_banner` pops the previous delta
-before appending the new one. The banner is a derived UI item — it is stored on
-`ChatState.context_banners_data`, not in `chat.messages`.
+Only one delta banner is kept: `worker.append_banner` pops the previous delta
+before appending the new one. The banner is a derived UI item — it is held on the
+chat [`ChatWorker`](../modules/chat-worker.md), not in `chat.messages`.
 
 ## When no live chat exists
 

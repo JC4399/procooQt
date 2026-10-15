@@ -15,7 +15,9 @@
 └──────────────┬───────────────────────────────────────────────────────────────┘
                │ one asyncio loop fused with the Qt GUI thread
 ┌──────────────▼───────────────────────────────────────────────────────────────┐
-│        qasync.QEventLoop  ⇄  Qt Quick render loop  (one process/thread)      │
+│        qasync.QEventLoop  ⇄  Qt Quick render loop  (the GUI thread)          │
+│    + one QThread per chat (src/qt/chat_worker.py): each owns an Agent, a      │
+│      ChatRenderer, and a private asyncio loop; results arrive as Qt signals.  │
 │                                                                              │
 │  ProcooQtUI (QObject orchestrator — composition, no inheritance)             │
 │    SessionController  → workspace panels + ChatState registry + session menu │
@@ -44,9 +46,10 @@
 └──────────────┬───────────────────────────────────────────────────────────────┘
                │ binds model roles / calls @Slot methods
 ┌──────────────▼───────────────────────────────────────────────────────────────┐
-│  Agent event stream → ChatListModel → QML delegates                          │
-│    Agent.run() ──asyncio.Queue[event]──► ChatController._consume_events      │
-│      → chat_items builders (role dicts) → ChatListModel.diff_update          │
+│  Agent event stream → worker render → ChatListModel → QML delegates          │
+│    ChatWorker (QThread) owns Agent.run() ──asyncio.Queue[event]──► render    │
+│      → chat_items builders (role dicts)                                       │
+│      → Qt signal ──► ChatController apply slot → ChatListModel.diff_update    │
 │      → ListView delegate switches on model.kind                              │
 └──────────────┬───────────────────────────────────────────────────────────────┘
                │ uses
@@ -112,7 +115,8 @@ history. See [`chat-agent`](modules/chat-agent.md).
 
 ### Event queue
 Each `Agent` owns an `asyncio.Queue` (`event_queue`). During a turn it emits
-events consumed by `ChatController._consume_events`:
+events drained by its `ChatWorker._pump` on the worker thread, which renders them
+and emits Qt signals to the GUI:
 
 | Event type | Payload | Producer |
 |---|---|---|
@@ -125,6 +129,10 @@ events consumed by `ChatController._consume_events`:
 | `media_user_message` | `{count}` | media injection |
 | `done` | `{chat_id}` | end of turn |
 | `error` | `{brief, detail, category}` | failures |
+
+The worker maps these to `plan_ready` / `stream_updated` / `token_usage` /
+`approval_needed` / `turn_finished` / `error` signals consumed by
+[`ChatController`](modules/qt-chat-controller.md).
 
 ### Math rendering
 Response bodies are Markdown rendered by [`qt-markdown`](modules/qt-markdown.md);
@@ -187,26 +195,30 @@ Each tool maps to a permission mode:
 See [`flows/tool-approval-flow`](flows/tool-approval-flow.md).
 
 ### Concurrent chats
-`ChatManager` holds multiple live `Agent`s keyed by chat ID. `SessionController`
-keeps a `ChatState` per chat (generation task, approval event, streaming card
-state, render keys, config counts) and `ChatController` keeps a `ChatListModel`
-per chat, so multiple chats can generate simultaneously while the user switches
-between panels.
+`ChatManager` holds multiple live `Agent`s keyed by chat ID. Each live chat runs
+on its own [`ChatWorker`](modules/chat-worker.md) thread, which owns the `Agent`
+and the render pipeline, so one chat's streaming and rendering never blocks
+another. `SessionController` keeps a GUI-only `ChatState` per chat (busy/error,
+approval info, true token counts, config counts) and `ChatController` keeps a
+`ChatListModel` per chat, applying the worker's ready row updates on the GUI
+thread. Threads free the GUI loop and parallelize network/tool I/O; pure-Python
+Markdown rendering is still GIL-limited, and LaTeX/matplotlib is serialized.
 
 ## Data flow (one user message)
 
 ```
 user submits (Enter / Send button; Enter lock hides in input row) → ChatPanel.submit
-  → chat._handle_send_for(chat_id, text)
-  → _append_user_message → _launch_generation → _run_chat_loop
-     → _hydrate_phase (build/restore Agent via session._hydrate_chat)
-     → chat.run(message)          [Agent emits events]
-        → _run_react_loop
-           → _reasoning  → OpenAIModel stream
-           → _resolve_tool_calls → run_tool (subprocess) / approval
-     → _consume_events → _render_active_event
-        → _rebuild_chat_display / _update_live_assistant (ChatListModel)
-     → _finalize_turn → session._save_current_chat_for (persist)
+  → chat._handle_send_for(chat_id, text)     [optimistic user + waiting rows]
+  → _launch_generation → _start_turn
+     → session._hydrate_chat (build/restore Agent)
+     → ChatController.attach_worker → ChatWorker.start_turn(message, gen)
+        → Agent.run(message) shown on the worker thread   [Agent emits events]
+           → _run_react_loop
+              → _reasoning  → OpenAIModel stream
+              → _resolve_tool_calls → run_tool (subprocess) / approval signal
+        → _pump → _handle_event → plan_ready / stream_updated (Qt signal)
+  → ChatController apply slots → ChatListModel.diff_update / update_item
+  → _finalize (worker): final plan + chat JSON persist + compaction check
 ```
 
 Full detail in [`flows/agent-turn-flow`](flows/agent-turn-flow.md).

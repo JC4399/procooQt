@@ -1,153 +1,112 @@
 # Agent turn flow
 
-How one user message becomes a streamed assistant response (with tools).
+How one user message becomes a streamed assistant response (with tools), now run
+on a per-chat worker thread.
 
-Related: [`chat-agent`](../modules/chat-agent.md), [`chat-llm`](../modules/chat-llm.md), [`qt-chat-controller`](../modules/qt-chat-controller.md).
+Related: [`chat-worker`](../modules/chat-worker.md), [`chat-render`](../modules/chat-render.md), [`chat-agent`](../modules/chat-agent.md), [`qt-chat-controller`](../modules/qt-chat-controller.md), [`chat-llm`](../modules/chat-llm.md).
 
 ## Sequence
 
 ```
-user submits (ChatPanel.qml: Send button, or Enter unless the
-   input-row enter-lock checkbox is checked)
-   │
-   ▼
-ChatPanel.submit → chat._handle_send_for(chat_id, text)   [ChatController @Slot]
-   │  validate non-empty + active chat + not busy
-   │  _append_user_message(chat_id, text) → model.append_item (optimistic row)
-   ▼
+GUI thread                                  Per-chat worker thread (asyncio loop)
+──────────                                  ──────────────────────────────────────
+user submits (ChatPanel Send / Enter)
+  │
+ChatPanel.submit → chat._handle_send_for(chat_id, text)
+  │  validate non-empty + active chat + not busy
+  │  _append_user_message → model.append_item (optimistic row)
+  ▼
 _launch_generation(chat_id, message)
-   │  state.has_error=False, is_busy=True, generation_id++
-   │  _append_waiting_placeholder → model.append_item (w:pending scanner)
-   │  _spawn(_run_chat_loop)
-   ▼
-_run_chat_loop(message, gen_id, chat_id)
-   │  _hydrate_phase → session._hydrate_chat (build/restore Agent)
-   │  task = ensure_future(chat.run(message))
-   │  await sleep(0) → rebuild (reconciles; scanner already visible)
-   │  await _consume_events(chat, chat_id, state, task)
-   ▼
-Agent.run(message)  [src/chat/agent.py]
-   │  flush _pending_sys_message (skill delta) as system msg
-   │  append user msg
-   ▼
-_run_react_loop ──────────────┐
-   │                          │ repeat while tool_blocks
-   ▼                          │
-_reasoning                    │
-   │  _build_prompt(messages)  │
-   │  _model(prompt, tools)    │
-   │  stream chunks → _process_blocks
-   │     thinking → emit "thinking"
-   │     response → emit "message"
-   │     tool_use → collect + emit "tool_call_streaming"
-   │  emit "token_usage"
-   ▼ returns tool_blocks
-   │
-   ├─ empty? ──────────> emit "done" -> END
-   │
-   ▼
-_resolve_tool_calls ───────────┘
-   1. register tool_calls + emit "tool_call"
-   2. decide: block→deny / allow→approve / ask→await approval
-   3. execute: run_tool (subprocess) + _record_tool_result
-      - emit "tool_result"
-      - media? → _inject_media_user_message
+  │  has_error=False, is_busy=True, generation_id++
+  │  _append_waiting_placeholder → model.append_item (w:pending scanner)
+  │  _spawn(_start_turn)
+  ▼
+_start_turn
+  │  session._hydrate_chat (build/restore Agent)
+  │  attach_worker → ChatWorker            ──command──►  start_turn(message, gen)
+  │                                                        │  _do_start_turn
+  │                                                        ▼
+  │                                                      Agent.run(message)
+  │                                                        │  flush _pending_sys_message
+  │                                                        │  append user msg
+  │                                                        ▼
+  │                                                      _run_react_loop ──────┐
+  │                                                        │ _reasoning         │ repeat
+  │                                                        │  _model(prompt)    │ while
+  │                                                        │  stream → _process │ tool
+  │                                                        │  emit events       │ blocks
+  │                                                        │ _resolve_tool_calls│
+  │                                                        ▼                   │
+  │                                                      _pump drains event_queue
+  │◄── plan_ready / stream_updated / token_usage / ──────┘
+  │    approval_needed / turn_finished
+  ▼
+ChatController apply slots → ChatListModel.diff_update / update_item
+  │
+_on_turn_finished → clear busy, refresh; (worker) _finalize persists the chat
 ```
 
-## Step-by-step (per event, consumed by `ChatController._consume_events`)
+## Per-event handling (worker `_handle_event` → `_render_active`)
 
-1. **thinking / message / tool_call_streaming** — no structural action; the
-   loop later calls `_update_live_assistant` for throttled token-count updates.
-2. **tool_call** (ask mode) — `_handle_approval` blocks on
-   `state.approval_event` until approve/deny/stop.
-3. **tool_result** — appended to `state.tool_results`; `_swap_pending_result_card`
-   replaces the pending card in place.
-4. **token_usage** — emitted after every `_reasoning` round (text or tool call);
-   `state.true_input_tokens` / `state.true_output_cum` update (true API counts
-   only, no estimate) and `_update_token_bar` emits `chat_tokens_changed`, so
-   `SessionController.refresh_chat_tokens` refreshes the panel's `ConfigTokenBar`
-   (via `ChatPanelModel.set_tokens`) immediately. The counts persist across turns.
-5. **done / error** — break out of the loop; an `error` also sets
-   `state.has_error` so the chat's tab dot shows red until the next send.
-6. `finally: _finalize_turn` — rebuild the chat display, save the chat,
-   reset per-turn tracking, and update the Send/Stop buttons.
+1. **thinking / message / tool_call_streaming** — update the render state; the
+   live path emits a throttled `stream_updated` (frozen prefix + live tail) or a
+   `plan_ready` when the card structure changed.
+2. **tool_call** (`ask`) — emit `approval_needed`; the GUI shows the approval bar
+   while the agent blocks on its own approval queue (see
+   [tool-approval-flow](tool-approval-flow.md)).
+3. **tool_result** — append to the per-turn list, emit `approval_cleared`, and
+   swap the pending result card (`result_swap`) or rebuild.
+4. **token_usage** — emit `token_usage`; the GUI updates the token bar and
+   `state.true_input_tokens` / `true_output_cum` (true API counts only).
+5. **done / error** — `error` emits `error` and sets `has_error`; then the run
+   coroutine finishes and `_finalize` runs.
 
-`_launch_generation` appends the pre-response scanner immediately: right after
-setting `state.is_busy`, it calls `_append_waiting_placeholder`, which appends a
-`KIND_WAITING` row keyed `w:pending` in the same frame as the user card — before
-`_hydrate_phase` (Agent construction / skill loading) and before the network
-request. So a headerless grey `KnightRiderSpinner` (`WaitingCard.qml`) is visible
-for the whole wait, whether that is hydration, model prefill, a slow network, or
-a pending failure; it does not wait for an HTTP response. `_run_chat_loop` later
-rebuilds once after `await asyncio.sleep(0)` (long enough for `Agent.run` to
-append the user message), which reconciles because
-`_build_plan` emits the matching `u:<hash>` + `w:pending`
-while waiting. The first `thinking`/`message`/`tool_call_streaming` card diverges
-at that index and replaces the scanner via `ChatListModel.diff_update`.
+## Rendering
 
-The drain loop waits on the queue getter and the `Agent.run` task together
-(`asyncio.wait({getter, task}, FIRST_COMPLETED)`), so it wakes exactly when an
-event arrives or the turn ends — no periodic polling. When the task finishes
-first, any already-queued events are drained with `get_nowait()`.
+The worker owns `RenderState` (item cache + incremental Markdown renderers). A
+full rebuild produces a content-hash-keyed `RenderPlan` applied with
+`diff_update`; content-only streaming emits row updates applied with
+`update_item`. The GUI never renders — see [`chat-render`](../modules/chat-render.md).
 
-## Live rendering (`_render_active_event` / `_update_live_assistant`)
+## Live streaming bodies
 
-Structural changes (tool calls/results appearing, streaming tool calls first
-appearing) rebuild immediately; the rebuild reuses memoized items for every
-unchanged message, so only the changed trailing message is re-rendered.
-Content-only streaming updates are throttled (`_stream_update_interval()`:
-0.08 s, or 0.12 s while more than one chat streams) and applied in place via
-`ChatListModel.update_item`. Each streaming body is split into a frozen
-committed prefix (`ChatRole.BODY_HTML`) and a live tail (`ChatRole.BODY_TAIL_HTML`):
-thinking via `thinking_body_parts` (escaped plain text), the response via
-`IncrementalMarkdown.render_parts`. Both run synchronously on the GUI thread
-(pure Python, GIL-bound, O(tail)), and only the tail is re-laid out in QML each
-tick. A full rebuild computes content-hash render keys and calls
-`ChatListModel.diff_update`, which removes and re-inserts rows from the first
-divergence only.
+Each streaming card body is split into a frozen committed prefix (`BODY_HTML`)
+and a live tail (`BODY_TAIL_HTML`): thinking via `thinking_body_parts` (escaped
+plain text), the response via `IncrementalMarkdown.render_parts`. Only the tail
+is re-laid out in QML each tick; the prefix is re-pushed only when it grows. The
+worker throttles content-only updates (0.08 s). Because each chat renders on its
+own thread, one chat's rendering no longer blocks another's.
 
-The sidebar refresh triggered by a message-count change is debounced (0.3 s) and
-its disk scan runs off the GUI thread via
-`SessionController.refresh_model_async`.
+The sidebar refresh triggered by a message-count change stays debounced (0.3 s)
+on the GUI thread and reads the chat store off-thread.
 
 ## Tool execution detail (`Agent.run_tool`)
 
 1. `resolve_tool_python()` + `build_tool_env()` from `src/util/venv.py`.
-2. `create_subprocess_exec(tool_python, script_path, stdin/stdout/stderr=PIPE)`.
-3. `proc.communicate(json.dumps(tool_args))` with the tool's `timeout`
-   (default 600s).
-4. Timeout → kill + message; non-zero exit → error message; else stdout
-   (+ appended stderr). Decoded stdout has CR/CRLF normalised to LF so stored
-   messages and prompts stay clean on Windows.
-5. `_parse_tool_media` detects a `_media: true` JSON result → images are
-   injected as a multimodal user message (`_inject_media_user_message`).
+2. `create_subprocess_exec(...)` on the worker's asyncio loop.
+3. `proc.communicate(json.dumps(tool_args))` with the tool's `timeout`.
+4. Timeout → kill + message; non-zero exit → error; else stdout (+ stderr).
+   Decoded stdout has CR/CRLF normalised to LF.
+5. `_parse_tool_media` detects a `_media: true` result → injects images as a
+   multimodal user message.
 
 ## History editing (delete message / regenerate from a card)
 
-Card headers carry two actions (`CardBase.qml`, disabled while the chat is busy)
-that edit `chat.messages` and rebuild:
+Card headers carry two actions (disabled while busy) that route to worker
+commands:
 
-- **Delete message** — the trash icon on any card routes to
-  `ChatController._handle_delete_turn_for(chat_id, msg_index)` →
-  `_delete_turn`. `_delete_bounds` maps the card to its message object and
-  removes only that object plus the minimum required to keep the history
-  LLM-valid: a `user` message goes alone; an `assistant` message (thinking /
-  response / tool-call cards share one object) takes its contiguous trailing
-  `tool` results with it; a `tool` result goes alone unless the preceding
-  assistant message would be left with `tool_calls` and no remaining results,
-  in which case that assistant message is removed too. The live `Agent.messages`
-  list is mutated in place (the cached item cache is cleared,
-  `_current_assistant_msg` reset) or the stored record is rewritten when the
-  chat is not hydrated; then `_rebuild_chat_display` + `_refresh_sidebar`.
-- **Regenerate from a user card** — the reload icon routes to
-  `ChatController._handle_regenerate_from_for(chat_id, msg_index)` →
-  `_regenerate_from`: discard `messages[msg_index:]`, persist the prefix, drop
-  delta banners, drop the live chat, rebuild, then `_launch_generation` re-sends
-  that user message (the same truncate-and-relaunch path as `_regenerate`).
+- **Delete message** — `_handle_delete_turn_for` → `worker.delete_turn(msg_index)`.
+  `delete_bounds` maps the card to its message object and removes only that
+  object plus the minimum needed to keep the history valid. The worker mutates
+  `Agent.messages`, resets the render cache, persists, and emits a new plan. A
+  chat with no live worker edits the stored record directly.
+- **Regenerate from a user card** — `_handle_regenerate_from_for` →
+  `worker.regenerate_from(msg_index, gen)`. The worker truncates `messages` to
+  before that user message, persists, rebuilds, then starts a fresh turn.
 
 ## Compaction handoff
 
-After `_finalize_turn`, if `chat.check_limit_exceeded()` reports a breach,
-`ChatController._compact_chat` summarizes the chat
-(`Agent.summarize`) and creates a fresh chat seeded with the summary
-(`_create_compacted_chat`), then opens it in the source chat's panel.
+After a turn, the worker checks `Agent.check_limit_exceeded()`. If breached it
+summarizes and emits `compaction_ready`; the GUI's
+`_create_compacted_chat` writes a new chat seeded with the summary and opens it
+in the source chat's panel.

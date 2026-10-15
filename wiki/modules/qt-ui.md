@@ -145,7 +145,9 @@ full runtime rebuild. `ErrorNotifier` fans every
 `ProcooQtUI(backend, engine, qt_app)`, loads `src/qml/Main.qml`, installs the
 native frame, and calls `ui.start(root_window, frame_filter)`. `start()` fans out
 to `session.start()`, `skill.start()`, `editor.start()`, `automation.start()`,
-then `windows.register_primary(...)`.
+then `windows.register_primary(...)`. After `loop.run_forever()` returns,
+`ui.shutdown()` flushes any debounced session-layout write (`session.flush_layout`)
+before stopping every chat worker (`chat.shutdown`).
 
 ## Function Reference
 
@@ -157,4 +159,5 @@ then `windows.register_primary(...)`.
 | `def _build_controllers(self) -> None` | — | `None` | build primary session/chat/skill/editor/editor_chat/notification/automation | Allocates models and state |
 | `def _build_window_bundle(self) -> tuple[QQmlContext, SessionController, ChatController, SkillController]` | — | bundle | build + wire a fresh triple on a child context | Allocates models and state |
 | `def start(self, window=None, frame_filter=None) -> None` | primary window; native-frame filter | `None` | controller starts → register primary | Starts watchers/scheduler/event server |
+| `def shutdown(self) -> None` | — | `None` | `session.flush_layout()` (persist any debounced layout) → `chat.shutdown()` | Stops worker threads |
 | `def _expose_to_qml(self) -> None` | — | `None` | set twelve root context properties | Publishes objects to QML |

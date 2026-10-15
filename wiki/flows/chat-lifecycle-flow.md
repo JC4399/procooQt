@@ -15,9 +15,9 @@ Related: [`qt-session-controller`](../modules/qt-session-controller.md), [`qt-ch
   `context_snapshot`.
 
 ```
-(store)  --hydrate-->  (chat_manager / Agent)  <--live generation--
+(store)  --hydrate-->  (chat_manager / Agent)  <--ChatWorker persistence-->
    │                        ▲                                    │
-   │                        └───────── _save_current_chat_for ────┘
+   │                        └───────── _do_persist ────────────────┘
    ▼
 (delete)  --remove-->  gone from store + manager + panels
 ```
@@ -65,9 +65,9 @@ every visible chat (`set_visible_chats`). Each panel's values reach QML through 
 Sets the panel's active chat, saves the layout, `_sync_panels`, and `_open_chat`.
 `_open_chat` emits `chat_switch_started` (loading overlay), hydrates off-thread
 if the chat isn't live, then emits `active_chat_changed`, which
-`ChatController._handle_chat_activated` answers by rebuilding that chat's
-transcript in batches behind the opaque loading overlay
-(`_rebuild_chat_display_staged`, 400 ms minimum).
+`ChatController._handle_chat_activated` answers by attaching the chat's worker
+and requesting a rebuild; the resulting plan is applied in batches behind the
+opaque loading overlay (200 ms minimum).
 
 Startup (`_open_session_panels`) opens **every** panel's active chat in one
 synchronous burst, and closing the active chat auto-opens another, so several
@@ -87,10 +87,16 @@ it hides, so the freshly built transcript always scrolls to the bottom.
 - **Move** (`_handle_move_chat(chat_id, target_index)`): the chat is removed
   from its panel and appended to the target's tabs; empty source panels collapse.
 - Both call `chat.prepare_rebuild(chat_id)` before recreating the panel: the
-  moved chat's `ChatListModel` is blanked and its loading flag set, so the new
-  panel instantiates with no card delegates and paints its spinner immediately.
-  They then persist the layout and `_open_chat`, which rebuilds the transcript
-  once behind the overlay.
+  moved chat's loading overlay is shown immediately, while the `ChatListModel`
+  blank is deferred to the next event-loop turn (`_blank_model_soon`). This keeps
+  the drop handler free of synchronous delegate teardown. They then queue the
+  layout persist and `_open_chat`, which rebuilds the transcript once behind the
+  overlay.
+
+`SplitWorkspace.qml` tracks the drag manually: at drag start it snapshots each
+panel's rectangle once (`capturePanelRects`) so per-move hit-testing does not
+call `mapFromItem` over every panel, and the cursor ghost is rendered on its own
+layer (`layer.enabled`) to keep dragging smooth.
 
 ## Hydrate (`SessionController._hydrate_chat`)
 
@@ -100,12 +106,11 @@ it hides, so the freshly built transcript always scrolls to the bottom.
    `load_skill_contents` (primary/secondary) + `load_tool_functions` (primary) +
    `build_tool_config`, resolve `model_name` (fallback to the config default),
    then `chat_manager.create_chat(...)` with the system prompt and `chat_limits`.
-   Agent construction and skill/AST loading therefore never block the GUI thread
-   or the loading scanner.
-4. `await chat.refresh_estimated()` (offloaded); backfill `context_snapshot`
-   and save off-thread if it was absent, then restore persisted
-   `true_input_tokens` / `true_output_cum` onto the `ChatState` when it has no
-   live true counts (so the token bar survives a restart).
+4. `await chat.refresh_estimated()` (offloaded); backfill `context_snapshot` and
+   save off-thread if it was absent.
+5. `ChatController.attach_worker(chat_id, agent)` then transfers ownership of the
+   `Agent` (and its `messages`) to that chat's
+   [`ChatWorker`](../modules/chat-worker.md) thread.
 
 ## Select model (`SkillDock` dropdown → `session._handle_model_changed`)
 
@@ -117,23 +122,24 @@ it hides, so the freshly built transcript always scrolls to the bottom.
    `ChatPanelModel.modelName` / `ConfigTokenBar` update.
 3. Model changes apply to subsequent turns without recreating the chat.
 
-## Persist (`SessionController._save_current_chat_for`)
+## Persist (`ChatWorker._do_persist`)
 
-1. Use the caller-provided `(messages, context_snapshot)` snapshot when given
-   (captured on the GUI thread); otherwise capture one from the live chat.
-2. `stored["messages"] = messages`; `message_count`.
-3. `stored["context_snapshot"] = context_snapshot`.
-4. Copy the chat's `true_input_tokens` / `true_output_cum` from its `ChatState`
-   (last known true API counts).
-5. `save_chat` (atomic temp-file write).
+The live chat's `Agent.messages` is owned by its worker thread, so the
+[`ChatWorker`](../modules/chat-worker.md) persists the chat itself:
 
-`_build_context_snapshot` captures `system_prompt`, `pending_additions`,
-`primary_skills`, `secondary_skills`, `tools`, and `tool_config`.
+1. Load the stored record (one writer per chat file; atomic temp-file write).
+2. `messages` = the agent's messages; `message_count`.
+3. `context_snapshot` = `build_context_snapshot(agent)`.
+4. `true_input_tokens` / `true_output_cum` from the worker's last `token_usage`.
+
+The GUI never reads `Agent.messages`; `ChatState.message_count` and
+`token_usage` signals keep panels and the sidebar in sync. Non-live chats are
+edited directly through `ChatStore`.
 
 ## Delete chat (`ChatTabBar` × → `session._handle_delete_chat`)
 
-1. `_forget_chat` — pop `ChatState`, cancel pending approval/generation,
-   `chat_manager.remove_chat`.
+1. `_forget_chat` — pop `ChatState`, stop the chat's worker (`remove_worker`),
+   drop the live agent (`chat_manager.remove_chat`).
 2. `ChatStore.delete_chat`; remove the chat from every panel (`_remove_chat_from_panels`).
 3. Refresh; if the active chat was removed, open another panel's active chat.
 
@@ -147,6 +153,10 @@ it hides, so the freshly built transcript always scrolls to the bottom.
 
 Every layout mutation (`_handle_new_chat`, `_handle_panel_activate`,
 `_handle_split`, `_handle_move_chat`, `_handle_delete_chat`, `_reconcile_panels`)
-ends in `_save_layout`, which writes `{splits:[{chat_ids, active_chat_id}]}` for
-the active session through `ChatStore.set_layout`. On the next switch or app
+ends in `_save_layout`, which snapshots `{splits:[{chat_ids, active_chat_id}]}`
+for the active session and queues a **debounced, off-thread** write through
+`ChatStore.set_layout` (0.4 s quiet period, `asyncio.to_thread`). Rapid mutations
+collapse into one write of the latest layout and a drop/move never blocks the GUI
+on disk I/O. `ui.shutdown()` calls `session.flush_layout()` to persist any
+still-pending layout synchronously before exit. On the next switch or app
 restart, `_reconcile_panels` restores it.

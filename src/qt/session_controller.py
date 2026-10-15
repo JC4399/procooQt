@@ -18,6 +18,7 @@ from ..chat.store import DEFAULT_SESSION_NAME
 from ..util.error.types import ChatError
 from .chat_panel_model import ChatPanelModel
 from .chat_state import ChatState
+from .chat_worker import get_worker, remove_worker
 from .error_handler import TOAST_ERROR, TOAST_WARNING
 from .models.session_menu_model import SessionMenuModel
 from .theme import (
@@ -34,6 +35,9 @@ if TYPE_CHECKING:
     from .session_bus import SessionBus
 
 logger = logging.getLogger("procoo_qt")
+
+#: Quiet period (seconds) before a debounced session-layout write hits disk.
+_LAYOUT_SAVE_DEBOUNCE = 0.4
 
 
 class ChatStatus:
@@ -79,6 +83,8 @@ class SessionController(QObject):
         _panels: list[dict[str, Any]]
         _panel_models: list[ChatPanelModel]
         _tasks: set[asyncio.Task[Any]]
+        _pending_layout: tuple[str, dict[str, Any]] | None
+        _layout_task: asyncio.Task[Any] | None
         active_chat_id: str | None
         active_session_name: str | None
         chat_ids: list[str]
@@ -91,9 +97,7 @@ class SessionController(QObject):
     #  Setup
     # ------------------------------------------------------------------
 
-    def __init__(
-        self, app: ProcooApp, bus: SessionBus, parent: QObject | None = None
-    ) -> None:
+    def __init__(self, app: ProcooApp, bus: SessionBus, parent: QObject | None = None) -> None:
         """Initialise the session controller.
 
         Args:
@@ -118,6 +122,8 @@ class SessionController(QObject):
         self._panels = [{"chat_ids": [], "active_chat_id": ""}]
         self._panel_models = []
         self._tasks = set()
+        self._pending_layout = None
+        self._layout_task = None
         self.active_chat_id = None
         self.active_session_name = None
         self.chat_ids = []
@@ -571,7 +577,11 @@ class SessionController(QObject):
             self.app.chat_store.save_chat(chat_id, stored)
         live = chat_manager.get_chat(chat_id)
         if live is not None:
-            live.set_model(self.app.config.llm_config(model_name))
+            worker = get_worker(chat_id)
+            if worker is not None:
+                worker.set_model(self.app.config.llm_config(model_name))
+            else:
+                live.set_model(self.app.config.llm_config(model_name))
         self.refresh_chat_panels(chat_id)
 
     # ------------------------------------------------------------------
@@ -646,6 +656,8 @@ class SessionController(QObject):
             state.ask_count = chat.get("ask_count", 0)
             state.block_count = chat.get("block_count", 0)
             state.model_name = chat.get("model_name") or self.app.config.llm_model_name
+            if chat_manager.get_chat(chat["id"]) is None:
+                state.message_count = int(chat.get("message_count", 0) or 0)
         grouped: dict[str, list[str]] = {name: [] for name in sessions}
         for chat in enriched:
             session_name = chat.get("session")
@@ -760,16 +772,54 @@ class SessionController(QObject):
         )
 
     def _save_layout(self) -> None:
-        """Persist the active session's panel layout to the store."""
+        """Queue a debounced, off-thread persist of the active session's layout.
+
+        The layout is snapshotted on the GUI thread immediately, but the JSON
+        read-modify-write runs on a worker thread after a short quiet period so
+        a drop/move never blocks the GUI on disk I/O. Rapid successive calls
+        collapse into a single write of the latest layout.
+        """
         if not self.active_session_name:
             return
-        layout = {
-            "splits": [
-                {"chat_ids": p["chat_ids"], "active_chat_id": p["active_chat_id"]}
-                for p in self._panels
-            ]
-        }
-        self.app.chat_store.set_layout(self.active_session_name, layout)
+        self._pending_layout = (
+            self.active_session_name,
+            {
+                "splits": [
+                    {"chat_ids": list(p["chat_ids"]), "active_chat_id": p["active_chat_id"]}
+                    for p in self._panels
+                ]
+            },
+        )
+        if self._layout_task is None or self._layout_task.done():
+            self._layout_task = asyncio.ensure_future(self._flush_layout_loop())
+
+    async def _flush_layout_loop(self) -> None:
+        """Debounce and persist the newest pending layout off the GUI thread."""
+        while self._pending_layout is not None:
+            pending = self._pending_layout
+            await asyncio.sleep(_LAYOUT_SAVE_DEBOUNCE)
+            if self._pending_layout is not pending:
+                continue
+            self._pending_layout = None
+            name, layout = pending
+            try:
+                await asyncio.to_thread(self.app.chat_store.set_layout, name, layout)
+            except Exception as error:  # pragma: no cover - defensive
+                logger.error("Failed to persist session layout for '%s': %s", name, error)
+
+    def flush_layout(self) -> None:
+        """Synchronously persist any pending layout (called on app shutdown)."""
+        pending = self._pending_layout
+        if pending is None:
+            return
+        self._pending_layout = None
+        name, layout = pending
+        if not name:
+            return
+        try:
+            self.app.chat_store.set_layout(name, layout)
+        except Exception as error:  # pragma: no cover - defensive
+            logger.error("Failed to flush session layout for '%s': %s", name, error)
 
     @Slot(str)
     def refresh_chat_panels(self, chat_id: str) -> None:
@@ -929,9 +979,8 @@ class SessionController(QObject):
             One of the :class:`ChatStatus` values.
         """
         state = self._states.get(chat_id)
-        chat = chat_manager.get_chat(chat_id)
-        if chat is not None:
-            has_messages = bool(chat.messages)
+        if chat_manager.get_chat(chat_id) is not None:
+            has_messages = bool(state and state.message_count)
         else:
             enriched = self._enriched.get(chat_id)
             has_messages = bool(enriched and enriched.get("message_count"))
@@ -1228,31 +1277,21 @@ class SessionController(QObject):
         Args:
             chat_id: The chat id to forget.
         """
-        state = self._states.pop(chat_id, None)
-        if state:
-            self._cancel_pending_operations(state, chat_id)
-        chat_manager.remove_chat(chat_id)
+        self._states.pop(chat_id, None)
+        self._cancel_pending_operations(chat_id)
 
     # ------------------------------------------------------------------
     #  Pending operations
     # ------------------------------------------------------------------
 
-    def _cancel_pending_operations(self, state: ChatState, chat_id: str) -> None:
-        """Cancel pending approvals and the active generation task.
+    def _cancel_pending_operations(self, chat_id: str) -> None:
+        """Stop a chat's worker and drop the live agent.
 
         Args:
-            state: The chat's UI state.
             chat_id: The chat id.
         """
-        pending_info = state.pending_tool_info
-        if pending_info:
-            chat = chat_manager.get_chat(chat_id)
-            if chat:
-                self._spawn(chat.deny_tool(pending_info.get("id", "")))
-        if state.approval_event and not state.approval_event.is_set():
-            state.approval_event.set()
-        if state.active_task and not state.active_task.done():
-            state.active_task.cancel()
+        remove_worker(chat_id)
+        chat_manager.remove_chat(chat_id)
 
     # ------------------------------------------------------------------
     #  Tasks

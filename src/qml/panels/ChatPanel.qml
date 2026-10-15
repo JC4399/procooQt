@@ -385,7 +385,7 @@ Rectangle {
 
                 Timer {
                     id: minShowTimer
-                    interval: 400
+                    interval: 200
                     repeat: false
                     onTriggered: loadingOverlay.holdVisible = false
                 }

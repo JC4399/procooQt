@@ -104,11 +104,12 @@ true when either part is non-empty; `bodyColor` selects the text colour.
 
 The split avoids an O(n) re-parse/re-layout of the whole accumulated document on
 every tick (the previous single-editor design was O(n²) over a response). The
-controller produces the parts via `IncrementalMarkdown.render_parts` (response)
-and `thinking_body_parts` (thinking), pushing the prefix only when it changes and
-the tail every tick (`ChatController._push_streaming_body`). The render runs
-synchronously on the GUI thread — it is pure Python (GIL-bound) and now O(tail),
-so an `asyncio.to_thread` worker would only add contention.
+chat's [`ChatWorker`](chat-worker.md), via [`chat_render`](chat-render.md),
+produces the parts with `IncrementalMarkdown.render_parts` (response) and
+`thinking_body_parts` (thinking), pushing the prefix only when it changes and the
+tail every tick; `ChatController` applies the resulting row updates. The render
+runs on the chat's worker thread (pure Python, GIL-bound, now O(tail)), so it no
+longer blocks the GUI thread.
 
 ### Body caret navigation
 

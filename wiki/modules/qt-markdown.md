@@ -29,8 +29,9 @@ reaches QML.
   re-lay out only the tail on each stream tick.
 - `_TerminalRenderer(RendererHTML)` — the token renderer implementing the
   terminal look.
-- `_MarkdownCodeStyle(Style)` and `_FORMATTER` — pygments style matching the
-  palette, with `noclasses=True` inline colours.
+- `_MarkdownCodeStyle(Style)` and the thread-local `_FORMATTER_TLS` / `_formatter()`
+  — pygments style matching the palette, with `noclasses=True` inline colours;
+  the formatter is per-thread because each chat renders on its own worker thread.
 - `_build_parser()` / `_parser()` and the thread-local `_PARSER_TLS` — one
   `MarkdownIt` instance per thread (streaming renders run on worker threads).
 - `math_inline` / `math_block` render rules — delegate to
@@ -55,8 +56,9 @@ reaches QML.
 
 `_TERMINAL` state (`_TerminalRenderer._lists` / `_items` / `_links`) lives on the
 renderer instance, so a single shared parser would race when streaming renders
-run on an `asyncio.to_thread` worker. `_parser()` lazily builds and caches one
-`MarkdownIt` per thread in `_PARSER_TLS`, so concurrent renders are safe.
+run on a per-chat worker thread. `_parser()` lazily builds and caches one
+`MarkdownIt` per thread in `_PARSER_TLS`; the pygments formatter is likewise
+per-thread (`_FORMATTER_TLS`), so concurrent chat renders are safe.
 
 ### Incremental streaming renderer (`IncrementalMarkdown`)
 
@@ -228,7 +230,7 @@ plugin, so math spans render as images rather than the plugin's literal
 
 | Name | Purpose |
 |---|---|
-| `_FORMATTER` | pygments `HtmlFormatter(nowrap=True, noclasses=True, style=_MarkdownCodeStyle)` |
+| `_FORMATTER_TLS` / `_formatter()` | thread-local pygments `HtmlFormatter(nowrap=True, noclasses=True, style=_MarkdownCodeStyle)` |
 | `_PARSER_TLS` | `threading.local` holding one `MarkdownIt` per thread |
 | `_LIST_MARKER_RE` | fresh-block guard: rejects ordered/unordered list markers |
 | `_FENCE_MARKER_RE` | fenced code / `$$` math marker matcher for boundary fence parity |

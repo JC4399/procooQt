@@ -28,10 +28,11 @@ any window refreshes every window's title-bar list.
   `ensure_chat(panel_index)` to seed a newly created session with one chat.
 - Chat slots: new chat in panel, activate tab, move, split, delete.
 - Model slots: `modelNameFor(chat_id)`, `_handle_model_changed(chat_id, name)`.
-- Layout engine: `_reconcile_panels`, `_sync_panels`, `_save_layout`.
-- Persistence (`_create_stored_chat`, `_save_current_chat_for`,
-  `_chat_save_snapshot`, `_build_context_snapshot`) and hydration
-  (`_hydrate_chat`, `_create_manager_chat`).
+- Layout engine: `_reconcile_panels`, `_sync_panels`, and the debounced
+  off-thread `_save_layout` (with `_flush_layout_loop` / `flush_layout`).
+- Persistence (`_create_stored_chat`, `_build_context_snapshot`) and hydration
+  (`_hydrate_chat`, `_create_manager_chat`). Live-chat persistence is owned by
+  the [`chat-worker`](chat-worker.md), not this controller.
 - Single-pass enrichment (`_collect_summaries` / `_apply_summaries`) with an
   off-thread `refresh_model_async` variant.
 - Cross-window sync: subscribes to [`SessionBus.sessions_changed`](qt-session-bus.md)
@@ -122,9 +123,11 @@ is no source) → append to that panel's tabs + set active → refresh/save →
   panel's tabs and activate it; empty source panels collapse.
 
 Both call `chat.prepare_rebuild(chat_id)` **before** `_finalize_panel_change()`.
-This blanks the moved chat's `ChatListModel` and sets its loading flag, so the
-panel QML instantiates with zero card delegates and paints its loading spinner
-immediately; `_open_chat` then rebuilds the transcript once behind the overlay.
+This shows the moved chat's loading overlay and *defers* the `ChatListModel`
+blank to the next event-loop turn, so the drop handler returns without tearing
+down card delegates synchronously and the off-thread layout write never blocks
+the first paint. `_open_chat` then rebuilds the transcript once behind the
+overlay.
 
 ### Delete chat (`_delete_chat_by_id`)
 
@@ -205,12 +208,14 @@ chats fall back to it.
 | `@Slot(str, str) def _handle_model_changed(self, chat_id, model_name)` | chat, model | `None` | validate against `llm_models` → set `state.model_name` → persist → `Agent.set_model` if live → refresh panel | Writes store; toasts on unknown model |
 | `@Slot(str) def refresh_chat_panels(self, chat_id)` | chat | `None` | derive live status/blink → push `update_tab` to every panel owning the chat → `set_runtime` for the panel showing it | Updates `ChatPanelModel`/`ChatTabModel`; runs on every `chat_state_changed` |
 | `@Slot(str) def refresh_chat_tokens(self, chat_id)` | chat | `None` | read true counts from `ChatState` → `set_tokens` on the panel showing the chat | Updates `ChatPanelModel` only; runs on every `chat_tokens_changed` |
-| `def _chat_display_status(self, chat_id)` | chat | `ChatStatus` | live `ChatState` + live agent messages (fallback enriched summary) → `_status_from_state` | Disk-free; GUI thread only |
+| `def _chat_display_status(self, chat_id)` | chat | `ChatStatus` | live `ChatState.message_count` (fallback enriched summary) → `_status_from_state` | Disk-free; GUI thread only |
 | `@staticmethod def _status_from_state(state, has_messages)` | state; message presence | `ChatStatus` | busy → `WAITING`/`RUNNING`; error → `ERROR`; else `FINISHED`/`EMPTY` | Pure |
 | `def _reconcile_panels(self, name)` | session | `None` | stored layout vs session chats → `_panels` | Saves layout |
 | `def _sync_panels(self)` | — | `None` | push layout + runtime into `ChatPanelModel`s; set visible chats | Emits `panels_changed`/`tabs_changed` |
 | `def _panel_runtime(self, chat_id)` | chat | 11-tuple | busy/approval/tokens/loading + primary/allow/ask/block counts + model name | Reads `ChatState`; tokens are the true `token_usage` values (no estimate) |
-| `def _save_layout(self)` | — | `None` | write `{splits:[{chat_ids, active_chat_id}]}` to the store | Writes store |
+| `def _save_layout(self)` | — | `None` | snapshot `{splits:[{chat_ids, active_chat_id}]}` and queue a debounced off-thread persist | No synchronous disk I/O; collapses rapid calls |
+| `async def _flush_layout_loop(self)` | — | `None` | wait `_LAYOUT_SAVE_DEBOUNCE`, then `to_thread(chat_store.set_layout)` for the newest pending layout | Worker-thread disk write |
+| `def flush_layout(self)` | — | `None` | synchronously persist any pending layout (app shutdown) | GUI-thread disk write |
 | `def _open_chat(self, chat_id)` | chat | `None` | set active → emit `chat_switch_started` → spawn `_open_chat_async` | Emits signals |
 | `async def _open_chat_async(self, chat_id)` | chat | `None` | off-thread load → hydrate if needed → emit `active_chat_changed` | Hydration may toast |
 | `def _open_session_panels(self)` | — | `None` | `_open_chat` each panel's active chat | Emits signals |
@@ -228,10 +233,10 @@ chats fall back to it.
 | `@staticmethod def _build_context_snapshot(chat) -> dict` | live chat | Snapshot | `sys_prompt`, `_pending_sys_message`, skills, `_tools`, `_tool_config` | — |
 | `def _create_stored_chat(self, chat_id, source_chat_id="")` | id; optional source chat | `None` | new record with `session`/`messages`/`true_input_tokens`/`true_output_cum`; `skills_config`/`model_name` copied from `source_chat_id` else empty config / config default → save | Writes store |
 | `def _chat_save_snapshot(self, chat_id)` | id | `(messages, snapshot)` or `None` | capture live messages/context on the GUI thread | — |
-| `def _save_current_chat_for(self, chat_id, snapshot=None)` | id; optional snapshot | `None` | replace `messages`/`message_count`/`context_snapshot` + persisted true token counts → `save_chat` (atomic) | Writes store |
+| `def _save_current_chat_for(self, chat_id, snapshot=None)` | id; optional snapshot | `None` | legacy helper; live-chat persistence now runs on the worker (`ChatWorker._do_persist`) | Writes store |
 | `def _generate_unique_chat_id(self) -> str` | — | Unique id | timestamp base, suffixed while colliding | — |
 | `async def _hydrate_chat(self, chat_id, stored=None)` | id; optional stored | Live chat or `None` | existing → off-thread load → off-thread `_create_manager_chat` → `refresh_estimated` → restore persisted token counts → snapshot save | `ChatError` path logs + toasts |
 | `def _create_manager_chat(self, chat_id, stored, primary, secondary)` | id, stored, skill paths | New chat | resolve `stored.model_name` (fallback default) → `chat_manager.create_chat` with model/skills/tools/`chat_limits`/initial messages | Synchronous; run via `to_thread` |
-| `def _cancel_pending_operations(self, state, chat_id)` | state, id | `None` | deny pending tool → set `approval_event` → cancel `active_task` | Schedules `deny_tool` |
+| `def _cancel_pending_operations(self, chat_id)` | id | `None` | `remove_worker(chat_id)` + `chat_manager.remove_chat` | Stops the chat's worker thread |
 | `def _spawn(self, coro)` | coroutine | `None` | `asyncio.ensure_future` → track → discard on done | Fire-and-forget |
 | `def _emit_validation_issues(self)` | — | `None` | group warnings/errors from `skill_manager` → toast | Emits `toast_requested` |

@@ -202,12 +202,17 @@ Rules:
 
 # Concurrency
 
-- The app runs **one asyncio event loop fused with Qt** via `qasync.QEventLoop`. There is exactly one loop, on the GUI thread.
-- Async work is scheduled with `asyncio.ensure_future(...)`.
-- Because everything runs on the GUI thread, controllers may update models and properties directly from `async` slots. No locks.
-- **Never block the loop**: wrap synchronous file I/O (`SessionStore`, large skill scans) in `await asyncio.to_thread(...)`.
-- Tool subprocesses use `asyncio.create_subprocess_exec` inside `asyncio.gather` — do not use `QProcess`.
+- The GUI thread runs **one asyncio event loop fused with Qt** via `qasync.QEventLoop`. GUI async work is scheduled with `asyncio.ensure_future(...)`.
+- **Each chat runs on its own `QThread`** (`src/qt/chat_worker.py`). The worker owns the `Agent` and the render pipeline and runs a private `asyncio` loop inside `run()`. Chats are therefore fully independent: one chat's streaming and rendering never blocks another.
+- **Message ownership**: `Agent.messages` is owned and mutated only by the chat's worker thread. The GUI must never read or write `agent.messages`; it receives `messages_snapshot`/`message_count` signals and sends commands instead.
+- **Cross-thread rules**: GUI → worker commands use `loop.call_soon_threadsafe(...)` (never call worker methods directly); worker → GUI results are Qt `Signal`s (queued automatically). Only plain data (dicts, strings, ints) crosses the boundary — never QML objects or Qt models.
+- **Qt models stay on the GUI thread**: `ChatListModel` (and every `QAbstractListModel`) is mutated only in `ChatController` apply slots. The render worker never touches a model.
+- **Render utils are per-thread**: the Markdown parser (`_PARSER_TLS`) and pygments formatter (`_FORMATTER_TLS`) are thread-local because each chat renders on its own thread. LaTeX/matplotlib is globally serialized (`latex._RENDER_LOCK`) — the one unavoidable cross-chat bottleneck.
+- **Never block a loop**: wrap synchronous file I/O (chat store, large skill scans) in `await asyncio.to_thread(...)`.
+- Tool subprocesses use `asyncio.create_subprocess_exec` inside `asyncio.gather` on the worker loop — do not use `QProcess`.
 - The `watchdog` observer callback runs on a background thread. It must only **emit a Qt `Signal`**; the connected slot then runs queued on the GUI thread. Never touch models from the watcher thread.
+- **Worker lifecycle**: create/start on the GUI thread; stop with `loop.stop()` + `QThread.wait()` on chat delete and app shutdown. Never destroy a running `QThread`.
+- The GIL caps pure-Python render parallelism: threads free the GUI loop and parallelize I/O (network, subprocesses), but Markdown rendering across chats still contends for the GIL.
 
 # DRY: No Copy-Paste
 

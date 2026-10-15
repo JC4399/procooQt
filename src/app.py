@@ -173,6 +173,7 @@ def main() -> None:
     logger.info("Procoo Qt started (ui=%s)", type(ui).__name__)
     with loop:
         loop.run_forever()
+    ui.shutdown()
 
 
 if __name__ == "__main__":

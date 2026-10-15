@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+import threading
 import time
 import uuid
 
@@ -30,6 +31,7 @@ class ChatStore:
         self.chats_dir = self.storage_dir / "chats"
         self.chats_dir.mkdir(parents=True, exist_ok=True)
         self._sessions_path = self.storage_dir / "sessions.json"
+        self._sessions_lock = threading.RLock()
         self._ensure_session_ids()
 
     def save_chat(self, chat_id: str, data: dict) -> None:
@@ -133,18 +135,32 @@ class ChatStore:
         return {"splits": [{"chat_ids": [], "active_chat_id": ""}]}
 
     def _load_sessions(self) -> list[dict]:
-        if not self._sessions_path.exists():
-            return []
-        try:
-            with open(self._sessions_path, encoding="utf-8") as f:
-                data = json.load(f)
-            return data.get("sessions", [])
-        except Exception:
-            return []
+        """Read and parse ``sessions.json`` under the store lock.
+
+        Returns:
+            The stored session records, or an empty list when missing/corrupt.
+        """
+        with self._sessions_lock:
+            if not self._sessions_path.exists():
+                return []
+            try:
+                with open(self._sessions_path, encoding="utf-8") as f:
+                    data = json.load(f)
+                return data.get("sessions", [])
+            except Exception:
+                return []
 
     def _save_sessions(self, sessions: list[dict]) -> None:
-        with open(self._sessions_path, "w", encoding="utf-8") as f:
-            json.dump({"sessions": sessions}, f, indent=2)
+        """Atomically write ``sessions.json`` under the store lock.
+
+        Args:
+            sessions: The session records to persist.
+        """
+        with self._sessions_lock:
+            tmp = self._sessions_path.parent / (self._sessions_path.name + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"sessions": sessions}, f, indent=2)
+            tmp.replace(self._sessions_path)
 
     def _ensure_session_ids(self) -> None:
         """Backfill a stable UUID ``id`` onto any session record lacking one.
@@ -218,14 +234,15 @@ class ChatStore:
             name: The session name.
             layout: The layout dict to store.
         """
-        sessions = self._load_sessions()
-        for session in sessions:
-            if session["name"] == name:
-                session["layout"] = layout
-                break
-        else:
-            return
-        self._save_sessions(sessions)
+        with self._sessions_lock:
+            sessions = self._load_sessions()
+            for session in sessions:
+                if session["name"] == name:
+                    session["layout"] = layout
+                    break
+            else:
+                return
+            self._save_sessions(sessions)
 
     def create_session(
         self, name: str, layout: dict | None = None, session_id: str | None = None
@@ -245,19 +262,20 @@ class ChatStore:
         Raises:
             ValueError: If a session with *name* already exists.
         """
-        sessions = self._load_sessions()
-        if any(s["name"] == name for s in sessions):
-            raise ValueError(f"Session '{name}' already exists.")
-        stable_id = session_id or uuid.uuid4().hex
-        sessions.append(
-            {
-                "id": stable_id,
-                "name": name,
-                "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "layout": layout or self._default_layout(),
-            }
-        )
-        self._save_sessions(sessions)
+        with self._sessions_lock:
+            sessions = self._load_sessions()
+            if any(s["name"] == name for s in sessions):
+                raise ValueError(f"Session '{name}' already exists.")
+            stable_id = session_id or uuid.uuid4().hex
+            sessions.append(
+                {
+                    "id": stable_id,
+                    "name": name,
+                    "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "layout": layout or self._default_layout(),
+                }
+            )
+            self._save_sessions(sessions)
         return stable_id
 
     def ensure_default_session(self) -> str:
@@ -266,19 +284,21 @@ class ChatStore:
         Returns:
             The name of the first session (``Default`` when freshly created).
         """
-        sessions = self._load_sessions()
-        if not sessions:
-            self.create_session(DEFAULT_SESSION_NAME)
-            return DEFAULT_SESSION_NAME
-        return sessions[0]["name"]
+        with self._sessions_lock:
+            sessions = self._load_sessions()
+            if not sessions:
+                self.create_session(DEFAULT_SESSION_NAME)
+                return DEFAULT_SESSION_NAME
+            return sessions[0]["name"]
 
     def delete_session(self, name: str) -> list[str]:
         """Delete a session and its chats. Returns the deleted chat IDs."""
-        sessions = self._load_sessions()
-        if not any(s["name"] == name for s in sessions):
-            raise ValueError(f"Session '{name}' not found.")
-        sessions = [s for s in sessions if s["name"] != name]
-        self._save_sessions(sessions)
+        with self._sessions_lock:
+            sessions = self._load_sessions()
+            if not any(s["name"] == name for s in sessions):
+                raise ValueError(f"Session '{name}' not found.")
+            sessions = [s for s in sessions if s["name"] != name]
+            self._save_sessions(sessions)
 
         affected = []
         for fpath in self.chats_dir.glob("*.json"):

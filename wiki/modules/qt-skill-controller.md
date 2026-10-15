@@ -20,7 +20,7 @@ these slots.
 - DRY collectors `_collect_selected_skills`, `_collect_tool_modes`,
   `_collect_sidebar_config`.
 - Sync pipeline `_collect_*` → `_persist_config` → `_apply_live_config` →
-  `_append_delta_banner` → `chat.rebuild_chat_display`.
+  `_handle_worker_config_updated` → `worker.append_banner` → `worker.request_rebuild`.
 - `_load_config_into_sidebar`, `_rebuild_skill_sidebar`, `_refresh_skills`.
 - Per-chat summary publisher `_publish_config_summary` (primary/allow/ask/block
   counts on the chat's `ChatState`).
@@ -84,10 +84,11 @@ these slots.
 4. `_apply_live_config`:
    - `await asyncio.to_thread(_load_config_payloads)` loads skill contents and
      tool definitions off the event loop.
-   - `chat_manager.update_chat_config(...)` on the live chat; each warning emits
-     `toast_requested`.
-   - `_append_delta_banner` builds/pops the trailing delta banner.
-   - `chat.rebuild_chat_display(chat_id)`.
+   - `worker.update_config(...)` pushes the config to the chat's worker thread;
+     the worker emits `config_updated`, handled by `_handle_worker_config_updated`
+     (each warning emits `toast_requested`).
+   - `_append_delta_banner` builds the delta banner and `worker.append_banner(...)`.
+   - `worker.request_rebuild()`.
 
 ### QML dock interaction (`SkillDock.qml`)
 
@@ -152,9 +153,10 @@ expanding leftward over the panel body.
 | `_log_task_failure(task) static -> None` | `task` | `None` | Ignore cancelled; log non-`None` exception | Logs error |
 | `_sync_config_to_chat() async -> None` | — | `None` | Bails while loading or when `_sidebar_chat_id` is empty; collect → persist → chips + summary → live apply | Persists, emits `config_changed`, updates the panel |
 | `_persist_config(chat_id, config) -> dict[str, str]` | `chat_id`; `config` | previous tool-mode map | Load stored chat, replace `skills_config`, save | Writes chat file; `{}` if missing |
-| `_apply_live_config(chat_id, config, old_tool_config) async -> None` | ids/config | `None` | Bails if no live chat; load payloads off-loop; `update_chat_config`; warnings → toast; append banner; rebuild chat | Emits `toast_requested`; mutates chat state |
+| `_apply_live_config(chat_id, config, old_tool_config) async -> None` | ids/config | `None` | Bails if no live chat; load payloads off-loop; `worker.update_config`; pending payloads stored for the result callback | Queues a worker command |
 | `_load_config_payloads(config) -> tuple[list, list, list, dict]` | `config` | primary content, secondary content, tool defs, tool config | Blocking `SkillManager` loads (run under `to_thread`) | None |
-| `_append_delta_banner(chat_id, config, old_tool_config, result, primary, secondary, tool_defs) -> None` | sync inputs + result | `None` | Pops a trailing delta; if changes exist, appends a new delta banner to `state.context_banners_data` | Mutates chat state |
+| `_handle_worker_config_updated(chat_id, result) -> None` | chat, result dict | `None` | Pops pending payloads; toasts warnings; `_append_delta_banner`; `worker.request_rebuild` | Queues worker commands |
+| `_append_delta_banner(chat_id, config, old_tool_config, result, primary, secondary, tool_defs, worker) -> None` | sync inputs + result + worker | `None` | If changes exist, `worker.append_banner(...)` | Queues a worker command |
 
 ### Sidebar and model state
 

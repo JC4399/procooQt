@@ -40,8 +40,8 @@ run.
 
 `model_name` records the LLM selected for the chat; when absent the config
 default is used. `true_input_tokens` / `true_output_cum` cache the last true API
-token counts so the token bar survives a restart; they are written by
-`SessionController._save_current_chat_for` and restored on hydration.
+token counts so the token bar survives a restart; they are written by the live
+chat's [`ChatWorker`](chat-worker.md) (`_do_persist`) and restored on hydration.
 
 ## `sessions.json` shape
 
@@ -71,7 +71,7 @@ existed are backfilled in `ChatStore.__init__` via `_ensure_session_ids`.
 | Signature | `def __init__(self, storage_dir: str) -> None` |
 | Inputs | `storage_dir` — root storage path (`chats/` subdir used). |
 | Output | `None` |
-| Side effects | creates `chats/` dir; points `_sessions_path` at `sessions.json`; backfills session ids via `_ensure_session_ids`. |
+| Side effects | creates `chats/` dir; points `_sessions_path` at `sessions.json`; creates the session-write `threading.RLock`; backfills session ids via `_ensure_session_ids`. |
 
 ### `save_chat`
 
@@ -128,8 +128,8 @@ existed are backfilled in `ChatStore.__init__` via `_ensure_session_ids`.
 | `get_session_by_id` | `(session_id: str) -> dict \| None` | session record by stable UUID |
 | `session_id_for` | `(name: str) -> str` | stable UUID for a session name, or `""` |
 | `get_layout` | `(name: str) -> dict` | stored layout or the default |
-| `set_layout` | `(name: str, layout: dict) -> None` | persist a session's layout |
-| `create_session` | `(name: str, layout: dict \| None = None, session_id: str \| None = None) -> str` | raises `ValueError` on duplicate; returns the session UUID |
+| `set_layout` | `(name: str, layout: dict) -> None` | persist a session's layout; the load-modify-write runs under the store lock |
+| `create_session` | `(name: str, layout: dict \| None = None, session_id: str \| None = None) -> str` | raises `ValueError` on duplicate; returns the session UUID; the check + append run under the store lock |
 | `ensure_default_session` | `() -> str` | create `Default` if none; return first session name |
 | `delete_session` | `(name: str) -> list[str]` | delete session **and its chats**; return deleted chat ids |
 | `set_chat_session` | `(chat_id: str, session_name: str \| None) -> None` | assign/clear a chat's session |
@@ -138,6 +138,12 @@ existed are backfilled in `ChatStore.__init__` via `_ensure_session_ids`.
 
 | Function | Signature | Purpose |
 |---|---|---|
-| `_load_sessions` | `() -> list[dict]` | read `sessions.json` |
-| `_save_sessions` | `(sessions: list[dict]) -> None` | write `sessions.json` |
+| `_load_sessions` | `() -> list[dict]` | read `sessions.json` under the store lock |
+| `_save_sessions` | `(sessions: list[dict]) -> None` | write `sessions.json` **atomically** (`.tmp` + `replace`) under the store lock |
 | `_ensure_session_ids` | `() -> None` | backfill + persist a UUID `id` on legacy session records |
+
+The store is a single shared instance across every window, so all session-file
+mutations run under `_sessions_lock` (a re-entrant `threading.RLock`).
+`_save_sessions` writes a temp file and `replace`s it, so a reader on another
+thread (e.g. a debounced off-thread `set_layout`, see
+[`qt-session-controller`](qt-session-controller.md)) never sees a torn file.

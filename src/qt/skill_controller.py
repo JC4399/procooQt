@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Coroutine
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
@@ -27,6 +27,7 @@ from ..util.log.formatter import (
     format_skill_change,
     format_tool_change,
 )
+from .chat_worker import ChatWorker, get_worker
 from .context_banner import build_delta_context_sections
 from .error_handler import TOAST_ERROR, TOAST_INFO, TOAST_WARNING
 from .models.skill_tree_model import SkillTreeModel
@@ -110,6 +111,7 @@ class SkillController(QObject):
         super().__init__(parent)
         self.app = app
         self._tasks: set[asyncio.Task[Any]] = set()
+        self._pending_config: dict[str, tuple] = {}
 
     # ------------------------------------------------------------------
     #  Builder
@@ -531,15 +533,44 @@ class SkillController(QObject):
         primary, secondary, tool_defs, tool_config = await asyncio.to_thread(
             self._load_config_payloads, config
         )
-        result = chat_manager.update_chat_config(
-            chat_id, primary, secondary, tool_defs, tool_config
+        worker = get_worker(chat_id)
+        if worker is None:
+            return
+        self._pending_config[chat_id] = (
+            config,
+            old_tool_config,
+            primary,
+            secondary,
+            tool_defs,
         )
-        for warning in result.get("warnings", []):
+        worker.update_config(primary, secondary, tool_defs, tool_config)
+
+    @Slot(str, object)
+    def _handle_worker_config_updated(self, chat_id: str, result: object) -> None:
+        """Append a delta context banner once a worker confirms a config change.
+
+        Args:
+            chat_id: The chat whose config changed.
+            result: The ``update_skill_config`` result dict.
+        """
+        pending = self._pending_config.pop(chat_id, None)
+        worker = get_worker(chat_id)
+        for warning in cast(dict, result).get("warnings", []):
             self.toast_requested.emit(warning, TOAST_WARNING)
-        self._append_delta_banner(
-            chat_id, config, old_tool_config, result, primary, secondary, tool_defs
-        )
-        self.chat.rebuild_chat_display(chat_id)
+        if pending is not None and worker is not None:
+            config, old_tool_config, primary, secondary, tool_defs = pending
+            self._append_delta_banner(
+                chat_id,
+                config,
+                old_tool_config,
+                cast(dict, result),
+                primary,
+                secondary,
+                tool_defs,
+                worker,
+            )
+        if worker is not None:
+            worker.request_rebuild()
 
     def _load_config_payloads(
         self, config: dict[str, Any]
@@ -569,8 +600,9 @@ class SkillController(QObject):
         primary: list[dict],
         secondary: list[dict],
         tool_defs: list[dict],
+        worker: ChatWorker,
     ) -> None:
-        """Append the latest delta context banner to the chat state.
+        """Append the latest delta context banner to the chat's worker.
 
         Args:
             chat_id: The active chat id.
@@ -580,6 +612,7 @@ class SkillController(QObject):
             primary: Loaded primary skill contents.
             secondary: Loaded secondary skill contents.
             tool_defs: Loaded tool definitions.
+            worker: The chat's worker (owns the banner list).
         """
         added_primary = result.get("added_primary", [])
         added_secondary = result.get("added_secondary", [])
@@ -593,14 +626,11 @@ class SkillController(QObject):
             if old_mode and old_mode != new_mode:
                 mode_changes[tool_name] = (old_mode, new_mode)
 
-        state = self.session.state(chat_id)
-        if state.context_banners_data and state.context_banners_data[-1].get("is_delta"):
-            state.context_banners_data.pop()
         if added_primary or added_secondary or added_tools or mode_changes:
             sections = build_delta_context_sections(
                 added_primary_contents, added_secondary_contents, added_tool_defs, mode_changes
             )
-            state.context_banners_data.append(
+            worker.append_banner(
                 {
                     "type": "delta",
                     "title": "Context Update",

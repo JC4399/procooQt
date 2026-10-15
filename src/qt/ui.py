@@ -127,6 +127,7 @@ class ProcooQtUI(QObject):
         session.active_chat_changed.connect(skill._handle_chat_activated)
         chat.chat_state_changed.connect(session.refresh_chat_panels)
         chat.chat_tokens_changed.connect(session.refresh_chat_tokens)
+        chat.config_updated.connect(skill._handle_worker_config_updated)
         chat.toast_requested.connect(self.notifier.toast_requested)
         skill.toast_requested.connect(self.notifier.toast_requested)
 
@@ -207,9 +208,12 @@ class ProcooQtUI(QObject):
         self.automation.start()
         self.control.start()
         if window is not None:
-            self.windows.register_primary(
-                self.session, self.chat, self.skill, window, frame_filter
-            )
+            self.windows.register_primary(self.session, self.chat, self.skill, window, frame_filter)
+
+    def shutdown(self) -> None:
+        """Stop per-chat worker threads before the application exits."""
+        self.session.flush_layout()
+        self.chat.shutdown()
 
     # ------------------------------------------------------------------
     #  QML exposure
