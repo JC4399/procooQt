@@ -20,8 +20,12 @@ Related: [`chat-worker`](chat-worker.md), [`chat-render`](chat-render.md), [`qt-
   [`ChatPanelModel`](qt-chat-panel-model.md).
 - `attach_worker(chat_id, agent)` — ensure a worker exists and wire its signals.
 - `set_visible_chats(ids)` / `add_visible_chat` / `remove_visible_chat`.
-- `prepare_rebuild(chat_id)` for split/move; shows the loading overlay and defers
-  the model blank, then a staged batched apply behind the overlay.
+- `prepare_rebuild(chat_id)` — sets the loading overlay and blanks the model
+  synchronously so the panel binds empty and paints the spinner immediately.
+- `rebuild_chat_display(chat_id)` — `prepare_rebuild` + `worker.request_rebuild()`
+  for a chat with an attached worker; used by the session controller's
+  `_rebuild_changed_panels` when a split/move rebinds a panel to a different
+  chat. The plan is then staged in behind the overlay.
 - Per-chat action slots (`_handle_send_for`, `_handle_stop_for`,
   `_handle_regenerate_for`, `_handle_delete_turn_for`, `_handle_regenerate_from_for`,
   `_handle_approve_for`, `_handle_deny_for`) plus focused-chat wrappers.
@@ -63,7 +67,7 @@ Related: [`chat-worker`](chat-worker.md), [`chat-render`](chat-render.md), [`qt-
 | Slot | Handler |
 |---|---|
 | `_on_plan_ready` | `is_loading` → staged batched insert (`_apply_plan_staged`), else `diff_update`; refresh token bar |
-| `_on_stream_updated` | merge each `(row, values)` via `update_item` |
+| `_on_stream_updated` | skip while `is_loading` (staged rebuild owns the model), else merge each `(row, values)` via `update_item` |
 | `_on_result_swap` | `find_pending_result` → `replace_item`, else request a rebuild |
 | `_on_turn_started` | refresh sidebar/state (busy already set) |
 | `_on_turn_finished` | clear busy, reset turn, refresh, update buttons |
@@ -85,7 +89,7 @@ Related: [`chat-worker`](chat-worker.md), [`chat-render`](chat-render.md), [`qt-
   `regenerate_from(...)`.
 - `_handle_delete_turn_for` → `worker.delete_turn(msg_index)`, or a direct store
   edit when the chat has no live worker.
-- `rebuild_chat_display` → `worker.request_rebuild()`.
+- `rebuild_chat_display` → `prepare_rebuild` + `worker.request_rebuild()`.
 
 ### Activation / loading overlay
 
@@ -98,9 +102,14 @@ The staged-insert budget is tuned low for snappy switches (`_RENDER_INSERT_BATCH
 = 16, tick target 0.25 s), and `_REBUILD_PAINT_DELAY` = 0.02 s. In QML the
 overlay holds for 200 ms minimum after the build finishes.
 
-`prepare_rebuild(chat_id)` (split/move) only sets loading and spawns
-`_blank_model_soon`, which blanks the model after `await asyncio.sleep(0)` — so
-the drop handler returns without a synchronous delegate teardown.
+`prepare_rebuild(chat_id)` sets loading and blanks the model **synchronously**
+(`set_items([], [])`). `rebuild_chat_display(chat_id)` builds on it: when a
+split/move rebinds a panel to a different chat (fixed slots keep every other
+panel's delegate intact), the session controller calls it for the changed slots
+only, so just those panels' non-virtualized card repeaters bind an empty model
+and paint the spinner, and the chat's worker re-renders in staged batches behind
+the overlay. Chats without an attached worker are skipped so no overlay is left
+showing.
 
 ## Function Reference
 
@@ -113,8 +122,8 @@ the drop handler returns without a synchronous delegate teardown.
 | `def _is_visible(self, chat_id)` | chat | bool | visible set check | — |
 | `def model_for(self, chat_id)` | chat | `ChatListModel` | create on demand | inserts into `_models` |
 | `def attach_worker(self, chat_id, agent)` | chat, agent | `ChatWorker` | ensure + connect signals + set visibility | starts a thread |
-| `def prepare_rebuild(self, chat_id)` | chat | `None` | show loading + defer blank | No synchronous teardown |
-| `async def _blank_model_soon(self, chat_id)` | chat | `None` | `sleep(0)` then `set_items([], [])` | Clears the model after yielding |
+| `def prepare_rebuild(self, chat_id)` | chat | `None` | show loading + blank model synchronously | Clears the model before the panel rebinds |
+| `def rebuild_chat_display(self, chat_id)` | chat | `None` | `prepare_rebuild` + worker rebuild request | Skips chats with no attached worker |
 | `def _handle_chat_activated(self, chat_id)` | chat | `None` | loading + spawn activation | — |
 | `async def _activate_async(self, chat_id, generation)` | chat, gen | `None` | hydrate + rebuild request | — |
 | `def _launch_generation(self, chat_id, message)` | chat, text | `None` | busy + scanner + spawn | mutates state |
@@ -124,7 +133,7 @@ the drop handler returns without a synchronous delegate teardown.
 | `def _delete_stored_turn(self, chat_id, msg_index)` | chat, index | `None` | store edit for non-live chat | writes store |
 | `@Slot(str, object) def _on_plan_ready(self, chat_id, plan)` | chat, plan | `None` | staged or `diff_update` | mutates model |
 | `async def _apply_plan_staged(self, chat_id, model, items, keys, token)` | chat, model, rows | `None` | batched insert | clears loading |
-| `@Slot(str, object) def _on_stream_updated(self, chat_id, updates)` | chat, updates | `None` | `update_item` per row | mutates model |
+| `@Slot(str, object) def _on_stream_updated(self, chat_id, updates)` | chat, updates | `None` | skip while loading, else `update_item` per row | mutates model |
 | `@Slot(str, str, object, str) def _on_result_swap(self, chat_id, tool_id, item, key)` | chat, tool id, item, key | `None` | replace pending row | mutates model |
 | `@Slot(str, int) def _on_turn_started/_on_turn_finished(self, chat_id, gen)` | chat, gen | `None` | refresh state/sidebar | emits signals |
 | `@Slot(str, object) def _on_approval_needed(self, chat_id, event)` | chat, event | `None` | show approval | emits signals |

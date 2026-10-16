@@ -8,9 +8,9 @@ import "../cards"
 Rectangle {
     id: panel
 
-    // The ChatPanelModel supplied by the workspace, and this panel's index.
+    // The ChatPanelModel supplied by the workspace, and this panel's fixed slot.
     property var panelModel: null
-    property int panelIndex: 0
+    property int slot: 0
 
     // Split-drop hint from the workspace: "" (none), "left", "right", or "move".
     property string dropHint: ""
@@ -77,11 +77,11 @@ Rectangle {
         // ----------------------------------------------------------
         ChatTabBar {
             Layout.fillWidth: true
-            panelIndex: panel.panelIndex
+            panelIndex: panel.slot
             tabModel: panel.panelModel ? panel.panelModel.tabModel : null
-            onNewChatRequested: session._handle_new_chat(panel.panelIndex)
+            onNewChatRequested: session._handle_new_chat(panel.slot)
             onTabClicked: function (chatId) {
-                session._handle_panel_activate(panel.panelIndex, chatId)
+                session._handle_panel_activate(panel.slot, chatId)
             }
             onDragStarted: function (chatId, title, sceneX, sceneY) {
                 panel.dragStarted(chatId, title, sceneX, sceneY)

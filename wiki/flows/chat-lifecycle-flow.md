@@ -45,7 +45,7 @@ every visible chat (`set_visible_chats`). Each panel's values reach QML through 
 6. `_open_session_panels()` opens each panel's active chat (`_open_chat`:
    `chat_switch_started` → off-thread load/hydrate → `active_chat_changed`).
 
-## Create chat (`ChatTabBar` `+` → `session._handle_new_chat(panel_index)`)
+## Create chat (`ChatTabBar` `+` → `session._handle_new_chat(slot)`)
 
 1. `_generate_unique_chat_id` — timestamp id, suffixed on collision.
 2. `_create_stored_chat` → `ChatStore.save_chat` with `session` = the active
@@ -80,18 +80,25 @@ it hides, so the freshly built transcript always scrolls to the bottom.
 
 ## Split / move (`SplitWorkspace` drag)
 
-- **Split** (`_handle_split(chat_id, target_index, side)`): the target panel is
+Panels live in a fixed set of **slots** (`SessionController.MAX_PANELS = 4`).
+`SplitWorkspace.qml` drives a constant-size `Repeater` (`session.maxPanels`) and
+positions each delegate from `session.panelOrder`, so adding, removing, or
+moving a panel only changes a delegate's `x`/`visibility`. A panel therefore
+keeps its `ChatPanelModel` as it moves and untouched panels are **never**
+rebuilt.
+
+- **Split** (`_handle_split(chat_id, target_slot, side)`): the target panel is
   kept (even if the dragged chat was its only tab) and a new panel is inserted
-  left/right containing the chat. Max 4; the QML drop hint is suppressed at the
-  limit.
-- **Move** (`_handle_move_chat(chat_id, target_index)`): the chat is removed
-  from its panel and appended to the target's tabs; empty source panels collapse.
-- Both call `chat.prepare_rebuild(chat_id)` before recreating the panel: the
-  moved chat's loading overlay is shown immediately, while the `ChatListModel`
-  blank is deferred to the next event-loop turn (`_blank_model_soon`). This keeps
-  the drop handler free of synchronous delegate teardown. They then queue the
-  layout persist and `_open_chat`, which rebuilds the transcript once behind the
-  overlay.
+  left/right containing the chat, taking the lowest free slot. Max `MAX_PANELS`;
+  the QML drop hint is suppressed at the limit.
+- **Move** (`_handle_move_chat(chat_id, target_slot)`): the chat is removed from
+  its panel and appended to the target's tabs; empty source panels collapse.
+- Both snapshot the slot→active map first, then call `_rebuild_changed_panels`:
+  only slots whose active chat actually changed have their model blanked
+  (`chat.rebuild_chat_display`) and re-rendered by the chat's worker in staged
+  batches behind the overlay, while the layout (and each panel's `x`) updates
+  immediately. They then queue the layout persist and `_open_chat`, which
+  activates the moved chat.
 
 `SplitWorkspace.qml` tracks the drag manually: at drag start it snapshots each
 panel's rectangle once (`capturePanelRects`) so per-move hit-testing does not

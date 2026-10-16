@@ -1,41 +1,51 @@
 import QtQuick
-import QtQuick.Layouts
 import QtQuick.Window
 
 // VS Code-like split workspace: one to four equal-width chat panels side by side.
-// All panels belong to the active session; each has its own tab bar. Panel widths
-// are equal and not user-adjustable. Dragging a chat tab shows a ghost and, on
+// Panels occupy a fixed set of slots (SessionController.MAX_PANELS), so adding,
+// removing, or moving a panel only changes each delegate's x and visibility —
+// never the delegate itself. A panel keeps its ChatPanelModel as it moves, so
+// untouched panels are never rebuilt. Dragging a chat tab shows a ghost and, on
 // release, splits the hovered panel or moves the chat to it.
 Item {
     id: workspace
 
     signal openEditorRequested()
 
+    // Number of fixed panel slots; mirrors SessionController.MAX_PANELS.
+    readonly property int slotCount: session.maxPanels
+
     property string dragChatId: ""
     property string dragTitle: ""
     property bool dragging: false
     property real dragX: -1000
     property real dragY: -1000
-    property int hoverIndex: -1
+    property int hoverSlot: -1
     property string hoverSide: ""
     // Panel rectangles captured once at drag start; geometry is fixed mid-drag,
     // so hit-testing avoids a per-move mapFromItem over every panel.
     property var panelRects: []
 
-    RowLayout {
-        id: workspaceRow
+    Item {
+        id: panelsLayer
         anchors.fill: parent
-        spacing: 0
 
         Repeater {
-            model: session.panelCount
+            model: workspace.slotCount
 
             delegate: ChatPanel {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                panelIndex: index
+                // Visual position of this fixed slot (-1 when the slot is unused).
+                readonly property int visualIndex: session.panelOrder.indexOf(index)
+                readonly property real panelWidth:
+                    session.panelCount > 0 ? panelsLayer.width / session.panelCount : 0
+
+                visible: visualIndex >= 0
+                x: visualIndex * panelWidth
+                width: panelWidth
+                height: panelsLayer.height
+                slot: index
                 panelModel: session.panelAt(index)
-                dropHint: workspace.hoverIndex === index ? workspace.hoverSide : ""
+                dropHint: workspace.hoverSlot === index ? workspace.hoverSide : ""
                 onOpenEditorRequested: workspace.openEditorRequested()
                 onDragStarted: function (chatId, title, sx, sy) {
                     workspace.beginDrag(chatId, title, sx, sy)
@@ -90,17 +100,17 @@ Item {
         workspace.updateDrag(sx, sy)
     }
 
-    // Snapshot each panel's rect (workspace coords) for fast hit-testing.
+    // Snapshot each visible panel's rect (workspace coords) for fast hit-testing.
     function capturePanelRects() {
         var rects = []
-        var kids = workspaceRow.children
+        var kids = panelsLayer.children
         for (var i = 0; i < kids.length; i++) {
             var child = kids[i]
-            if (child.panelIndex === undefined)
+            if (child.slot === undefined || !child.visible)
                 continue
             var tl = child.mapToItem(workspace, 0, 0)
             rects.push({
-                "index": child.panelIndex,
+                "slot": child.slot,
                 "x": tl.x,
                 "y": tl.y,
                 "w": child.width,
@@ -121,7 +131,7 @@ Item {
         workspace.dragX = p.x
         workspace.dragY = p.y
         var hit = workspace.panelAtPoint(p.x, p.y)
-        workspace.hoverIndex = hit.index
+        workspace.hoverSlot = hit.slot
         workspace.hoverSide = hit.side
     }
 
@@ -129,23 +139,23 @@ Item {
         workspace.dragging = false
         var p = workspace.toLocal(sx, sy)
         var hit = workspace.panelAtPoint(p.x, p.y)
-        workspace.hoverIndex = -1
+        workspace.hoverSlot = -1
         workspace.hoverSide = ""
-        if (hit.index < 0)
+        if (hit.slot < 0)
             return
         if (hit.side === "move")
-            session._handle_move_chat(chatId, hit.index)
+            session._handle_move_chat(chatId, hit.slot)
         else if (hit.side === "left" || hit.side === "right")
-            session._handle_split(chatId, hit.index, hit.side)
+            session._handle_split(chatId, hit.slot, hit.side)
     }
 
     function cancelDrag() {
         workspace.dragging = false
-        workspace.hoverIndex = -1
+        workspace.hoverSlot = -1
         workspace.hoverSide = ""
     }
 
-    // Return {index, side} for the panel under a workspace-local point.
+    // Return {slot, side} for the panel under a workspace-local point.
     function panelAtPoint(x, y) {
         var rects = workspace.panelRects
         for (var i = 0; i < rects.length; i++) {
@@ -153,16 +163,16 @@ Item {
             if (x < r.x || y < r.y || x > r.x + r.w || y > r.y + r.h)
                 continue
             if (y - r.y <= r.tabBarHeight)
-                return { "index": r.index, "side": "move" }
+                return { "slot": r.slot, "side": "move" }
             // At the four-panel limit no new panel can be created, so suppress
             // the split hint; only grouping onto a tab bar is allowed.
-            if (session.panelCount >= 4)
-                return { "index": -1, "side": "" }
+            if (session.panelCount >= session.maxPanels)
+                return { "slot": -1, "side": "" }
             return {
-                "index": r.index,
+                "slot": r.slot,
                 "side": (x - r.x) < r.w / 2 ? "left" : "right"
             }
         }
-        return { "index": -1, "side": "" }
+        return { "slot": -1, "side": "" }
     }
 }

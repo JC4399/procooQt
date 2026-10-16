@@ -25,7 +25,7 @@ class ChatPanelModel(QObject):
         """Initialise the panel model.
 
         Args:
-            index: The panel's position in the workspace (0-based).
+            index: The panel's fixed slot id in the workspace (0-based).
             parent: Optional Qt parent object.
         """
         super().__init__(parent)
@@ -51,7 +51,7 @@ class ChatPanelModel(QObject):
 
     @Property(int, constant=True)
     def panelIndex(self) -> int:  # noqa: N802
-        """Return the panel's workspace index."""
+        """Return the panel's fixed workspace slot id."""
         return self._index
 
     @Property(str, notify=active_chat_changed)

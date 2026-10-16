@@ -39,6 +39,9 @@ logger = logging.getLogger("procoo_qt")
 #: Quiet period (seconds) before a debounced session-layout write hits disk.
 _LAYOUT_SAVE_DEBOUNCE = 0.4
 
+#: Maximum number of simultaneously visible workspace panels.
+MAX_PANELS = 4
+
 
 class ChatStatus:
     """String constants for chat display statuses."""
@@ -119,8 +122,8 @@ class SessionController(QObject):
         self._states = {}
         self._chats_by_session = {}
         self._enriched = {}
-        self._panels = [{"chat_ids": [], "active_chat_id": ""}]
-        self._panel_models = []
+        self._panels = [self._new_panel(0)]
+        self._panel_models = [ChatPanelModel(slot, self) for slot in range(MAX_PANELS)]
         self._tasks = set()
         self._pending_layout = None
         self._layout_task = None
@@ -157,19 +160,42 @@ class SessionController(QObject):
         """
         return len(self._panels)
 
-    @Slot(int, result=QObject)
-    def panelAt(self, index: int) -> QObject:  # noqa: N802
-        """Return the panel view model at an index, creating it on demand.
-
-        Args:
-            index: The panel index.
+    @Property(int, constant=True)
+    def maxPanels(self) -> int:  # noqa: N802
+        """Return the maximum number of workspace panels.
 
         Returns:
-            The panel's :class:`ChatPanelModel`.
+            The fixed slot count backing the QML panel repeater
+            (``session.maxPanels``).
         """
-        while len(self._panel_models) <= index:
-            self._panel_models.append(ChatPanelModel(len(self._panel_models), self))
-        return self._panel_models[index]
+        return MAX_PANELS
+
+    @Property(list, notify=panels_changed)
+    def panelOrder(self) -> list[int]:  # noqa: N802
+        """Return the visible panel slots in left-to-right order.
+
+        QML maps each fixed slot delegate to its visual position via the index
+        of its slot in this list, so moving a panel only changes its ``x`` and
+        never rebuilds the delegate.
+
+        Returns:
+            The slot ids of the visible panels, in visual order.
+        """
+        return [panel["slot"] for panel in self._panels]
+
+    @Slot(int, result=QObject)
+    def panelAt(self, slot: int) -> QObject:  # noqa: N802
+        """Return the panel view model for a fixed slot.
+
+        Args:
+            slot: The panel slot (0 .. ``MAX_PANELS - 1``).
+
+        Returns:
+            The slot's :class:`ChatPanelModel`.
+        """
+        if not 0 <= slot < MAX_PANELS:
+            slot = 0
+        return self._panel_models[slot]
 
     @Property(QObject, notify=sessions_changed)
     def sessionMenuModel(self) -> SessionMenuModel:  # noqa: N802
@@ -246,22 +272,23 @@ class SessionController(QObject):
     # ------------------------------------------------------------------
 
     @Slot(int)
-    def _handle_new_chat(self, panel_index: int) -> None:
+    def _handle_new_chat(self, slot: int) -> None:
         """Create a new chat and open it as a tab in a panel.
 
         The new chat inherits the panel's current chat's skill/tool config and
         model, so a fresh chat continues the last working setup.
 
         Args:
-            panel_index: The panel to add the chat to.
+            slot: The panel slot to add the chat to.
         """
-        if not (0 <= panel_index < len(self._panels)):
-            panel_index = 0
-        source_chat_id = self._panels[panel_index]["active_chat_id"]
+        panel = self._panel_by_slot(slot)
+        if panel is None:
+            panel = self._panels[0]
+        source_chat_id = panel["active_chat_id"]
         chat_id = self._generate_unique_chat_id()
         self._create_stored_chat(chat_id, source_chat_id=source_chat_id)
-        self._panels[panel_index]["chat_ids"].append(chat_id)
-        self._panels[panel_index]["active_chat_id"] = chat_id
+        panel["chat_ids"].append(chat_id)
+        panel["active_chat_id"] = chat_id
         self._refresh_model()
         self._save_layout()
         self._open_chat(chat_id)
@@ -271,37 +298,38 @@ class SessionController(QObject):
     # ------------------------------------------------------------------
 
     @Slot(int)
-    def ensure_chat(self, panel_index: int = 0) -> None:
+    def ensure_chat(self, slot: int = 0) -> None:
         """Create a chat in a panel when the session has none.
 
         Used so a freshly created session (e.g. from the control server) opens
         ready to use, with an active chat backing the per-chat skill/model dock.
 
         Args:
-            panel_index: The panel to create the chat in.
+            slot: The panel slot to create the chat in.
         """
         session_chats = self._chats_by_session.get(self.active_session_name or "", [])
         if session_chats:
             return
-        self._handle_new_chat(panel_index)
+        self._handle_new_chat(slot)
 
     # ------------------------------------------------------------------
     #  Slot: Panel tab activate
     # ------------------------------------------------------------------
 
     @Slot(int, str)
-    def _handle_panel_activate(self, panel_index: int, chat_id: str) -> None:
+    def _handle_panel_activate(self, slot: int, chat_id: str) -> None:
         """Activate a chat tab within a panel.
 
         Args:
-            panel_index: The panel whose tab was clicked.
+            slot: The panel slot whose tab was clicked.
             chat_id: The chat to activate.
         """
-        if not (0 <= panel_index < len(self._panels)) or not chat_id:
+        panel = self._panel_by_slot(slot)
+        if panel is None or not chat_id:
             return
-        if self._panels[panel_index]["active_chat_id"] == chat_id:
+        if panel["active_chat_id"] == chat_id:
             return
-        self._panels[panel_index]["active_chat_id"] = chat_id
+        panel["active_chat_id"] = chat_id
         self._save_layout()
         self._sync_panels()
         self._open_chat(chat_id)
@@ -311,30 +339,31 @@ class SessionController(QObject):
     # ------------------------------------------------------------------
 
     @Slot(str, int)
-    def _handle_move_chat(self, chat_id: str, target_index: int) -> None:
+    def _handle_move_chat(self, chat_id: str, target_slot: int) -> None:
         """Move a chat into another panel's tab bar.
 
         Args:
             chat_id: The dragged chat id.
-            target_index: The panel to move the chat into.
+            target_slot: The slot of the panel to move the chat into.
         """
-        if not chat_id or not (0 <= target_index < len(self._panels)):
+        if not chat_id:
             return
-        target = self._panels[target_index]
-        if chat_id in target["chat_ids"]:
+        target = self._panel_by_slot(target_slot)
+        if target is None or chat_id in target["chat_ids"]:
             return
+        old_active = self._active_by_slot()
         self._remove_chat_from_panels(chat_id)
         if target in self._panels:
             target["chat_ids"].append(chat_id)
             target["active_chat_id"] = chat_id
         else:
-            self._panels.append({"chat_ids": [chat_id], "active_chat_id": chat_id})
-        self.chat.prepare_rebuild(chat_id)
+            self._panels.append(self._new_panel(self._allocate_slot(), [chat_id], chat_id))
+        self._rebuild_changed_panels(old_active)
         self._finalize_panel_change()
         self._open_chat(chat_id)
 
     @Slot(str, int, str)
-    def _handle_split(self, chat_id: str, target_index: int, side: str) -> None:
+    def _handle_split(self, chat_id: str, target_slot: int, side: str) -> None:
         """Split a panel, moving a chat into a new adjacent panel.
 
         The target panel is always kept (even when the dragged chat was its only
@@ -343,14 +372,15 @@ class SessionController(QObject):
 
         Args:
             chat_id: The dragged chat id.
-            target_index: The panel being split.
+            target_slot: The slot of the panel being split.
             side: ``"left"`` or ``"right"`` for the new panel position.
         """
-        if not chat_id or not (0 <= target_index < len(self._panels)):
+        if not chat_id or len(self._panels) >= MAX_PANELS:
             return
-        if len(self._panels) >= 4:
+        target = self._panel_by_slot(target_slot)
+        if target is None:
             return
-        target = self._panels[target_index]
+        old_active = self._active_by_slot()
         for panel in self._panels:
             if chat_id in panel["chat_ids"]:
                 panel["chat_ids"].remove(chat_id)
@@ -360,10 +390,80 @@ class SessionController(QObject):
         target_pos = self._panels.index(target)
         position = target_pos if side == "left" else target_pos + 1
         position = max(0, min(position, len(self._panels)))
-        self._panels.insert(position, {"chat_ids": [chat_id], "active_chat_id": chat_id})
-        self.chat.prepare_rebuild(chat_id)
+        self._panels.insert(position, self._new_panel(self._allocate_slot(), [chat_id], chat_id))
+        self._rebuild_changed_panels(old_active)
         self._finalize_panel_change()
         self._open_chat(chat_id)
+
+    # ------------------------------------------------------------------
+    #  Panel helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _new_panel(
+        slot: int, chat_ids: list[str] | None = None, active_chat_id: str = ""
+    ) -> dict[str, Any]:
+        """Build a panel record with a stable slot.
+
+        Args:
+            slot: The fixed slot id (0 .. ``MAX_PANELS - 1``).
+            chat_ids: The panel's tab chat ids.
+            active_chat_id: The panel's active chat id.
+
+        Returns:
+            The panel record dict.
+        """
+        return {"slot": slot, "chat_ids": list(chat_ids or []), "active_chat_id": active_chat_id}
+
+    def _allocate_slot(self) -> int:
+        """Return the lowest panel slot not currently in use.
+
+        Returns:
+            A free slot id, or ``0`` if none is free.
+        """
+        used = {panel["slot"] for panel in self._panels}
+        for slot in range(MAX_PANELS):
+            if slot not in used:
+                return slot
+        return 0
+
+    def _panel_by_slot(self, slot: int) -> dict[str, Any] | None:
+        """Return the panel record occupying a slot.
+
+        Args:
+            slot: The panel slot to look up.
+
+        Returns:
+            The panel record, or ``None`` when the slot is empty.
+        """
+        for panel in self._panels:
+            if panel["slot"] == slot:
+                return panel
+        return None
+
+    def _active_by_slot(self) -> dict[int, str]:
+        """Snapshot each panel's active chat keyed by slot.
+
+        Returns:
+            Mapping of slot to active chat id.
+        """
+        return {panel["slot"]: panel["active_chat_id"] for panel in self._panels}
+
+    def _rebuild_changed_panels(self, old_active: dict[int, str]) -> None:
+        """Queue a background rebuild for panels whose active chat changed.
+
+        A layout change moves panels between fixed slots, but each slot's QML
+        delegate keeps its stable :class:`ChatPanelModel`. Only slots whose
+        active chat actually changed need to rebind, so their model is blanked
+        and their worker asked to re-render; untouched panels never re-render.
+
+        Args:
+            old_active: Slot-to-active-chat mapping captured before the change.
+        """
+        for panel in self._panels:
+            new_active = panel["active_chat_id"]
+            if old_active.get(panel["slot"], "") != new_active:
+                self.chat.rebuild_chat_display(new_active)
 
     def _remove_chat_from_panels(self, chat_id: str) -> None:
         """Remove a chat from every panel, dropping panels left empty.
@@ -383,7 +483,7 @@ class SessionController(QObject):
     def _ensure_panel_exists(self) -> None:
         """Guarantee at least one (possibly empty) panel remains."""
         if not self._panels:
-            self._panels = [{"chat_ids": [], "active_chat_id": ""}]
+            self._panels = [self._new_panel(self._allocate_slot())]
 
     def _finalize_panel_change(self) -> None:
         """Sync panel models and persist the layout after a panel mutation."""
@@ -685,7 +785,7 @@ class SessionController(QObject):
         session_chats = self._chats_by_session.get(name, [])
         assigned: set[str] = set()
         panels: list[dict[str, Any]] = []
-        for split in (stored.get("splits") or [])[:4]:
+        for slot, split in enumerate((stored.get("splits") or [])[:MAX_PANELS]):
             ids = [
                 cid
                 for cid in split.get("chat_ids", [])
@@ -695,35 +795,44 @@ class SessionController(QObject):
             active = split.get("active_chat_id", "")
             if active not in ids:
                 active = ids[0] if ids else ""
-            panels.append({"chat_ids": ids, "active_chat_id": active})
+            panels.append(self._new_panel(slot, ids, active))
         if not panels:
-            panels = [{"chat_ids": [], "active_chat_id": ""}]
+            panels = [self._new_panel(0)]
         leftovers = [cid for cid in session_chats if cid not in assigned]
         if leftovers:
             panels[0]["chat_ids"].extend(leftovers)
             if not panels[0]["active_chat_id"]:
                 panels[0]["active_chat_id"] = leftovers[0]
         non_empty = [p for p in panels if p["chat_ids"]]
-        self._panels = (non_empty or [{"chat_ids": [], "active_chat_id": ""}])[:4]
+        self._panels = (non_empty or [self._new_panel(0)])[:MAX_PANELS]
         self._save_layout()
 
     def _sync_panels(self) -> None:
-        """Push the layout and per-chat runtime into the panel view models."""
+        """Push the layout and per-chat runtime into the panel view models.
+
+        Panels are bound to fixed slots, so a slot that stays occupied by the
+        same chat is untouched (no QML rebind); unused slots are cleared.
+        """
         self._ensure_panel_exists()
-        count = len(self._panels)
-        while len(self._panel_models) < count:
-            self._panel_models.append(ChatPanelModel(len(self._panel_models), self))
-        del self._panel_models[count:]
+        used: set[int] = set()
         visible: set[str] = set()
-        for index, panel in enumerate(self._panels):
+        for panel in self._panels:
+            slot = panel["slot"]
+            used.add(slot)
             active = panel["active_chat_id"]
             model = self.chat.model_for(active) if active else None
             tabs = [self._enriched[cid] for cid in panel["chat_ids"] if cid in self._enriched]
             if active:
                 visible.add(active)
-            panel_model = self._panel_models[index]
+            panel_model = self._panel_models[slot]
             panel_model.set_panel(active, model, tabs, active, self._states)
             panel_model.set_runtime(*self._panel_runtime(active))
+        for slot in range(MAX_PANELS):
+            if slot in used:
+                continue
+            panel_model = self._panel_models[slot]
+            panel_model.set_panel("", None, [], None, self._states)
+            panel_model.set_runtime(*self._panel_runtime(""))
         self.chat.set_visible_chats(visible)
         self.panels_changed.emit()
         self.tabs_changed.emit()
@@ -837,7 +946,8 @@ class SessionController(QObject):
         status = self._chat_display_status(chat_id)
         state = self._states.get(chat_id)
         blinking = bool(state and state.is_busy and not state.pending_tool_info)
-        for panel_model, panel in zip(self._panel_models, self._panels, strict=False):
+        for panel in self._panels:
+            panel_model = self._panel_models[panel["slot"]]
             if chat_id in panel["chat_ids"]:
                 panel_model.update_tab(chat_id, status, blinking)
             if panel["active_chat_id"] == chat_id:
@@ -858,9 +968,9 @@ class SessionController(QObject):
         state = self._states.get(chat_id)
         input_tokens = state.true_input_tokens if state else 0
         output_tokens = state.true_output_cum if state else 0
-        for panel_model, panel in zip(self._panel_models, self._panels, strict=False):
+        for panel in self._panels:
             if panel["active_chat_id"] == chat_id:
-                panel_model.set_tokens(input_tokens, output_tokens)
+                self._panel_models[panel["slot"]].set_tokens(input_tokens, output_tokens)
 
     def _open_chat(self, chat_id: str) -> None:
         """Activate and hydrate a chat, then rebuild its display.
@@ -1258,10 +1368,12 @@ class SessionController(QObject):
         """
         logger.info("Deleted chat '%s'", chat_id)
         was_active = self.active_chat_id == chat_id
+        old_active = self._active_by_slot()
         self._forget_chat(chat_id)
         self.app.chat_store.delete_chat(chat_id)
         self._remove_chat_from_panels(chat_id)
         self._ensure_panel_exists()
+        self._rebuild_changed_panels(old_active)
         self._refresh_model()
         if was_active:
             for panel in self._panels:

@@ -464,12 +464,13 @@ class ChatController(QObject):
     # ------------------------------------------------------------------
 
     def prepare_rebuild(self, chat_id: str) -> None:
-        """Show a chat's loading overlay and defer blanking its model.
+        """Show a chat's loading overlay and blank its model before rebinding.
 
-        The model reset is deferred to the next event-loop turn so the
-        drop/move handler returns without tearing down card delegates
-        synchronously; the opaque overlay hides the stale rows until the staged
-        rebuild replaces them.
+        The model is blanked synchronously so that when the panel change emits
+        ``panels_changed`` and QML constructs the new panel, its non-virtualized
+        card repeater binds an empty model and shows only the spinner. The plan
+        for the moved chat is then applied in staged batches behind the overlay,
+        so the layout appears immediately without a synchronous delegate build.
 
         Args:
             chat_id: The chat whose panel is being recreated.
@@ -477,16 +478,27 @@ class ChatController(QObject):
         if not chat_id:
             return
         self._set_loading(chat_id, True)
-        self._spawn(self._blank_model_soon(chat_id))
+        self.model_for(chat_id).set_items([], [])
 
-    async def _blank_model_soon(self, chat_id: str) -> None:
-        """Blank a chat's model after yielding, so the drop handler returns first.
+    def rebuild_chat_display(self, chat_id: str) -> None:
+        """Blank a chat's model and queue a background rebuild.
+
+        Used when a panel layout change rebinds a panel to a different chat: the
+        model is blanked synchronously so the recreated delegate paints only the
+        spinner, then the chat's worker re-renders in staged batches behind the
+        overlay. Chats with no attached worker have nothing rendered yet, so they
+        are skipped (and no overlay is left showing).
 
         Args:
-            chat_id: The chat whose model to blank.
+            chat_id: The chat whose panel is being rebound.
         """
-        await asyncio.sleep(0)
-        self.model_for(chat_id).set_items([], [])
+        if not chat_id:
+            return
+        worker = self._connected_workers.get(chat_id)
+        if worker is None:
+            return
+        self.prepare_rebuild(chat_id)
+        worker.request_rebuild()
 
     # ------------------------------------------------------------------
     #  Slot: Chat activated / switch started
@@ -739,6 +751,11 @@ class ChatController(QObject):
             chat_id: The chat being updated.
             updates: A list of ``(row, role_values)`` pairs.
         """
+        state = self.session.state(chat_id)
+        if state.is_loading:
+            # A staged rebuild owns the model; index-based merges would corrupt
+            # the partially built rows. The terminal plan reconciles instead.
+            return
         model = self.model_for(chat_id)
         for row, values in cast(list, updates):
             model.update_item(row, values)
@@ -927,19 +944,6 @@ class ChatController(QObject):
     # ------------------------------------------------------------------
     #  Rendering: optimistic rows
     # ------------------------------------------------------------------
-
-    @Slot(str)
-    def rebuild_chat_display(self, chat_id: str) -> None:
-        """Request a rebuild of a chat's display on behalf of another controller.
-
-        Args:
-            chat_id: The chat whose display should be rebuilt.
-        """
-        if not chat_id:
-            return
-        worker = get_worker(chat_id)
-        if worker is not None:
-            worker.request_rebuild()
 
     def _append_user_message(self, chat_id: str, text: str) -> None:
         """Optimistically append a user message row to a chat's model.

@@ -110,7 +110,7 @@ full runtime rebuild. `ErrorNotifier` fans every
 
 | Context | Consumed by |
 |---|---|
-| `session` | `SessionSelector.qml`; `SplitWorkspace.qml` (`panelCount`, `panelAt`, split/move slots) |
+| `session` | `SessionSelector.qml`; `SplitWorkspace.qml` (`maxPanels`, `panelOrder`, `panelCount`, `panelAt`, split/move slots) |
 | `chat` | `ChatPanel.qml` (send/stop/approve per chat) |
 | `skill` | `SkillDock.qml` (per-panel skill/tool config) |
 | `windows` | `TitleBar.qml` (`new_window`), `Main.qml` / `ChatWindow.qml` (`show_editor` / `show_history`) |

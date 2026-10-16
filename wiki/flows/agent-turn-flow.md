@@ -74,8 +74,23 @@ Each streaming card body is split into a frozen committed prefix (`BODY_HTML`)
 and a live tail (`BODY_TAIL_HTML`): thinking via `thinking_body_parts` (escaped
 plain text), the response via `IncrementalMarkdown.render_parts`. Only the tail
 is re-laid out in QML each tick; the prefix is re-pushed only when it grows. The
-worker throttles content-only updates (0.08 s). Because each chat renders on its
-own thread, one chat's rendering no longer blocks another's.
+worker throttles content-only updates (0.08 s), and a throttled tick is **not**
+marked rendered — the next event still re-detects it. Because each chat renders
+on its own thread, one chat's rendering no longer blocks another's.
+
+## Finalization
+
+The live path is throttled and may drop its last tick, so the complete response
+is guaranteed at finalize, not by the stream:
+
+- `_flush_final_body` writes the whole final text into `BODY_HTML` (tail cleared)
+  for the pending thinking/response rows, before per-turn state is reset.
+- `_emit_plan` then emits the finalized plan unconditionally (even when the chat
+  is not visible), so `diff_update` replaces the `:pending` row with the full
+  finalized body.
+- `_finalize` guards the flush, plan, and persist steps independently, and
+  `_run_turn` emits `turn_finished` in a `finally`, so a rendering error can
+  never leave the card permanently truncated or the chat stuck busy.
 
 The sidebar refresh triggered by a message-count change stays debounced (0.3 s)
 on the GUI thread and reads the chat store off-thread.

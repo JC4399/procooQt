@@ -40,8 +40,25 @@ Related: [`chat_render`](chat-render.md), [`chat-agent`](chat-agent.md), [`qt-ch
    `approval_needed`; tool results append to a per-turn list; token usage emits
    `token_usage`; then, when the chat is visible, `_render_active` decides between
    a full plan (`plan_ready`) and a throttled stream update (`stream_updated`).
-6. `_finalize` emits a final plan, persists, resets per-turn render state, and
-   triggers compaction when the chat exceeds its limit.
+6. `_finalize` flushes the complete final body into any still-pending streaming
+   cards, emits a final plan, persists, resets per-turn render state, and
+   triggers compaction when the chat exceeds its limit. Each step is guarded so a
+   single failure cannot leave a card truncated or the chat stuck busy, and
+   `_run_turn` always emits `turn_finished`.
+
+### Finalization guarantees
+
+The live streaming path is throttled and may drop its last tick, so the full
+response is guaranteed by finalization, not by the stream:
+
+- `_update_live` never marks throttled-away text as rendered, so a dropped tick
+  is re-detected on the next event.
+- `_flush_final_body` writes the whole final text into `BODY_HTML` and clears
+  `BODY_TAIL_HTML` for the pending thinking/response rows before per-turn state
+  is reset, independent of the rebuild.
+- `_finalize` emits the finalized plan unconditionally (not only when visible)
+  and guards the flush, plan, and persist steps individually.
+- `_run_turn` emits `turn_finished` in a `finally` even if `_finalize` raises.
 
 ## Function Reference
 
@@ -70,7 +87,9 @@ Related: [`chat_render`](chat-render.md), [`chat-agent`](chat-agent.md), [`qt-ch
 | `def stop(self)` | — | `None` | `loop.stop` + `wait` | joins thread |
 | `def _handle_event(self, event)` | event | `None` | per-type dispatch + render | emits signals |
 | `def _emit_plan(self)` | — | `None` | build plan, emit `plan_ready` | — |
-| `def _finalize(self)` | — | `None` | final plan, persist, reset, compact | emits signals |
+| `async def _run_turn(self, message, gen_id)` | text, generation | `None` | `agent.run` → `_finalize` | always emits `turn_finished` |
+| `def _flush_final_body(self)` | — | `None` | write full final text to pending card bodies | emits `stream_updated` |
+| `def _finalize(self)` | — | `None` | flush body → final plan → persist → reset → compact | emits signals; each step guarded |
 
 ## Registry
 

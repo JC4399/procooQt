@@ -4,15 +4,17 @@ Source: `src/qt/chat_panel_model.py`
 
 ## Purpose
 
-One `ChatPanelModel` per visible split panel. It exposes the panel's active
-chat, its tab model, and the runtime values QML binds to, so up to four panels
-render and interact independently. `SessionController` owns and updates these
-objects; QML reads them through `session.panelAt(index)`.
+One `ChatPanelModel` per panel **slot** (`SessionController.MAX_PANELS = 4`). It
+exposes the panel's active chat, its tab model, and the runtime values QML binds
+to, so up to four panels render and interact independently. `SessionController`
+owns and updates these objects; QML reads them through `session.panelAt(slot)`.
+Slots are fixed, so a panel keeps its model object as it moves, and QML never
+rebuilds a panel delegate that only changed position.
 
 ## Deliverables
 
 - `ChatPanelModel(QObject)` with:
-  - `panelIndex` (constant) — position in the workspace.
+  - `panelIndex` (constant) — the panel's fixed workspace slot id.
   - `activeChatId`, `chatModel`, `tabModel` — the panel's chat and tabs.
   - `busy`, `approvalVisible`, `approvalText`, `loading` — per-chat runtime.
   - `inputTokens`, `outputTokens` — live true token accounting (no estimate).
@@ -37,7 +39,7 @@ not invalidated by another panel's refresh.
 
 | Property | Type | Notify | Meaning |
 |---|---|---|---|
-| `panelIndex` | `int` | constant | Position in the workspace |
+| `panelIndex` | `int` | constant | Fixed workspace slot id |
 | `activeChatId` | `str` | `active_chat_changed` | The panel's active chat id (or `""`) |
 | `chatModel` | `QObject \| None` | `chat_model_changed` | `ChatListModel` for the active chat |
 | `tabModel` | `ChatTabModel` | constant | The panel's chat tabs (never reassigned) |
@@ -72,7 +74,7 @@ not invalidated by another panel's refresh.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def __init__(self, index: int, parent: QObject \| None = None) -> None` | panel index; parent | `None` | init fields + `ChatTabModel` | — |
+| `def __init__(self, index: int, parent: QObject \| None = None) -> None` | panel slot; parent | `None` | init fields + `ChatTabModel` | — |
 | `def set_panel(self, active_chat_id, chat_model, tabs, tabs_active_id, states) -> None` | active chat, model, tab summaries, active tab id, states | `None` | compare active/model → store → `tab_model.set_chats(...)` (incremental) → emit `active_chat_changed`/`chat_model_changed` only on change | No-op when unchanged; tab model self-dedupes |
 | `def set_runtime(self, busy, approval_visible, approval_text, input_tokens, output_tokens, loading, primary_count, allow_count, ask_count, block_count, model_name) -> None` | 11 runtime values | `None` | compare all → store → emit `runtime_changed` | No-op when unchanged |
 | `def set_tokens(self, input_tokens: int, output_tokens: int) -> None` | input/output tokens | `None` | dedupe → store → emit `runtime_changed` | Token-bar-only refresh (no full runtime rebuild) |

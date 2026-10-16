@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QThread, Signal
 
+from .chat_items import thinking_body
 from .chat_render import (
     ChatRenderer,
     RenderPlan,
@@ -27,6 +28,8 @@ from .chat_render import (
     delete_bounds,
     normalize_content,
 )
+from .markdown import render_markdown
+from .qt_roles import ChatRole
 
 if TYPE_CHECKING:
     from ..app import ProcooApp
@@ -252,7 +255,10 @@ class ChatWorker(QThread):
             logger.exception("ChatWorker[%s] run failed", self.chat_id)
         finally:
             self.is_busy = False
-            self._finalize()
+            try:
+                self._finalize()
+            except Exception:
+                logger.exception("ChatWorker[%s] finalize failed", self.chat_id)
             self.turn_finished.emit(self.chat_id, gen_id)
 
     def _do_cancel(self) -> None:
@@ -427,7 +433,8 @@ class ChatWorker(QThread):
         if not (content_only or streaming_active):
             return
         if now - state.last_content_update_time < _STREAM_UPDATE_INTERVAL:
-            self._track_rendered()
+            # Do not mark the pending text as rendered: it was never emitted, so
+            # the next tick (or the finalize flush) must still re-detect it.
             return
         state.last_content_update_time = now
         updates = self.renderer.build_stream_update(
@@ -469,12 +476,67 @@ class ChatWorker(QThread):
     #  Finalize / persistence
     # ------------------------------------------------------------------
 
+    def _flush_final_body(self) -> None:
+        """Push the complete body for still-pending streaming cards.
+
+        Streaming sends a frozen prefix plus a live tail, and the live path is
+        throttled, so the final tick can be dropped. Writing the whole final text
+        into ``BODY_HTML`` and clearing the tail guarantees the card is complete
+        before the per-turn render state is reset, independent of the rebuild.
+        """
+        messages = self.agent.messages
+        if not messages or messages[-1].get("role") != "assistant":
+            return
+        decision = assistant_decision(messages[-1])
+        state = self.renderer.state
+        updates: list[tuple[int, dict[int, object]]] = []
+        thinking_text = decision["thinking_text"]
+        if thinking_text and state.thinking.item_index is not None:
+            updates.append(
+                (
+                    state.thinking.item_index,
+                    {
+                        int(ChatRole.BODY_HTML): thinking_body(thinking_text),
+                        int(ChatRole.BODY_TAIL_HTML): "",
+                    },
+                )
+            )
+        content_text = decision["content_text"]
+        if content_text and state.response.item_index is not None:
+            updates.append(
+                (
+                    state.response.item_index,
+                    {
+                        int(ChatRole.BODY_HTML): render_markdown(content_text),
+                        int(ChatRole.BODY_TAIL_HTML): "",
+                    },
+                )
+            )
+        if updates:
+            self.stream_updated.emit(self.chat_id, updates)
+
     def _finalize(self) -> None:
+        """Finalize a turn: flush the body, rebuild, persist, and reset.
+
+        The final body flush runs before the per-turn state is reset so the
+        streaming cards are guaranteed to show the whole response even if the
+        non-incremental rebuild is dropped. Each step is independently guarded so
+        one failure cannot leave a card truncated or the chat stuck busy.
+        """
         self.is_busy = False
-        if self.visible:
-            self._last_rendered = len(self.agent.messages)
+        try:
+            self._flush_final_body()
+        except Exception:
+            logger.exception("ChatWorker[%s] final body flush failed", self.chat_id)
+        self._last_rendered = len(self.agent.messages)
+        try:
             self._emit_plan()
-        self._do_persist()
+        except Exception:
+            logger.exception("ChatWorker[%s] final plan failed", self.chat_id)
+        try:
+            self._do_persist()
+        except Exception:
+            logger.exception("ChatWorker[%s] persist failed", self.chat_id)
         self.message_count.emit(self.chat_id, len(self.agent.messages))
         self.approval_cleared.emit(self.chat_id)
         self.renderer.reset_turn()
