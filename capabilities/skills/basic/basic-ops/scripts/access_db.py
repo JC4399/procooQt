@@ -5,14 +5,23 @@ from collections import Counter
 from datetime import UTC, datetime
 import json
 import math
+from pathlib import Path
 import re
 import sqlite3
 import struct
 import sys
 import traceback
 
-EMBED_URL = "http://localhost:3336/v1/embeddings"
-RERANK_URL = "http://localhost:3337/v1/reranking"
+import yaml
+
+_CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
+if not _CONFIG_PATH.is_file():
+    _CONFIG_PATH = _CONFIG_PATH.with_name("config_template.yaml")
+with open(_CONFIG_PATH, encoding="utf-8") as _config_file:
+    _CONFIG = yaml.safe_load(_config_file) or {}
+
+EMBED_URL: str = _CONFIG.get("embed_url", "http://localhost:3336/v1/embeddings")
+RERANK_URL: str = _CONFIG.get("rerank_url", "http://localhost:3337/v1/reranking")
 RRF_K = 60
 
 STOPWORDS = frozenset(

@@ -50,6 +50,21 @@ llm:
 `config/config.yaml` is gitignored; `config/config_template.yaml` is committed
 and holds the same keys with placeholder values.
 
+### basic-ops service endpoints
+
+The `basic-ops` skill keeps its external service URLs in a skill-local config at
+`capabilities/skills/basic/basic-ops/scripts/config.yaml`:
+
+```yaml
+ocr_url: "http://localhost:3334/ocr"
+embed_url: "http://localhost:3336/v1/embeddings"
+rerank_url: "http://localhost:3337/v1/reranking"
+```
+
+`read_file` reads `ocr_url`; `access_db` reads `embed_url` and `rerank_url`. Both
+scripts fall back to `scripts/config_template.yaml` when `config.yaml` is absent.
+The local `config.yaml` is gitignored; `config_template.yaml` is committed.
+
 ### Relative paths
 
 `ConfigManager` returns the raw string from YAML. `ProcooApp._resolve` turns

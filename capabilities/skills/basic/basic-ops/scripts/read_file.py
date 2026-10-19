@@ -14,6 +14,8 @@ from pathlib import Path
 import sys
 import traceback
 
+import yaml
+
 MAX_LINES = 500
 MAX_CHARS = 15000
 
@@ -22,7 +24,14 @@ THUMBNAIL_MAX_PER_IMAGE = 16
 THUMBNAIL_LABEL_MARGIN = 10
 
 MAX_DIM = 3000
-OCR_SERVER = "http://localhost:3334/ocr"
+
+_CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
+if not _CONFIG_PATH.is_file():
+    _CONFIG_PATH = _CONFIG_PATH.with_name("config_template.yaml")
+with open(_CONFIG_PATH, encoding="utf-8") as _config_file:
+    _CONFIG = yaml.safe_load(_config_file) or {}
+
+OCR_URL: str = _CONFIG.get("ocr_url", "http://localhost:3334/ocr")
 
 
 # ---------------------------------------------------------------------------
@@ -1203,7 +1212,7 @@ async def _ocr_images(images_b64: list[str]) -> str:
         async with (
             aiohttp.ClientSession() as session,
             session.post(
-                OCR_SERVER,
+                OCR_URL,
                 json={"images": images_b64},
                 timeout=aiohttp.ClientTimeout(total=300 * max(1, len(images_b64))),
             ) as resp,
@@ -1234,7 +1243,7 @@ async def _probe_ocr() -> str:
         async with (
             aiohttp.ClientSession() as session,
             session.post(
-                OCR_SERVER,
+                OCR_URL,
                 json={"images": []},
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp,

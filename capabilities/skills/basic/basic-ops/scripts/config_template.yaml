@@ -1,0 +1,12 @@
+# Basic-ops external service endpoints.
+# Copy this file to config.yaml and adjust the URLs for your setup.
+# config.yaml is gitignored; this template is committed.
+
+# VLM server used by read_file mode=pdf-ocr / image submode=ocr.
+ocr_url: "http://localhost:3334/ocr"
+
+# Embedding server used by access_db to embed records and queries.
+embed_url: "http://localhost:3336/v1/embeddings"
+
+# Reranker server used by access_db hybrid search.
+rerank_url: "http://localhost:3337/v1/reranking"

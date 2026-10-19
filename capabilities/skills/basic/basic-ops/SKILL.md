@@ -14,6 +14,13 @@ You have access to the following tools:
 - `init_db` — Create an empty records database (SQLite) at a given path
 - `access_db` — Access a skill's records database. Dispatched via `mode` parameter (add / search / modify / delete)
 
+## Service Configuration
+
+The external services used by these tools are configured in `scripts/config.yaml`:
+`ocr_url` for OCR, plus `embed_url` / `rerank_url` for the records database. Copy
+`scripts/config_template.yaml` to `scripts/config.yaml` and adjust the URLs. The
+local `config.yaml` is gitignored; the template is committed.
+
 ## General Policy
 
 ### Tool Calling Format
@@ -586,8 +593,9 @@ The database is a single flat table of records:
 | created_at | text | ISO-8601 timestamp |
 | updated_at | text | ISO-8601 timestamp |
 
-Embeddings come from an external server at `http://localhost:3336/v1/embeddings`,
-and reranking from `http://localhost:3337/v1/reranking`. Both are provided by a
+Embeddings and reranking come from external servers whose endpoints are set in
+`scripts/config.yaml` (`embed_url` and `rerank_url`; see
+`scripts/config_template.yaml` for the example URLs). Both are provided by a
 llama.cpp server and live outside this skill — the tools assume the endpoints are
 up. The reranker runs with a small physical batch size (~512 tokens): feeding it
 a long record (or several at once) makes it return HTTP 500 "input is too large".
