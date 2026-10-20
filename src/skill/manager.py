@@ -75,7 +75,7 @@ class SkillManager:
 
         for skill_md in sorted(self.skills_dir.rglob("SKILL.md")):
             entry = skill_md.parent
-            rel_path = str(entry.relative_to(self.skills_dir))
+            rel_path = entry.relative_to(self.skills_dir).as_posix()
             if rel_path == ".":
                 rel_path = os.path.basename(str(self.skills_dir))
 
@@ -698,11 +698,20 @@ class SkillManager:
 
     def get_skill_by_path(self, path: str) -> SkillInfo | None:
         """Look up a ``SkillInfo`` by its relative path."""
-        return self._skill_by_path.get(path)
+        return self._skill_by_path.get(self._normalize_skill_path(path))
+
+    @staticmethod
+    def _normalize_skill_path(path: str) -> str:
+        """Coerce a skill path to its canonical forward-slash form.
+
+        Windows separators are converted so user-typed paths match the stored
+        forward-slash representation on every platform.
+        """
+        return path.replace("\\", "/")
 
     def path_to_display_name(self, path: str) -> str:
         """Get the display name for a skill path."""
-        info = self._skill_by_path.get(path)
+        info = self._skill_by_path.get(self._normalize_skill_path(path))
         return info.name if info else path
 
     def get_validation_issues(self) -> list[ValidationIssue]:
@@ -891,7 +900,7 @@ class SkillManager:
         if not self.skills_dir.is_dir():
             return None
 
-        entry = self.skills_dir / skill_path
+        entry = self.skills_dir / self._normalize_skill_path(skill_path)
         skill_md = entry / "SKILL.md"
         if entry.is_dir() and skill_md.is_file():
             return entry
