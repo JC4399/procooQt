@@ -13,6 +13,9 @@ properties. Raises `ConfigError` on missing keys (fail-fast at startup).
 - Properties: `capabilities_dir`, `skills_dir`, `automations_dir`,
   `storage_dir`, `server_host`, `server_port`, `api_keys`,
   `control_server_host`, `control_server_port`, `control_server_api_keys`,
+  `subagent_enabled`, `subagent_host`, `subagent_port`, `subagent_api_keys`,
+  `subagent_default_model`, `subagent_max_concurrent`,
+  `subagent_default_timeout`, `subagent_max_timeout`, `subagent_max_records`,
   `chat_max_mb`, `chat_max_bytes`, `chat_max_tokens`, `agent_system_prompt`,
   `agent_summary_prompt`, `llm_models`, `llm_model_name`, `llm_api_key`,
   `llm_api_base`.
@@ -98,6 +101,15 @@ See also: [Configuration overview](../02-Configuration.md).
 | `control_server_host` | `str` | `_get_optional("control_server", "host", default="127.0.0.1")` |
 | `control_server_port` | `int` | `_get_optional("control_server", "port", default=12841)` |
 | `control_server_api_keys` | `list[str]` | `control_server.api_keys`, falling back to `auth.api_keys` |
+| `subagent_enabled` | `bool` | `_get_optional("subagent", "enabled", default=True)` |
+| `subagent_host` | `str` | `_get_optional("subagent", "host", default="127.0.0.1")` |
+| `subagent_port` | `int` | `_get_optional("subagent", "port", default=12842)` |
+| `subagent_api_keys` | `list[str]` | `subagent.api_keys`, falling back to `auth.api_keys` |
+| `subagent_default_model` | `str` | `_get_optional("subagent", "default_model", default="")`; empty falls back to the LLM default |
+| `subagent_max_concurrent` | `int` | simultaneous runs (default `4`) |
+| `subagent_default_timeout` | `int` | per-run seconds (default `900`) |
+| `subagent_max_timeout` | `int` | hard timeout cap (default `3600`) |
+| `subagent_max_records` | `int` | retained records (default `100`) |
 | `chat_max_mb` | `int` | `_get_optional("limits", "max_chat_mb", default=70)` |
 | `chat_max_bytes` | `int` | `chat_max_mb * 1024 * 1024` |
 | `chat_max_tokens` | `int` | `_get_optional("limits", "max_chat_tokens", default=150000)` |

@@ -11,8 +11,8 @@ QML UI on a fused `qasync` + Qt event loop.
 ## Deliverables
 
 - `ProcooApp` instance holding `config`, `skill_manager`, `chat_store`,
-  `preset_store`, `capabilities_dir`, `automation_manager`, and
-  `notification_manager`.
+  `preset_store`, `capabilities_dir`, `automation_manager`,
+  `notification_manager`, and `subagent_manager`.
 - `_register_fonts()` — registers the bundled `Sarasa Fixed TC` Nerd Font
   (monospace text plus Font Awesome icon glyphs).
 - `_set_app_user_model_id()` — sets a stable Windows AppUserModelID so the
@@ -54,7 +54,7 @@ QML UI on a fused `qasync` + Qt event loop.
 
 | | |
 |---|---|
-| Attributes | `config`, `skill_manager`, `chat_store`, `preset_store`, `capabilities_dir`, `automation_manager`, `notification_manager`. |
+| Attributes | `config`, `skill_manager`, `chat_store`, `preset_store`, `capabilities_dir`, `automation_manager`, `notification_manager`, `subagent_manager`. |
 
 ### `ProcooApp.__init__`
 
@@ -63,7 +63,7 @@ QML UI on a fused `qasync` + Qt event loop.
 | Signature | `def __init__(self, config_dir: str = "./config") -> None` |
 | Inputs | `config_dir` — config directory. |
 | Output | `None` |
-| Flow | `ConfigManager(config_dir)` → resolve `skills_dir` / `storage_dir` / `capabilities_dir` → `SkillManager(skills)` → `ChatStore(storage)` → `PresetStore(skills/_presets)` → `AutomationManager(resolve(automations_dir), storage)` → `NotificationManager(storage)`. |
+| Flow | `ConfigManager(config_dir)` → resolve `skills_dir` / `storage_dir` / `capabilities_dir` → `SkillManager(skills)` → `ChatStore(storage)` → `PresetStore(skills/_presets)` → `AutomationManager(resolve(automations_dir), storage)` → `NotificationManager(storage)` → `SubAgentManager(self)`. |
 
 ### `ProcooApp._resolve`
 

@@ -17,7 +17,10 @@ live changes.
 - `scan_tools` / `scan_all_tools` (cached tool discovery).
 - `load_tool_functions(selected_skills)` — OpenAI-compatible tool defs with
   inferred JSON Schema.
-- `get_skill_tree` (nested UI tree), `build_tool_config`, `default_tool_modes`.
+- `load_tool_functions_by_name(names)` — defs for explicit tool names across all
+  skills (used by sub-agents).
+- `get_skill_tree` (nested UI tree), `build_tool_config`,
+  `build_tool_config_by_name`, `default_tool_modes`.
 - `refresh`, `start_watching`, `stop_watching` (watchdog-based live reload).
 - `get_validation_issues` (errors/warnings).
 
@@ -70,7 +73,9 @@ A directory with no `SKILL.md` is treated as a grouping folder.
 | `scan_tools` | `(skill_path: str) -> list[ToolInfo]` | cached tool scan |
 | `scan_all_tools` | `() -> list[ToolInfo]` | all tools across skills |
 | `load_tool_functions` | `(selected_skills: list[str]) -> list[dict]` | tool defs with inferred schema |
+| `load_tool_functions_by_name` | `(names: list[str]) -> list[dict]` | tool defs for explicit names across all skills; first duplicate wins with a warning |
 | `build_tool_config` | `(tool_modes: dict, selected_skills: list[str]) -> dict[str, str]` | per-tool mode map |
+| `build_tool_config_by_name` | `(tool_modes: dict, names: list[str]) -> dict[str, str]` | per-tool mode map for explicit names; defaults to `"allow"` |
 | `default_tool_modes` | `() -> dict[str, str]` | `"ask"` for every tool |
 | `get_skill_tree` | `() -> dict` | nested `{folders, skills}` tree |
 | `get_skill_by_path` | `(path: str) -> SkillInfo \| None` | lookup by path |
@@ -85,6 +90,7 @@ A directory with no `SKILL.md` is treated as a grouping folder.
 | Function | Signature | Purpose |
 |---|---|---|
 | `_infer_tool_schema` | `(script_path: str, tool_name: str) -> dict` | AST-based schema |
+| `_build_tool_definition` | `(tool_info: ToolInfo) -> dict` | one OpenAI-compatible tool def (shared by both loaders) |
 | `_find_run_function` | `(tree) -> FunctionDef \| AsyncFunctionDef \| None` | locate `run()` |
 | `_ast_type_to_json_schema` | `(node, param_name) -> dict` | annotation → JSON Schema |
 | `_resolve_ast_type` | `(node, param_name) -> str \| None` | resolve type string |

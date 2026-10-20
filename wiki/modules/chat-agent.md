@@ -31,6 +31,7 @@ layers.
 | `sys_prompt` | `str` | full system prompt |
 | `_tools` | `dict[str, dict]` | registered tool defs |
 | `_tool_config` | `dict[str, str]` | per-tool mode |
+| `_tool_env` | `dict[str, str]` | extra env vars for tool subprocesses |
 | `_pending_approvals` | `dict[str, asyncio.Queue]` | approval queues |
 
 ## Steps / Flow
@@ -64,7 +65,7 @@ while True:
 
 ### `run_tool`
 
-1. Resolve `tool_python` + `build_tool_env`.
+1. Resolve `tool_python` + `build_tool_env(tool_python, extra_env=self._tool_env)`.
 2. `create_subprocess_exec(tool_python, script_path, stdin=PIPE, ...)`.
 3. `communicate(args_json)` with timeout.
 4. On timeout → kill, return timeout message; non-zero exit → error message;
@@ -78,8 +79,8 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 
 | | |
 |---|---|
-| Signature | `def __init__(self, chat_id, model, primary_skill_contents, secondary_skill_contents, tool_functions, tool_config, skills_dir, system_message="You are a helpful assistant.", sampling_config=None, initial_messages=None, summary_prompt="", chat_limits=None) -> None` |
-| Inputs | see docstring; `model` = `{model_name, api_key, api_base}`; `tool_config` = per-tool mode; `initial_messages` seeds history; `summary_prompt` = summarization instruction; `chat_limits` = `{"max_bytes": int, "max_tokens": int}` (0 or negative disables). |
+| Signature | `def __init__(self, chat_id, model, primary_skill_contents, secondary_skill_contents, tool_functions, tool_config, skills_dir, system_message="You are a helpful assistant.", sampling_config=None, initial_messages=None, summary_prompt="", chat_limits=None, tool_env=None) -> None` |
+| Inputs | see docstring; `model` = `{model_name, api_key, api_base}`; `tool_config` = per-tool mode; `initial_messages` seeds history; `summary_prompt` = summarization instruction; `chat_limits` = `{"max_bytes": int, "max_tokens": int}` (0 or negative disables); `tool_env` = extra env vars for tool subprocesses (used by sub-agents for depth/id). |
 | Output | `None` |
 | Flow | init queue/approvals → set `sys_prompt = system_message` (empty stays empty; no hardcoded fallback) → append primary/secondary skill instructions → `ChatTokenTracker` → `_build_model(model)` (`OpenAIModel(stream=True)`) → register tools → log skills. |
 
@@ -117,7 +118,7 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 | Signature | `async def run_tool(self, tool_name: str, tool_args: dict \| list) -> str` |
 | Inputs | `tool_name` — registered tool name; `tool_args` — JSON args (stdin). |
 | Output | stdout string (CR/CRLF normalised to LF), or error/timeout message. |
-| Flow | resolve venv → subprocess → `communicate` with timeout → decode + LF-normalise → error handling. |
+| Flow | resolve venv → subprocess with `_tool_env` merged into the environment → `communicate` with timeout → decode + LF-normalise → error handling. |
 
 ### `approve_tool` / `deny_tool`
 

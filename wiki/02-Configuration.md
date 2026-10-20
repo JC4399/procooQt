@@ -30,6 +30,17 @@ paths:
 auth:
   api_keys: []               # event-server API keys (empty disables auth)
 
+subagent:
+  enabled: true              # start the local sub-agent HTTP server
+  host: "127.0.0.1"
+  port: 12842
+  api_keys: []               # empty falls back to auth.api_keys
+  default_model: ""          # empty uses the default llm entry
+  max_concurrent: 4
+  default_timeout: 900
+  max_timeout: 3600
+  max_records: 100
+
 limits:
   max_chat_mb: 70            # 0 or negative disables the byte-size limit
   max_chat_tokens: 0         # 0 or negative disables the token limit
@@ -101,6 +112,25 @@ sessions/windows. It binds `127.0.0.1:12841` by default, separate from the event
 server. `control_server.api_keys` lists accepted keys and falls back to
 `auth.api_keys` when omitted; an empty list disables authentication.
 
+### Sub-agent server (`subagent`)
+
+`subagent.host` / `subagent.port` configure the local HTTP bridge used by the
+optional `subagent` skill. It binds `127.0.0.1:12842` by default and is
+independent of the event and control servers. `subagent.api_keys` falls back to
+`auth.api_keys`; an empty list disables authentication.
+
+| Key | Meaning |
+|---|---|
+| `enabled` | Start the server with the app (default `true`) |
+| `default_model` | Model for sub-agents when the request omits one; empty uses `llm` default |
+| `max_concurrent` | Simultaneous sub-agent runs; extra jobs queue |
+| `default_timeout` | Per-run timeout when the request omits one (seconds) |
+| `max_timeout` | Hard upper bound for a requested timeout |
+| `max_records` | Retained in-memory records; oldest terminal records drop first |
+
+Sub-agent records are ephemeral. The skill scripts resolve the endpoint from
+`PROCOO_SUBAGENT_URL` first, then this section, then the default URL.
+
 ### Session ids
 
 Session records in `storage/sessions.json` carry a stable UUID `id` alongside
@@ -154,7 +184,8 @@ backend = ProcooApp(str(_PROJECT_ROOT / "config"))
 
 `ProcooApp.__init__` builds `ConfigManager`, resolves `capabilities_dir` /
 `skills_dir` / `storage_dir`, and then constructs `SkillManager`, `ChatStore`,
-`PresetStore`, `AutomationManager`, and `NotificationManager` from the config.
+`PresetStore`, `AutomationManager`, `NotificationManager`, and
+`SubAgentManager` from the config.
 `main()` logs the active `api_base` and `model`, and if construction raises
 `ProcooError` it logs the critical detail and exits.
 
@@ -163,4 +194,6 @@ startup that depends on config: `SessionController.start()` emits validation
 toasts, ensures a `Default` session exists, and rebuilds/opens the workspace
 panels; `SkillController.start()` begins watching the skills directory;
 `EditorController.start()` builds the file tree; `AutomationController.start()`
-starts the automation watcher, the cron scheduler, and the event server.
+starts the automation watcher, the cron scheduler, and the event server;
+`SubAgentController.start()` starts the sub-agent HTTP server when
+`subagent.enabled` is true.

@@ -26,8 +26,8 @@ singleton `chat_manager` is shared across the app.
 
 | | |
 |---|---|
-| Signature | `def create_chat(self, chat_id, model=None, primary_skill_contents=None, secondary_skill_contents=None, tool_functions=None, tool_config=None, skills_dir="", system_message="You are a helpful assistant.", sampling_config=None, initial_messages=None, summary_prompt="", chat_limits=None) -> Agent` |
-| Inputs | mirrors `Agent.__init__` args. |
+| Signature | `def create_chat(self, chat_id, model=None, primary_skill_contents=None, secondary_skill_contents=None, tool_functions=None, tool_config=None, skills_dir="", system_message="You are a helpful assistant.", sampling_config=None, initial_messages=None, summary_prompt="", chat_limits=None, tool_env=None) -> Agent` |
+| Inputs | mirrors `Agent.__init__` args (including `tool_env`). |
 | Output | newly created `Agent`. |
 | Flow | if `chat_id` exists, `remove_chat` first → construct `Agent` → register. Synchronous (no awaits); callers that must not block the UI run it via `asyncio.to_thread`. |
 

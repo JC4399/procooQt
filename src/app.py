@@ -25,6 +25,7 @@ from .qt.qasync_timer_fix import install_qasync_timer_patch
 from .qt.ui import ProcooQtUI
 from .skill.manager import SkillManager
 from .skill.preset import PresetStore
+from .subagent.manager import SubAgentManager
 from .util.error.types import ProcooError
 from .util.log.formatter import setup_colored_logging
 
@@ -43,6 +44,7 @@ class ProcooApp:
         preset_store: The ``PresetStore`` for skill/tool preset configurations.
         automation_manager: The ``AutomationManager`` for automation discovery/state.
         notification_manager: The ``NotificationManager`` for run-result history.
+        subagent_manager: The ``SubAgentManager`` for headless sub-agent runs.
     """
 
     def __init__(self, config_dir: str = "./config") -> None:
@@ -62,6 +64,7 @@ class ProcooApp:
             self._resolve(self.config.automations_dir), storage_dir
         )
         self.notification_manager = NotificationManager(storage_dir)
+        self.subagent_manager = SubAgentManager(self)
 
     # ------------------------------------------------------------------
     #  Private

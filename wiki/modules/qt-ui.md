@@ -21,8 +21,8 @@ independent triple via `_build_window_bundle`, managed by
 ## Deliverables
 
 - `ProcooQtUI(QObject)` owning `theme`, `notifier`, `session_bus`, `session`,
-  `chat`, `skill`, `editor`, `editor_chat`, `automation`, `notification`, and
-  `windows`.
+  `chat`, `skill`, `editor`, `editor_chat`, `automation`, `notification`,
+  `subagent`, and `windows`.
 - `_build_controllers()` — builds the primary controllers' models and state.
 - `_build_window_bundle()` — builds a fresh `(context, session, chat, skill)`
   bundle for a secondary window on a child `QQmlContext`.
@@ -47,6 +47,7 @@ self.editor = EditorController(app, self)          # shared singleton
 self.editor_chat = EditorChatController(app, self)
 self.automation = AutomationController(app, self)
 self.notification = NotificationController(app, self)
+self.subagent = SubAgentController(app, self)
 self.windows = WindowManager(
     app, engine, self._build_window_bundle, self.session_bus, qt_app, self
 )
@@ -145,19 +146,20 @@ full runtime rebuild. `ErrorNotifier` fans every
 `ProcooQtUI(backend, engine, qt_app)`, loads `src/qml/Main.qml`, installs the
 native frame, and calls `ui.start(root_window, frame_filter)`. `start()` fans out
 to `session.start()`, `skill.start()`, `editor.start()`, `automation.start()`,
-then `windows.register_primary(...)`. After `loop.run_forever()` returns,
-`ui.shutdown()` flushes any debounced session-layout write (`session.flush_layout`)
-before stopping every chat worker (`chat.shutdown`).
+`control.start()`, `subagent.start()`, then `windows.register_primary(...)`.
+After `loop.run_forever()` returns, `ui.shutdown()` flushes any debounced
+session-layout write (`session.flush_layout`) before stopping every chat worker
+(`chat.shutdown`).
 
 ## Function Reference
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def __init__(self, app, engine, qt_app=None, parent=None) -> None` | backend; QML engine; `QApplication`; parent | `None` | theme/notifier/session-bus → controllers → `WindowManager` → wiring → build → expose | Creates eleven child `QObject`s; connects signals |
+| `def __init__(self, app, engine, qt_app=None, parent=None) -> None` | backend; QML engine; `QApplication`; parent | `None` | theme/notifier/session-bus → controllers → `WindowManager` → wiring → build → expose | Creates child `QObject`s; connects signals |
 | `def _wire_window(self, session, chat, skill) -> None` | one window's triple | `None` | cross-refs + signal connections | Connects signals |
 | `def _wire_editor_chat(self) -> None` | — | `None` | wire editor chat to primary chat; route editor-open to `windows.show_editor` | Connects signals |
-| `def _build_controllers(self) -> None` | — | `None` | build primary session/chat/skill/editor/editor_chat/notification/automation | Allocates models and state |
+| `def _build_controllers(self) -> None` | — | `None` | build primary session/chat/skill/editor/editor_chat/notification/automation/control/subagent | Allocates models and state |
 | `def _build_window_bundle(self) -> tuple[QQmlContext, SessionController, ChatController, SkillController]` | — | bundle | build + wire a fresh triple on a child context | Allocates models and state |
-| `def start(self, window=None, frame_filter=None) -> None` | primary window; native-frame filter | `None` | controller starts → register primary | Starts watchers/scheduler/event server |
+| `def start(self, window=None, frame_filter=None) -> None` | primary window; native-frame filter | `None` | controller starts → register primary | Starts watchers/scheduler/event/sub-agent servers |
 | `def shutdown(self) -> None` | — | `None` | `session.flush_layout()` (persist any debounced layout) → `chat.shutdown()` | Stops worker threads |
-| `def _expose_to_qml(self) -> None` | — | `None` | set twelve root context properties | Publishes objects to QML |
+| `def _expose_to_qml(self) -> None` | — | `None` | set root context properties | Publishes objects to QML |

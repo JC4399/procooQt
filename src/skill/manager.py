@@ -289,29 +289,72 @@ class SkillManager:
             ``description``, ``parameters``, ``script_path``,
             ``skill_path``, ``type``.
         """
-        defs: list[dict] = []
+        definitions: list[dict] = []
         for skill_path in selected_skills:
-            tools = self.scan_tools(skill_path)
-            for tool_info in tools:
-                schema = self._infer_tool_schema(tool_info.filepath, tool_info.name)
-                defs.append(
-                    {
-                        "name": tool_info.name,
-                        "description": schema.get("description", ""),
-                        "parameters": schema.get(
-                            "parameters",
-                            {
-                                "type": "object",
-                                "properties": {},
-                                "required": [],
-                            },
-                        ),
-                        "script_path": tool_info.filepath,
-                        "skill_path": tool_info.skill_path,
-                        "type": "python" if tool_info.filepath.endswith(".py") else "unknown",
-                    }
+            for tool_info in self.scan_tools(skill_path):
+                definitions.append(self._build_tool_definition(tool_info))
+        return definitions
+
+    def load_tool_functions_by_name(self, names: list[str]) -> list[dict]:
+        """Build tool-definition dicts for explicit tool names.
+
+        Searches every discovered skill.  Duplicate tool names resolve to the
+        first discovered definition, with a warning, because the agent registry
+        is keyed by name.
+
+        Args:
+            names: Tool names to load (order preserved, duplicates ignored).
+
+        Returns:
+            List of tool-definition dicts for the names that were found.
+        """
+        by_name: dict[str, ToolInfo] = {}
+        for tool_info in self.all_tools:
+            if tool_info.name in by_name:
+                logger.warning(
+                    "Duplicate tool name '%s' in '%s' and '%s'; using the first.",
+                    tool_info.name,
+                    by_name[tool_info.name].skill_path,
+                    tool_info.skill_path,
                 )
-        return defs
+                continue
+            by_name[tool_info.name] = tool_info
+
+        definitions: list[dict] = []
+        seen: set[str] = set()
+        for name in names:
+            tool_info = by_name.get(name)
+            if tool_info is None or name in seen:
+                continue
+            seen.add(name)
+            definitions.append(self._build_tool_definition(tool_info))
+        return definitions
+
+    def _build_tool_definition(self, tool_info: ToolInfo) -> dict:
+        """Build one OpenAI-compatible tool definition from a discovered tool.
+
+        Args:
+            tool_info: The discovered tool metadata.
+
+        Returns:
+            A tool-definition dict with name, description, schema, and path.
+        """
+        schema = self._infer_tool_schema(tool_info.filepath, tool_info.name)
+        return {
+            "name": tool_info.name,
+            "description": schema.get("description", ""),
+            "parameters": schema.get(
+                "parameters",
+                {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+            ),
+            "script_path": tool_info.filepath,
+            "skill_path": tool_info.skill_path,
+            "type": "python" if tool_info.filepath.endswith(".py") else "unknown",
+        }
 
     # ------------------------------------------------------------------
     #  Private: Schema inference (AST)
@@ -603,6 +646,24 @@ class SkillManager:
                 mode = tool_modes.get(tool_info.name, "ask")
                 config[tool_info.name] = mode
         return config
+
+    def build_tool_config_by_name(
+        self, tool_modes: dict[str, str], names: list[str]
+    ) -> dict[str, str]:
+        """Build a per-tool mode mapping for explicit tool names.
+
+        Unselected tools default to ``"allow"`` because headless sub-agents
+        cannot ask for user approval.
+
+        Args:
+            tool_modes: Mapping of tool name to mode override.
+            names: Selected tool names.
+
+        Returns:
+            Dict mapping each discovered tool name to its configured mode.
+        """
+        known = {tool_info.name for tool_info in self.all_tools}
+        return {name: tool_modes.get(name, "allow") for name in names if name in known}
 
     def default_tool_modes(self) -> dict[str, str]:
         """Return the default ``"ask"`` mode for every discovered tool."""

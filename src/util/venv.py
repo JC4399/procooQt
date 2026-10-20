@@ -79,7 +79,10 @@ def resolve_tool_python() -> str:
     return sys.executable
 
 
-def build_tool_env(python_path: str | None = None) -> dict[str, str]:
+def build_tool_env(
+    python_path: str | None = None,
+    extra_env: dict[str, str] | None = None,
+) -> dict[str, str]:
     """Build an environment dict with the target venv activated.
 
     Prepends the venv scripts directory to ``PATH`` and sets
@@ -89,11 +92,13 @@ def build_tool_env(python_path: str | None = None) -> dict[str, str]:
     Args:
         python_path: Optional interpreter path; defaults to the resolved
             tool Python.
+        extra_env: Optional variables merged into the environment after the
+            venv setup.  Values here override inherited variables.
 
     Returns:
-        A copy of ``os.environ`` with the venv injected.  When the target
-        interpreter is not inside a virtual environment, returns an
-        unmodified copy.
+        A copy of ``os.environ`` with the venv and *extra_env* injected.
+        When the target interpreter is not inside a virtual environment,
+        returns a copy with only *extra_env* applied.
     """
     target = Path(python_path) if python_path else Path(resolve_tool_python())
 
@@ -102,4 +107,6 @@ def build_tool_env(python_path: str | None = None) -> dict[str, str]:
         scripts_dir = target.parent
         env["PATH"] = str(scripts_dir) + os.pathsep + env.get("PATH", "")
         env["VIRTUAL_ENV"] = str(scripts_dir.parent)
+    if extra_env:
+        env.update(extra_env)
     return env

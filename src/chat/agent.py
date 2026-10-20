@@ -83,6 +83,7 @@ class Agent:
         initial_messages: list[dict] | None = None,
         summary_prompt: str = "",
         chat_limits: dict | None = None,
+        tool_env: dict[str, str] | None = None,
     ) -> None:
         """Initialise the agent.
 
@@ -102,6 +103,8 @@ class Agent:
             chat_limits: Optional ``{"max_bytes": int, "max_tokens": int}``
                 compaction limits (``0`` or a negative value disables the
                 corresponding limit).
+            tool_env: Optional environment variables added to every tool
+                subprocess (used by sub-agents to propagate depth/id).
         """
         from ..util.log.formatter import log_chat_skills
         from ..util.tokens.tracker import ChatTokenTracker
@@ -111,6 +114,7 @@ class Agent:
         self._pending_approvals: dict[str, asyncio.Queue] = {}
         self.messages: list[dict] = list(initial_messages) if initial_messages else []
         self._tool_config: dict[str, str] = dict(tool_config)
+        self._tool_env: dict[str, str] = dict(tool_env or {})
         self._current_assistant_msg: dict | None = None
         self.skills_dir = skills_dir
         self.primary_skills = [s.get("path", "") for s in primary_skill_contents]
@@ -614,7 +618,7 @@ class Agent:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=build_tool_env(tool_python),
+            env=build_tool_env(tool_python, extra_env=self._tool_env),
         )
         try:
             stdout, stderr = await asyncio.wait_for(

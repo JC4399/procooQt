@@ -136,6 +136,63 @@ class ConfigManager:
         return [str(key) for key in keys]
 
     # ------------------------------------------------------------------
+    #  Sub-agent server
+    # ------------------------------------------------------------------
+
+    @property
+    def subagent_enabled(self) -> bool:
+        """Whether the sub-agent HTTP server should start (default ``True``)."""
+        return bool(self._get_optional("subagent", "enabled", default=True))
+
+    @property
+    def subagent_host(self) -> str:
+        """Host the sub-agent HTTP server binds to (defaults to localhost)."""
+        return str(self._get_optional("subagent", "host", default="127.0.0.1"))
+
+    @property
+    def subagent_port(self) -> int:
+        """Port the sub-agent HTTP server listens on."""
+        return int(self._get_optional("subagent", "port", default=12842))
+
+    @property
+    def subagent_api_keys(self) -> list[str]:
+        """API keys accepted by the sub-agent server.
+
+        Falls back to ``auth.api_keys`` when ``subagent.api_keys`` is not set,
+        so a single key set can gate every local server. An empty list disables
+        authentication.
+        """
+        keys = self._get_optional("subagent", "api_keys", default=None)
+        if keys is None:
+            keys = self._get_optional("auth", "api_keys", default=[]) or []
+        return [str(key) for key in keys]
+
+    @property
+    def subagent_default_model(self) -> str:
+        """Default model for sub-agents; empty falls back to the config default."""
+        return str(self._get_optional("subagent", "default_model", default="") or "")
+
+    @property
+    def subagent_max_concurrent(self) -> int:
+        """Maximum number of sub-agents running at once."""
+        return int(self._get_optional("subagent", "max_concurrent", default=4))
+
+    @property
+    def subagent_default_timeout(self) -> int:
+        """Default per-sub-agent timeout in seconds."""
+        return int(self._get_optional("subagent", "default_timeout", default=900))
+
+    @property
+    def subagent_max_timeout(self) -> int:
+        """Hard upper bound for a per-sub-agent timeout in seconds."""
+        return int(self._get_optional("subagent", "max_timeout", default=3600))
+
+    @property
+    def subagent_max_records(self) -> int:
+        """Maximum number of sub-agent records retained in memory."""
+        return int(self._get_optional("subagent", "max_records", default=100))
+
+    # ------------------------------------------------------------------
     #  Chat limits
     # ------------------------------------------------------------------
 

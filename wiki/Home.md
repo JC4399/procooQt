@@ -26,6 +26,9 @@ Python controllers and list models on a single `qasync` event loop.
 - **Automations** — `capabilities/automations/<name>/AUTOMATION.py` scripts run
   on a cron schedule or on an external HTTP event; they may call the LLM through
   the app's agent loop.
+- **Sub-agents** — the optional `subagent` skill spawns headless agents over a
+  localhost HTTP bridge. Each sub-agent gets its own prompt, model, skills, and
+  tool whitelist, and can be spawned in batches from a script.
 - **Notifications** — run results appear as log/info/error cards with unread
   badges, Confirm/Debug actions, and a searchable history.
 - **Presets & editor** — save/load skill+tool config presets, a
@@ -50,6 +53,7 @@ Python controllers and list models on a single `qasync` event loop.
 | Skill discovery + AST schema inference | [`skill-manager`](modules/skill-manager.md) |
 | Automation discovery + scheduling + event server | [`automation-manager`](modules/automation-manager.md) · [`automation-scheduler`](modules/automation-scheduler.md) · [`automation-server`](modules/automation-server.md) |
 | Automation execution + headless agent bridge | [`automation-runner`](modules/automation-runner.md) |
+| Optional sub-agents (headless agents, tool whitelist, batch spawn) | [`subagent`](modules/subagent.md) · [`subagent-flow`](flows/subagent-flow.md) |
 | External session/window control server (Obsidian integration) | [`control-server`](modules/control-server.md) · [`control-controller`](modules/control-controller.md) |
 | Notifications + unread badges + history | [`notification`](modules/notification.md) · [`qt-notification-controller`](modules/qt-notification-controller.md) |
 | Editor chat panel | [`qt-editor-chat-controller`](modules/qt-editor-chat-controller.md) |
@@ -62,11 +66,15 @@ Python controllers and list models on a single `qasync` event loop.
 
 ```
 src/app.py            # entry point (qasync loop + QML bootstrap)
-config/config.yaml    # paths and LLM settings (no server section)
+config/config.yaml    # paths, LLM, event/control/sub-agent servers
 ../capabilities/skills/       # shared skill library (SKILL.md + scripts/)
 ../capabilities/automations/  # automation scripts (AUTOMATION.py)
 storage/              # sessions.json + chats/ + automations.json + notifications.json
 ```
+
+The optional `subagent` skill lives at
+`capabilities/skills/basic/subagent/` and calls `subagent.host` /
+`subagent.port` from `config/config.yaml`.
 
 Run from `procooQt/`:
 
@@ -94,6 +102,7 @@ module). `capabilities_dir` points at the shared `../capabilities` library;
 - [Config sync flow](flows/config-sync-flow.md)
 - [Skill discovery flow](flows/skill-discovery-flow.md)
 - [Automation run flow](flows/automation-run-flow.md)
+- [Sub-agent flow](flows/subagent-flow.md)
 - [Event server flow](flows/event-server-flow.md)
 - [Obsidian session flow](flows/obsidian-session-flow.md)
 - [Notification lifecycle flow](flows/notification-lifecycle-flow.md)
@@ -107,10 +116,11 @@ module). `capabilities_dir` points at the shared `../capabilities` library;
 | `src/chat/` | [agent](modules/chat-agent.md) · [llm](modules/chat-llm.md) · [manager](modules/chat-manager.md) · [store](modules/chat-store.md) |
 | `src/skill/` | [manager](modules/skill-manager.md) · [models](modules/skill-models.md) · [preset](modules/skill-preset.md) |
 | `src/automation/` | [manager](modules/automation-manager.md) · [runner](modules/automation-runner.md) · [scheduler](modules/automation-scheduler.md) · [server](modules/automation-server.md) |
+| `src/subagent/` | [models/manager/server](modules/subagent.md) |
 | `src/control/` | [server](modules/control-server.md) |
 | `src/notification/` | [models/store/manager](modules/notification.md) |
 | `src/util/` | [error](modules/util-error.md) · [log](modules/util-log.md) · [tokens](modules/util-tokens.md) · [venv](modules/util-venv.md) |
-| `src/qt/` | [ui](modules/qt-ui.md) · [window-manager](modules/qt-window-manager.md) · [control-controller](modules/control-controller.md) · [native-frame](modules/qt-native-frame.md) · [qasync-timer-fix](modules/qt-qasync-timer-fix.md) · [theme](modules/qt-theme.md) · [chat-panel-model](modules/qt-chat-panel-model.md) · [chat-state](modules/qt-chat-state.md) · [chat-worker](modules/chat-worker.md) · [chat-render](modules/chat-render.md) · [session-bus](modules/qt-session-bus.md) · [session-controller](modules/qt-session-controller.md) · [chat-controller](modules/qt-chat-controller.md) · [chat-items](modules/qt-chat-items.md) · [context-banner](modules/qt-context-banner.md) · [skill-controller](modules/qt-skill-controller.md) · [editor-controller](modules/qt-editor-controller.md) · [editor-chat-controller](modules/qt-editor-chat-controller.md) · [automation-controller](modules/qt-automation-controller.md) · [notification-controller](modules/qt-notification-controller.md) · [markdown](modules/qt-markdown.md) · [latex](modules/qt-latex.md) · [yaml-highlight](modules/qt-yaml-highlight.md) · [highlighter](modules/qt-highlighter.md) · [error-handler](modules/qt-error-handler.md) · [models](modules/qt-models.md) · [qt-roles](modules/qt-qt-roles.md) |
+| `src/qt/` | [ui](modules/qt-ui.md) · [window-manager](modules/qt-window-manager.md) · [control-controller](modules/control-controller.md) · [subagent-controller](modules/qt-subagent-controller.md) · [native-frame](modules/qt-native-frame.md) · [qasync-timer-fix](modules/qt-qasync-timer-fix.md) · [theme](modules/qt-theme.md) · [chat-panel-model](modules/qt-chat-panel-model.md) · [chat-state](modules/qt-chat-state.md) · [chat-worker](modules/chat-worker.md) · [chat-render](modules/chat-render.md) · [session-bus](modules/qt-session-bus.md) · [session-controller](modules/qt-session-controller.md) · [chat-controller](modules/qt-chat-controller.md) · [chat-items](modules/qt-chat-items.md) · [context-banner](modules/qt-context-banner.md) · [skill-controller](modules/qt-skill-controller.md) · [editor-controller](modules/qt-editor-controller.md) · [editor-chat-controller](modules/qt-editor-chat-controller.md) · [automation-controller](modules/qt-automation-controller.md) · [notification-controller](modules/qt-notification-controller.md) · [markdown](modules/qt-markdown.md) · [latex](modules/qt-latex.md) · [yaml-highlight](modules/qt-yaml-highlight.md) · [highlighter](modules/qt-highlighter.md) · [error-handler](modules/qt-error-handler.md) · [models](modules/qt-models.md) · [qt-roles](modules/qt-qt-roles.md) |
 
 ## Conventions used in this wiki
 

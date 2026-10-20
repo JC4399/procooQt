@@ -29,6 +29,7 @@ from .notification_controller import NotificationController
 from .session_bus import SessionBus
 from .session_controller import SessionController
 from .skill_controller import SkillController
+from .subagent_controller import SubAgentController
 from .theme import Theme
 from .window_manager import WindowManager
 
@@ -57,6 +58,7 @@ class ProcooQtUI(QObject):
         editor_chat: Chat panel controller embedded in the editor window.
         automation: Automation page, scheduler, and event-server controller.
         notification: Notification page, badges, and history controller.
+        subagent: Headless sub-agent HTTP server controller.
         windows: Manager for primary and secondary per-session windows.
     """
 
@@ -89,6 +91,7 @@ class ProcooQtUI(QObject):
         self.editor_chat = EditorChatController(app, self)
         self.automation = AutomationController(app, self)
         self.notification = NotificationController(app, self)
+        self.subagent = SubAgentController(app, self)
         self.windows = WindowManager(
             app, engine, self._build_window_bundle, self.session_bus, qt_app, self
         )
@@ -165,6 +168,7 @@ class ProcooQtUI(QObject):
         self.notification.build()
         self.automation.build()
         self.control.build()
+        self.subagent.build()
 
     def _build_window_bundle(
         self,
@@ -207,6 +211,7 @@ class ProcooQtUI(QObject):
         self.editor.start()
         self.automation.start()
         self.control.start()
+        self.subagent.start()
         if window is not None:
             self.windows.register_primary(self.session, self.chat, self.skill, window, frame_filter)
 

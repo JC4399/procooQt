@@ -62,3 +62,9 @@ class AutomationError(ProcooError):
     """Raised when an automation cannot be loaded, run, or reports a failure."""
 
     category = "automation"
+
+
+class SubAgentError(ProcooError):
+    """Raised when a sub-agent request is invalid or cannot be run."""
+
+    category = "subagent"

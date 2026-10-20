@@ -8,6 +8,7 @@
 │    config = ConfigManager   skill_manager = SkillManager                     │
 │    chat_store = ChatStore   preset_store = PresetStore                       │
 │    automation_manager = AutomationManager  notification_manager = ...        │
+│    subagent_manager = SubAgentManager                                        │
 │                                                                              │
 │    QApplication → QQuickStyle "Basic" → register font →                      │
 │    qasync.QEventLoop(app) → asyncio.set_event_loop(loop) →                   │
@@ -27,6 +28,7 @@
 │    EditorController   → FileTreeModel, CodeHighlighter                       │
 │    EditorChatController → full chat beside the editor (via ChatController)   │
 │    AutomationController → AutomationListModel + scheduler + event server     │
+│    SubAgentController → local sub-agent HTTP server (backend only)           │
 │    NotificationController → notification model, badges, history              │
 │    Theme (context property)      ErrorNotifier (toasts context property)     │
 └──────────────┬───────────────────────────────────────────────────────────────┘
@@ -66,6 +68,9 @@
 │                 AutomationScheduler (croniter) · AutomationEventServer       │
 │                 (aiohttp)                                                    │
 ├──────────────────────────────────────────────────────────────────────────────┤
+│  src/subagent/  SubAgentManager (spec validation + in-memory records)        │
+│                 SubAgentServer (aiohttp) → chat_manager → Agent              │
+├──────────────────────────────────────────────────────────────────────────────┤
 │  src/notification/ NotificationManager/Store (storage/notifications.json)    │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │  src/config/    ConfigManager (YAML, LLM validation)                         │
@@ -84,6 +89,7 @@
 | Chat runtime | ReAct agent loop, LLM client, persistence | `src/chat/` |
 | Skills | Discovery, loading, AST schema inference, presets, watcher | `src/skill/` |
 | Automations | `AUTOMATION.py` discovery, cron scheduling, HTTP event dispatch, headless-agent runs | `src/automation/` |
+| Sub-agents | Optional skill tool → localhost HTTP → headless agents with per-run model/skills/tools | `src/subagent/` |
 | Notifications | Run-result storage, unread counts, history | `src/notification/` |
 | UI controllers | Composition orchestrator + controllers + models | `src/qt/` |
 | QML view | View-only panels, components, cards | `src/qml/` |
@@ -182,6 +188,20 @@ page opens and stay visible (dimmed) until it closes; info/error require
 and read flags persist in `storage/notifications.json`. See
 [`notification`](modules/notification.md) and
 [`notification-lifecycle-flow`](flows/notification-lifecycle-flow.md).
+
+### Sub-agents
+
+The optional `capabilities/skills/basic/subagent/` skill exposes a `subagent`
+tool. The tool script is a subprocess, so it calls a localhost HTTP server
+(`SubAgentServer`, port `12842` by default) rather than touching `chat_manager`
+directly. `SubAgentManager` validates the request, builds a temporary `Agent`
+with an explicit model/skill/tool set, runs one prompt headless, and returns a
+record (`status`, `text`, `error`, `tool_calls`, tokens). Runs are fire-and-poll
+(`spawn` → `wait`/`status`/`cancel`), capped by a concurrency semaphore, kept in
+memory only, and nested sub-agents are blocked. Because the endpoint is plain
+HTTP, an agent-authored script can spawn a batch and collect results
+concurrently. See [`subagent`](modules/subagent.md) and
+[`subagent-flow`](flows/subagent-flow.md).
 
 ### Tool modes
 Each tool maps to a permission mode:

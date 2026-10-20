@@ -33,6 +33,7 @@ class ChatManager:
         initial_messages: list[dict] | None = None,
         summary_prompt: str = "",
         chat_limits: dict | None = None,
+        tool_env: dict[str, str] | None = None,
     ) -> Agent:
         """Create (or replace) an ``Agent`` and register it.
 
@@ -51,6 +52,7 @@ class ChatManager:
             summary_prompt: Instruction used when summarizing an over-limit chat.
             chat_limits: Optional ``{"max_bytes": int, "max_tokens": int}``
                 compaction limits.
+            tool_env: Optional environment variables added to tool subprocesses.
 
         Returns:
             The newly created ``Agent``.
@@ -71,6 +73,7 @@ class ChatManager:
             initial_messages=initial_messages,
             summary_prompt=summary_prompt,
             chat_limits=chat_limits,
+            tool_env=tool_env,
         )
         self.chats[chat_id] = chat
         return chat

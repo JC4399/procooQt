@@ -25,6 +25,19 @@ auth:
   # API keys accepted by the event server (Authorization: Bearer <key> or X-Api-Key).
   api_keys: []
 
+subagent:
+  # Local HTTP bridge used by the optional `subagent` skill.
+  enabled: true
+  host: "127.0.0.1"
+  port: 12842
+  # Accepted API keys; falls back to auth.api_keys when omitted. Empty disables auth.
+  # api_keys: ["change-me"]
+  default_model: ""       # empty = the default llm entry
+  max_concurrent: 4
+  default_timeout: 900
+  max_timeout: 3600
+  max_records: 100
+
 limits:
   max_chat_mb: 70
   max_chat_tokens: 0

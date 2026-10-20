@@ -11,8 +11,8 @@ rather than whichever interpreter launched the app.
 ## Deliverables
 
 - `resolve_tool_python()` — absolute path to the target interpreter.
-- `build_tool_env(python_path)` — `os.environ` copy with venv activated
-  (`PATH` + `VIRTUAL_ENV`).
+- `build_tool_env(python_path, extra_env=None)` — `os.environ` copy with venv
+  activated (`PATH` + `VIRTUAL_ENV`) plus optional extra variables.
 
 ## Steps / Flow
 
@@ -31,6 +31,7 @@ rather than whichever interpreter launched the app.
 2. Copy `os.environ`.
 3. If target is a venv (detected via `pyvenv.cfg`), prepend its scripts dir
    to `PATH` and set `VIRTUAL_ENV`.
+4. Merge `extra_env` last so callers (e.g. sub-agents) can override values.
 
 ## Function Reference
 
@@ -45,9 +46,9 @@ rather than whichever interpreter launched the app.
 
 | | |
 |---|---|
-| Signature | `def build_tool_env(python_path: str \| None = None) -> dict[str, str]` |
-| Inputs | `python_path` — optional interpreter path (defaults to resolved tool Python). |
-| Output | `os.environ` copy with venv injected (or unmodified copy if not a venv). |
+| Signature | `def build_tool_env(python_path: str \| None = None, extra_env: dict[str, str] \| None = None) -> dict[str, str]` |
+| Inputs | `python_path` — optional interpreter path (defaults to resolved tool Python); `extra_env` — optional variables merged last. |
+| Output | `os.environ` copy with venv injected and `extra_env` applied (or an unmodified copy plus `extra_env` if not a venv). |
 
 ### Private helpers
 
