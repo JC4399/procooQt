@@ -16,7 +16,7 @@ from aiohttp import web
 from pydantic import ValidationError
 
 from ..util.error.types import SubAgentError
-from .models import SubAgentSpec, SubAgentStatus
+from .models import SubAgentSpec
 
 if TYPE_CHECKING:
     from .manager import SubAgentManager
@@ -25,7 +25,7 @@ logger = logging.getLogger("procoo_qt")
 
 
 class SubAgentServer:
-    """HTTP server exposing create, status, list, and cancel endpoints."""
+    """HTTP server exposing the run and health endpoints."""
 
     def __init__(
         self,
@@ -40,7 +40,7 @@ class SubAgentServer:
             host: Interface to bind (e.g. ``"127.0.0.1"``).
             port: TCP port to listen on.
             api_keys: Accepted API keys; an empty list disables authentication.
-            manager: The manager that owns sub-agent records and tasks.
+            manager: The manager that runs sub-agents.
         """
         self._host = host
         self._port = port
@@ -81,12 +81,7 @@ class SubAgentServer:
         """Create the aiohttp application and bind the TCP site."""
         app = web.Application()
         app.router.add_get("/health", self._handle_health)
-        app.router.add_post("/subagents", self._handle_spawn)
-        app.router.add_post("/subagents/batch", self._handle_spawn_batch)
         app.router.add_post("/subagents/run", self._handle_run)
-        app.router.add_get("/subagents", self._handle_list)
-        app.router.add_get("/subagents/{agent_id}", self._handle_get)
-        app.router.add_post("/subagents/{agent_id}/cancel", self._handle_cancel)
         app_runner = web.AppRunner(app)
         await app_runner.setup()
         site = web.TCPSite(app_runner, self._host, self._port)
@@ -127,75 +122,14 @@ class SubAgentServer:
         """
         return web.json_response({"status": "ok"})
 
-    async def _handle_spawn(self, request: web.Request) -> web.Response:
-        """Create and schedule one sub-agent.
-
-        Args:
-            request: A ``POST /subagents`` request carrying a spec body.
-
-        Returns:
-            The queued record with status 202, or a 4xx error.
-        """
-        if not self._authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
-        payload = await self._read_payload(request)
-        if payload is None:
-            return web.json_response({"error": "invalid JSON body"}, status=400)
-        try:
-            spec = SubAgentSpec(**payload)
-            record = self._manager.create(spec)
-        except (ValidationError, TypeError) as error:
-            return self._validation_error(error)
-        except SubAgentError as error:
-            return self._subagent_error(error)
-        return web.json_response(record.model_dump(mode="json"), status=202)
-
-    async def _handle_spawn_batch(self, request: web.Request) -> web.Response:
-        """Create and schedule multiple sub-agents from one request.
-
-        Args:
-            request: A ``POST /subagents/batch`` request with ``{specs, wait}``.
-
-        Returns:
-            ``{"records": [...]}``, or a 4xx error.
-        """
-        if not self._authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
-        payload = await self._read_payload(request)
-        if payload is None:
-            return web.json_response({"error": "invalid JSON body"}, status=400)
-
-        raw_specs = payload.get("specs")
-        if not isinstance(raw_specs, list) or not raw_specs:
-            return web.json_response({"error": "specs must be a non-empty list"}, status=400)
-        should_wait = bool(payload.get("wait", False))
-
-        records = []
-        for index, raw_spec in enumerate(raw_specs):
-            try:
-                spec = SubAgentSpec(**raw_spec)
-                records.append(self._manager.create(spec))
-            except (ValidationError, TypeError) as error:
-                return self._validation_error(error, index=index)
-            except SubAgentError as error:
-                return self._subagent_error(error, index=index)
-
-        if should_wait:
-            waited = await asyncio.gather(*(self._manager.wait(r.id) for r in records))
-            records = [record for record in waited if record is not None]
-        return web.json_response(
-            {"records": [record.model_dump(mode="json") for record in records]},
-            status=202 if not should_wait else 200,
-        )
-
     async def _handle_run(self, request: web.Request) -> web.Response:
-        """Create a sub-agent and block until it finishes.
+        """Run one sub-agent and block until it finishes.
 
         Args:
             request: A ``POST /subagents/run`` request carrying a spec body.
 
         Returns:
-            The terminal record, or a 4xx error.
+            ``{"text", "error", "log_path"}``, or a 4xx error.
         """
         if not self._authorized(request):
             return web.json_response({"error": "unauthorized"}, status=401)
@@ -209,100 +143,42 @@ class SubAgentServer:
             return self._validation_error(error)
         except SubAgentError as error:
             return self._subagent_error(error)
-        return web.json_response(record.model_dump(mode="json"))
-
-    async def _handle_get(self, request: web.Request) -> web.Response:
-        """Return one sub-agent record.
-
-        Args:
-            request: A ``GET /subagents/{id}`` request.
-
-        Returns:
-            The record, or a 404 error.
-        """
-        if not self._authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
-        record = self._manager.get(request.match_info.get("agent_id", ""))
-        if record is None:
-            return web.json_response({"error": "sub-agent not found"}, status=404)
-        return web.json_response(record.model_dump(mode="json"))
-
-    async def _handle_list(self, request: web.Request) -> web.Response:
-        """Return every retained sub-agent record.
-
-        Args:
-            request: A ``GET /subagents`` request, optionally with ``?status=``.
-
-        Returns:
-            ``{"records": [...]}``, or a 400 error for an invalid status.
-        """
-        if not self._authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
-        status_filter = str(request.query.get("status", "")).strip().lower()
-        records = self._manager.list_records()
-        if status_filter:
-            try:
-                wanted = SubAgentStatus(status_filter)
-            except ValueError:
-                return web.json_response({"error": f"invalid status: {status_filter}"}, status=400)
-            records = [record for record in records if record.status == wanted]
         return web.json_response(
-            {"records": [record.model_dump(mode="json") for record in records]}
+            {
+                "text": record.text,
+                "error": record.error,
+                "log_path": record.log_path,
+            }
         )
-
-    async def _handle_cancel(self, request: web.Request) -> web.Response:
-        """Cancel a queued or running sub-agent.
-
-        Args:
-            request: A ``POST /subagents/{id}/cancel`` request.
-
-        Returns:
-            The updated record, or a 404 error.
-        """
-        if not self._authorized(request):
-            return web.json_response({"error": "unauthorized"}, status=401)
-        record = await self._manager.cancel(request.match_info.get("agent_id", ""))
-        if record is None:
-            return web.json_response({"error": "sub-agent not found"}, status=404)
-        return web.json_response(record.model_dump(mode="json"))
 
     # ------------------------------------------------------------------
     #  Private: Response helpers
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _validation_error(
-        error: ValidationError | TypeError, index: int | None = None
-    ) -> web.Response:
+    def _validation_error(error: ValidationError | TypeError) -> web.Response:
         """Build a 400 response for an invalid spec.
 
         Args:
             error: The pydantic validation error or request-shape error.
-            index: Optional batch index.
 
         Returns:
             A JSON error response.
         """
-        prefix = f"specs[{index}]: " if index is not None else ""
-        return web.json_response(
-            {"error": f"{prefix}{error}"},
-            status=400,
-        )
+        return web.json_response({"error": str(error)}, status=400)
 
     @staticmethod
-    def _subagent_error(error: SubAgentError, index: int | None = None) -> web.Response:
+    def _subagent_error(error: SubAgentError) -> web.Response:
         """Build a 400 response for a rejected sub-agent request.
 
         Args:
             error: The manager error.
-            index: Optional batch index.
 
         Returns:
             A JSON error response.
         """
-        prefix = f"specs[{index}]: " if index is not None else ""
         return web.json_response(
-            {"error": f"{prefix}{error.brief}", "detail": error.detail},
+            {"error": error.brief, "detail": error.detail},
             status=400,
         )
 

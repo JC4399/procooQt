@@ -187,11 +187,6 @@ class ConfigManager:
         """Hard upper bound for a per-sub-agent timeout in seconds."""
         return int(self._get_optional("subagent", "max_timeout", default=3600))
 
-    @property
-    def subagent_max_records(self) -> int:
-        """Maximum number of sub-agent records retained in memory."""
-        return int(self._get_optional("subagent", "max_records", default=100))
-
     # ------------------------------------------------------------------
     #  Chat limits
     # ------------------------------------------------------------------

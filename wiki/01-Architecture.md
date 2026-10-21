@@ -194,12 +194,11 @@ The optional `capabilities/skills/basic/subagent/` skill exposes a `subagent`
 tool. The tool script is a subprocess, so it calls a localhost HTTP server
 (`SubAgentServer`, port `12842` by default) rather than touching `chat_manager`
 directly. `SubAgentManager` validates the request, builds a temporary `Agent`
-with an explicit model/skill/tool set, runs one prompt headless, and returns a
-record (`status`, `text`, `error`, `tool_calls`, tokens). Runs are fire-and-poll
-(`spawn` → `wait`/`status`/`cancel`), capped by a concurrency semaphore, kept in
-memory only, and nested sub-agents are blocked. Because the endpoint is plain
-HTTP, an agent-authored script can spawn a batch and collect results
-concurrently. See [`subagent`](modules/subagent.md) and
+with an explicit model/skill/tool set, runs one prompt headless, and writes a
+chat-style JSON transcript to the skill's `references/logs/` directory. The tool
+receives only the final answer (or error) and the transcript path. Runs are
+capped by a concurrency semaphore, bounded by a timeout, and nested sub-agents
+are blocked. See [`subagent`](modules/subagent.md) and
 [`subagent-flow`](flows/subagent-flow.md).
 
 ### Tool modes

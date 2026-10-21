@@ -25,6 +25,8 @@ live changes.
   path-accepting boundary (`load_skill_contents`, `load_tool_functions`,
   `build_tool_config`, lookups) so stored Windows-separator paths still match.
 - `refresh`, `start_watching`, `stop_watching` (watchdog-based live reload).
+  Events under `_presets` and under any `references/logs` directory are ignored,
+  so writing sub-agent transcripts does not trigger a rescan.
 - `get_validation_issues` (errors/warnings).
 
 ## Skill directory format

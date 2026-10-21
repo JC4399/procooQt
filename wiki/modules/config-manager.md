@@ -15,7 +15,7 @@ properties. Raises `ConfigError` on missing keys (fail-fast at startup).
   `control_server_host`, `control_server_port`, `control_server_api_keys`,
   `subagent_enabled`, `subagent_host`, `subagent_port`, `subagent_api_keys`,
   `subagent_default_model`, `subagent_max_concurrent`,
-  `subagent_default_timeout`, `subagent_max_timeout`, `subagent_max_records`,
+  `subagent_default_timeout`, `subagent_max_timeout`,
   `chat_max_mb`, `chat_max_bytes`, `chat_max_tokens`, `agent_system_prompt`,
   `agent_summary_prompt`, `llm_models`, `llm_model_name`, `llm_api_key`,
   `llm_api_base`.
@@ -109,7 +109,6 @@ See also: [Configuration overview](../02-Configuration.md).
 | `subagent_max_concurrent` | `int` | simultaneous runs (default `4`) |
 | `subagent_default_timeout` | `int` | per-run seconds (default `900`) |
 | `subagent_max_timeout` | `int` | hard timeout cap (default `3600`) |
-| `subagent_max_records` | `int` | retained records (default `100`) |
 | `chat_max_mb` | `int` | `_get_optional("limits", "max_chat_mb", default=70)` |
 | `chat_max_bytes` | `int` | `chat_max_mb * 1024 * 1024` |
 | `chat_max_tokens` | `int` | `_get_optional("limits", "max_chat_tokens", default=150000)` |

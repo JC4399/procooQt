@@ -1,13 +1,11 @@
 ---
 name: subagent
 description: >
-  Delegate work to headless sub-agents. Create one or many independent agents
-  with their own prompt, optional model, skills, and tool whitelist, then collect
-  their results. Use when a task can be split into independent parts, when a
-  cheaper or different model should handle a subtask, when a worker needs only a
-  narrow set of tools, or when several investigations should run in parallel.
-  Also use whenever the user asks for sub-agents, workers, a delegation system,
-  or mass generation of agents — even if they do not name this skill.
+  Delegate work to a headless sub-agent. Run one independent agent with its own
+  prompt, optional model, skills, and tool whitelist, then read its answer and
+  the path to its full transcript. Use when a cheaper or different model should
+  handle a subtask, when a worker needs only a narrow set of tools, or when the
+  user asks for a sub-agent or a worker.
 ---
 
 # Sub-agents
@@ -21,14 +19,22 @@ giving it tools it does not need. Sub-agents are optional: they exist only while
 this skill is selected.
 
 Sub-agents are headless. They cannot ask the user for approval, they cannot open
-a chat window, and they cannot spawn further sub-agents. Their records are kept
-in memory and disappear when the app exits.
+a chat window, and they cannot spawn further sub-agents. Each run writes a
+chat-style JSON transcript to the skill's `references/logs/` directory.
 
 ## Deliverable
 
-A result for each delegated task: a JSON record with `status`, `text`, `error`,
-`tool_calls`, and token counts. A successful run has `status: "done"` and the
-answer in `text`. A failed run has `status: "error"` and a readable `error`.
+The tool returns only two things:
+
+```text
+<final answer>
+
+Log: C:\...\capabilities\skills\basic\subagent\references\logs\subagent_20261021_143000_1.json
+```
+
+The log contains the full run: system prompt, user prompt, thinking, responses,
+tool calls, tool results, token usage, and metadata. Read it when you need to
+audit how the answer was produced or why a run failed.
 
 ## Methodology
 
@@ -40,76 +46,40 @@ answer in `text`. A failed run has `status: "error"` and a readable `error`.
 3. **Choose the model deliberately.** Omit `model` to use the configured
    sub-agent default. Pass another configured model name for cheaper or
    stronger workers.
-4. **Use the right mode.**
-   - `run` — one task, wait for the answer.
-   - `spawn` + `wait` — long task, or when you want to do other work first.
-   - `spawn_many` — several independent tasks in one call.
-   - `status` / `cancel` — inspect or stop jobs.
-5. **Read the result before reporting.** If `status` is `error`, either retry
+4. **Wait for the answer.** The call blocks until the sub-agent finishes, so
+   keep the prompt self-contained.
+5. **Read the result before reporting.** If the result is an error, either retry
    with a clearer prompt or do the work yourself.
 
 ## Tool reference
 
-The tool is `subagent`. Its main arguments are:
+The tool is `subagent`. Its arguments are:
 
 | Argument | Meaning |
 |---|---|
-| `mode` | `run`, `spawn`, `spawn_many`, `wait`, `status`, or `cancel` |
-| `prompt` | The task for one sub-agent |
+| `prompt` | The task for the sub-agent (required) |
 | `model` | Optional configured model name |
 | `activated_skills` | Skill paths whose instructions and tools are loaded |
 | `tools` | Explicit tool names; empty means all tools from activated skills |
 | `tool_modes` | Per-tool overrides, e.g. `{"edit_file": "block"}` |
 | `system_prompt` | Optional extra instruction |
-| `specs` | List of request objects for `spawn_many` |
-| `agent_id` | Target id for `wait`, `status`, or `cancel` |
-| `timeout` | Spawn timeout, or maximum wait time |
-| `wait` | For `spawn_many`, wait for every job |
+| `timeout` | Run timeout in seconds; `0` uses the server default |
 
 Tool modes are `allow` or `block`. `ask` is not available because no user is
 present to approve a headless tool call. Selected tools default to `allow`.
 
-## Examples
-
-One task, wait for the answer:
+## Example
 
 ```text
-subagent(mode="run", prompt="Summarise the file at C:/work/report.md",
+subagent(prompt="Summarise the file at C:/work/report.md",
          activated_skills=["basic/basic-ops"], tools=["read_file"])
 ```
-
-Start a long task and poll later:
-
-```text
-subagent(mode="spawn", prompt="Audit the repository and list risky call sites",
-         activated_skills=["basic/basic-ops"])
-subagent(mode="wait", agent_id="subagent:20261021_143000:1", timeout=1200)
-```
-
-Simple batch:
-
-```text
-subagent(mode="spawn_many", wait=True, specs=[
-  {"prompt": "Summarise chapter 1 of C:/book.txt", "tools": ["read_file"]},
-  {"prompt": "Summarise chapter 2 of C:/book.txt", "tools": ["read_file"]}
-])
-```
-
-For a custom batch, run a Python script with the basic-ops `execute_script`
-tool (`mode="python"`). Add this skill's absolute `scripts/` directory to
-`sys.path` and import `_client`; then spawn and collect with `asyncio.gather`.
 
 ## Limits
 
 - Nested sub-agents are disabled.
 - The server caps concurrent runs; extra jobs queue.
 - Each run is bounded by its timeout.
-- `run` and `wait` block inside a tool call, so they are bounded by the tool
-  runner's subprocess limit (about 10 minutes). For longer work use
-  `spawn` (or `spawn_many` with `wait=false`) and poll `status`.
-- Completed records are ephemeral and capped in memory.
-
-## References
-
-- `references/batch-patterns.md` — write a custom script with `_client.py` to
-  spawn many jobs concurrently and collect their results.
+- The call blocks inside a tool subprocess, so it is bounded by the tool
+  runner's subprocess limit (about 10 minutes). Keep `timeout` below that.
+- Completed runs are written to `references/logs/`; no in-memory record is kept.

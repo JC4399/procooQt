@@ -39,7 +39,6 @@ subagent:
   max_concurrent: 4
   default_timeout: 900
   max_timeout: 3600
-  max_records: 100
 
 basic_ops:
   ocr_url: "http://localhost:3334/ocr"              # read_file OCR
@@ -131,9 +130,10 @@ independent of the event and control servers. `subagent.api_keys` falls back to
 | `max_concurrent` | Simultaneous sub-agent runs; extra jobs queue |
 | `default_timeout` | Per-run timeout when the request omits one (seconds) |
 | `max_timeout` | Hard upper bound for a requested timeout |
-| `max_records` | Retained in-memory records; oldest terminal records drop first |
 
-Sub-agent records are ephemeral. The skill scripts resolve the endpoint from
+Sub-agent runs write chat-style JSON transcripts to the skill's
+`references/logs/` directory. The tool result includes the transcript path but
+not the full record. The skill script resolves the endpoint from
 `PROCOO_SUBAGENT_URL` first, then this section, then the default URL.
 
 ### Session ids

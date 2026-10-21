@@ -1,9 +1,9 @@
-"""Sub-agent manager — validates requests, runs headless agents, and tracks results.
+"""Sub-agent manager — validates requests, runs one headless agent, and logs it.
 
 Each sub-agent is a temporary :class:`Agent` created through the global
 :class:`ChatManager`.  It runs one prompt to completion, emits the same event
-stream as a chat, and is removed afterwards.  Records are kept in memory only
-and capped so a long-running batch cannot grow without bound.
+stream as a chat, and is removed afterwards.  The full message history is
+written to a chat-style JSON transcript beside the subagent skill.
 """
 
 from __future__ import annotations
@@ -11,11 +11,13 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 import logging
+from pathlib import Path
 import time
 from typing import TYPE_CHECKING, Any
 
 from ..chat.manager import chat_manager
 from ..util.error.types import SubAgentError
+from .log import SubAgentLogWriter
 from .models import SubAgentRecord, SubAgentSpec, SubAgentStatus
 
 if TYPE_CHECKING:
@@ -27,11 +29,7 @@ _ALLOWED_TOOL_MODES = frozenset(("allow", "block"))
 
 
 class SubAgentManager:
-    """Creates, runs, and tracks headless sub-agents.
-
-    Attributes:
-        records: In-memory records keyed by sub-agent id, oldest first.
-    """
+    """Runs headless sub-agents and writes their transcripts."""
 
     def __init__(self, app: ProcooApp) -> None:
         """Initialise the manager.
@@ -40,24 +38,21 @@ class SubAgentManager:
             app: The backend application holding config and skill subsystems.
         """
         self._app = app
-        self.records: dict[str, SubAgentRecord] = {}
-        self._tasks: dict[str, asyncio.Task[None]] = {}
-        self._prepared: dict[str, tuple[str, list[str], list[dict], dict[str, str]]] = {}
         self._semaphore: asyncio.Semaphore | None = None
         self._counter = 0
 
     # ------------------------------------------------------------------
-    #  Public: Create and run
+    #  Public: Run
     # ------------------------------------------------------------------
 
-    def create(self, spec: SubAgentSpec) -> SubAgentRecord:
-        """Validate a request, create its agent, and schedule the run.
+    async def run(self, spec: SubAgentSpec) -> SubAgentRecord:
+        """Run one sub-agent to completion and return its terminal record.
 
         Args:
             spec: The sub-agent request.
 
         Returns:
-            The queued record.
+            The terminal record, including the log path when one was written.
 
         Raises:
             SubAgentError: When the prompt, skills, model, or tools are invalid.
@@ -69,97 +64,23 @@ class SubAgentManager:
         activated = self._strip_subagent_skill(activated)
         tool_defs, tool_config = self._resolve_tools(spec, activated)
 
-        record_id = self._new_id()
         record = SubAgentRecord(
-            id=record_id,
+            id=self._new_id(),
             status=SubAgentStatus.QUEUED,
             spec=spec,
             model_name=model_name,
+            activated_skills=activated,
             tool_config=tool_config,
             created_at=time.strftime("%Y-%m-%d %H:%M:%S"),
         )
-        self._prepared[record_id] = (
-            model_name,
-            activated,
-            tool_defs,
-            tool_config,
-        )
-        self.records[record_id] = record
-        self._tasks[record_id] = asyncio.ensure_future(self._execute(record))
-        self._prune()
         logger.info(
-            "Sub-agent '%s' queued (model=%s, tools=%d)",
-            record_id,
+            "Sub-agent '%s' started (model=%s, tools=%d)",
+            record.id,
             model_name,
             len(tool_config),
         )
+        await self._execute(record, model_name, activated, tool_defs, tool_config)
         return record
-
-    async def run(self, spec: SubAgentSpec) -> SubAgentRecord:
-        """Create a sub-agent and wait for it to finish.
-
-        Args:
-            spec: The sub-agent request.
-
-        Returns:
-            The terminal record.
-        """
-        record = self.create(spec)
-        await self.wait(record.id)
-        return record
-
-    async def wait(self, agent_id: str) -> SubAgentRecord | None:
-        """Wait for a sub-agent task to finish.
-
-        Args:
-            agent_id: The sub-agent id.
-
-        Returns:
-            The terminal record, or ``None`` when the id is unknown.
-        """
-        record = self.records.get(agent_id)
-        if record is None:
-            return None
-        task = self._tasks.get(agent_id)
-        if task is not None and not task.done():
-            with suppress(asyncio.CancelledError):
-                await task
-        return record
-
-    async def cancel(self, agent_id: str) -> SubAgentRecord | None:
-        """Cancel a running or queued sub-agent.
-
-        Args:
-            agent_id: The sub-agent id.
-
-        Returns:
-            The updated record, or ``None`` when the id is unknown.
-        """
-        record = self.records.get(agent_id)
-        if record is None:
-            return None
-        if record.status.terminal:
-            return record
-        task = self._tasks.get(agent_id)
-        if task is not None and not task.done():
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
-        else:
-            self._finish(record, SubAgentStatus.CANCELLED, error="Sub-agent cancelled.")
-        return record
-
-    # ------------------------------------------------------------------
-    #  Public: Lookup
-    # ------------------------------------------------------------------
-
-    def get(self, agent_id: str) -> SubAgentRecord | None:
-        """Return a record by id, or ``None``."""
-        return self.records.get(agent_id)
-
-    def list_records(self) -> list[SubAgentRecord]:
-        """Return every in-memory record, oldest first."""
-        return list(self.records.values())
 
     # ------------------------------------------------------------------
     #  Private: Validation and resolution
@@ -386,24 +307,35 @@ class SubAgentManager:
             self._semaphore = asyncio.Semaphore(limit)
         return self._semaphore
 
-    async def _execute(self, record: SubAgentRecord) -> None:
-        """Run one sub-agent under the concurrency limit and finalise its record.
+    async def _execute(
+        self,
+        record: SubAgentRecord,
+        model_name: str,
+        activated: list[str],
+        tool_defs: list[dict],
+        tool_config: dict[str, str],
+    ) -> None:
+        """Run one sub-agent under the concurrency limit and write its log.
 
         Args:
             record: The queued record to execute.
+            model_name: Resolved model name.
+            activated: Activated skill paths.
+            tool_defs: Resolved tool definitions.
+            tool_config: Resolved tool modes.
         """
+        agent = None
         try:
             async with self._get_semaphore():
-                prepared = self._prepared.get(record.id)
-                if prepared is None:
-                    self._finish(
-                        record,
-                        SubAgentStatus.ERROR,
-                        error="Sub-agent preparation data was lost.",
-                    )
-                    return
                 try:
-                    self._build_chat(record.id, record.spec, *prepared)
+                    self._build_chat(
+                        record.id,
+                        record.spec,
+                        model_name,
+                        activated,
+                        tool_defs,
+                        tool_config,
+                    )
                 except Exception as error:
                     logger.error("Sub-agent '%s' could not start: %s", record.id, error)
                     self._finish(
@@ -412,7 +344,16 @@ class SubAgentManager:
                         error=f"Failed to create sub-agent: {error}",
                     )
                     return
-                await self._run_record(record)
+
+                agent = chat_manager.get_chat(record.id)
+                if agent is None:
+                    self._finish(
+                        record,
+                        SubAgentStatus.ERROR,
+                        error="Sub-agent agent was not created.",
+                    )
+                    return
+                await self._run_record(record, agent)
         except asyncio.CancelledError:
             self._finish(record, SubAgentStatus.CANCELLED, error="Sub-agent cancelled.")
             raise
@@ -420,22 +361,18 @@ class SubAgentManager:
             logger.error("Sub-agent '%s' failed: %s", record.id, error)
             self._finish(record, SubAgentStatus.ERROR, error=str(error) or type(error).__name__)
         finally:
-            self._prepared.pop(record.id, None)
-            self._tasks.pop(record.id, None)
+            with suppress(asyncio.CancelledError):
+                await self._write_log(record, agent)
             chat_manager.remove_chat(record.id)
 
-    async def _run_record(self, record: SubAgentRecord) -> None:
+    async def _run_record(self, record: SubAgentRecord, agent: Any) -> None:
         """Drive the agent turn, apply the timeout, and store the result.
 
         Args:
             record: The record being executed.
+            agent: The live headless agent.
         """
         record.status = SubAgentStatus.RUNNING
-        agent = chat_manager.get_chat(record.id)
-        if agent is None:
-            self._finish(record, SubAgentStatus.ERROR, error="Sub-agent agent was not created.")
-            return
-
         timeout = self._resolve_timeout(record.spec)
         logger.info("Sub-agent '%s' running (timeout=%ss)", record.id, timeout)
         try:
@@ -448,10 +385,7 @@ class SubAgentManager:
             )
             return
 
-        record.tokens = {
-            "input": int(getattr(agent, "api_input_latest", 0) or 0),
-            "output": int(getattr(agent, "api_output_sum", 0) or 0),
-        }
+        record.tokens = self._read_tokens(agent)
         text = self._last_assistant_text(agent)
         if error_message:
             self._finish(record, SubAgentStatus.ERROR, text=text, error=error_message)
@@ -469,7 +403,7 @@ class SubAgentManager:
 
         Args:
             agent: The live headless agent.
-            record: The record collecting tool-call summaries.
+            record: The record supplying the prompt.
 
         Returns:
             The last error brief, or an empty string on success.
@@ -484,7 +418,7 @@ class SubAgentManager:
                     if not task.done():
                         continue
                     break
-                error_message = self._handle_event(record, event, error_message)
+                error_message = self._handle_event(event, error_message)
             if not task.done():
                 await task
         except asyncio.CancelledError:
@@ -494,36 +428,34 @@ class SubAgentManager:
         return error_message
 
     @staticmethod
-    def _handle_event(record: SubAgentRecord, event: dict, error_message: str) -> str:
-        """Record a tool call or error from the agent event stream.
+    def _handle_event(event: dict, error_message: str) -> str:
+        """Return the latest agent error brief from one event.
 
         Args:
-            record: The record collecting summaries.
             event: One agent event dict.
             error_message: The error brief accumulated so far.
 
         Returns:
             The updated error brief.
         """
-        event_type = event.get("type", "")
-        if event_type == "tool_call":
-            record.tool_calls.append(
-                {
-                    "id": event.get("id", ""),
-                    "name": event.get("name", ""),
-                    "mode": event.get("mode", ""),
-                    "arguments": event.get("arguments", {}),
-                    "is_error": False,
-                }
-            )
-        elif event_type == "tool_result":
-            for call in reversed(record.tool_calls):
-                if call.get("id") == event.get("id"):
-                    call["is_error"] = bool(event.get("is_error"))
-                    break
-        elif event_type == "error":
-            error_message = event.get("brief") or event.get("detail") or "Agent error"
+        if event.get("type") == "error":
+            return str(event.get("brief") or event.get("detail") or "Agent error")
         return error_message
+
+    @staticmethod
+    def _read_tokens(agent: Any) -> dict:
+        """Return the agent's token counters.
+
+        Args:
+            agent: The live headless agent.
+
+        Returns:
+            A ``{"input": int, "output": int}`` mapping.
+        """
+        return {
+            "input": int(getattr(agent, "api_input_latest", 0) or 0),
+            "output": int(getattr(agent, "api_output_sum", 0) or 0),
+        }
 
     @staticmethod
     def _last_assistant_text(agent: Any) -> str:
@@ -553,6 +485,49 @@ class SubAgentManager:
         return ""
 
     # ------------------------------------------------------------------
+    #  Private: Logging
+    # ------------------------------------------------------------------
+
+    async def _write_log(self, record: SubAgentRecord, agent: Any) -> None:
+        """Write the run transcript, tolerating cancellation and I/O errors.
+
+        Args:
+            record: The terminal record.
+            agent: The live agent, or ``None`` when construction failed.
+        """
+        messages = list(agent.messages) if agent is not None else []
+        if agent is not None and not record.tokens:
+            record.tokens = self._read_tokens(agent)
+        writer = self._log_writer()
+        try:
+            record.log_path = await asyncio.to_thread(writer.write, record, messages)
+        except asyncio.CancelledError:
+            try:
+                record.log_path = writer.write(record, messages)
+            except Exception as error:
+                logger.error("Could not write sub-agent log for '%s': %s", record.id, error)
+            raise
+        except Exception as error:
+            logger.error("Could not write sub-agent log for '%s': %s", record.id, error)
+
+    def _log_writer(self) -> SubAgentLogWriter:
+        """Resolve the log directory inside the subagent skill.
+
+        Returns:
+            A writer targeting ``references/logs`` under the subagent skill.
+        """
+        manager = self._app.skill_manager
+        info = next((skill for skill in manager.skills if skill.name == "subagent"), None)
+        if info is None:
+            info = manager.get_skill_by_path("basic/subagent")
+        root = Path(manager.skills_dir)
+        if info is not None:
+            log_dir = root / info.path / "references" / "logs"
+        else:
+            log_dir = root / "basic" / "subagent" / "references" / "logs"
+        return SubAgentLogWriter(log_dir)
+
+    # ------------------------------------------------------------------
     #  Private: Record lifecycle
     # ------------------------------------------------------------------
 
@@ -578,17 +553,7 @@ class SubAgentManager:
             record.text = text
         if error is not None:
             record.error = error
-        self._prune()
         logger.info("Sub-agent '%s' finished with %s", record.id, status)
-
-    def _prune(self) -> None:
-        """Drop the oldest terminal records above the configured cap."""
-        limit = max(1, self._app.config.subagent_max_records)
-        for agent_id in list(self.records):
-            if len(self.records) <= limit:
-                return
-            if self.records[agent_id].status.terminal:
-                del self.records[agent_id]
 
     def _new_id(self) -> str:
         """Return a unique sub-agent id."""

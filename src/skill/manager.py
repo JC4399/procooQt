@@ -779,7 +779,10 @@ class SkillManager:
 
             def on_any_event(self, event) -> None:
                 src = event.src_path if hasattr(event, "src_path") else ""
-                if "_presets" in Path(src).parts:
+                parts = Path(src).parts
+                if "_presets" in parts:
+                    return
+                if "references" in parts and "logs" in parts:
                     return
                 self._mgr._schedule_refresh()
 

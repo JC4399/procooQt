@@ -36,7 +36,6 @@ subagent:
   max_concurrent: 4
   default_timeout: 900
   max_timeout: 3600
-  max_records: 100
 
 basic_ops:
   # External services used by the basic-ops skill scripts.

@@ -26,9 +26,10 @@ Python controllers and list models on a single `qasync` event loop.
 - **Automations** — `capabilities/automations/<name>/AUTOMATION.py` scripts run
   on a cron schedule or on an external HTTP event; they may call the LLM through
   the app's agent loop.
-- **Sub-agents** — the optional `subagent` skill spawns headless agents over a
-  localhost HTTP bridge. Each sub-agent gets its own prompt, model, skills, and
-  tool whitelist, and can be spawned in batches from a script.
+- **Sub-agents** — the optional `subagent` skill runs one headless agent over a
+  localhost HTTP bridge. The sub-agent gets its own prompt, model, skills, and
+  tool whitelist; its full history is logged, while the tool returns only the
+  answer and the transcript path.
 - **Notifications** — run results appear as log/info/error cards with unread
   badges, Confirm/Debug actions, and a searchable history.
 - **Presets & editor** — save/load skill+tool config presets, a
@@ -53,7 +54,7 @@ Python controllers and list models on a single `qasync` event loop.
 | Skill discovery + AST schema inference | [`skill-manager`](modules/skill-manager.md) |
 | Automation discovery + scheduling + event server | [`automation-manager`](modules/automation-manager.md) · [`automation-scheduler`](modules/automation-scheduler.md) · [`automation-server`](modules/automation-server.md) |
 | Automation execution + headless agent bridge | [`automation-runner`](modules/automation-runner.md) |
-| Optional sub-agents (headless agents, tool whitelist, batch spawn) | [`subagent`](modules/subagent.md) · [`subagent-flow`](flows/subagent-flow.md) |
+| Optional sub-agents (headless agents, tool whitelist, chat-style logs) | [`subagent`](modules/subagent.md) · [`subagent-flow`](flows/subagent-flow.md) |
 | External session/window control server (Obsidian integration) | [`control-server`](modules/control-server.md) · [`control-controller`](modules/control-controller.md) |
 | Notifications + unread badges + history | [`notification`](modules/notification.md) · [`qt-notification-controller`](modules/qt-notification-controller.md) |
 | Editor chat panel | [`qt-editor-chat-controller`](modules/qt-editor-chat-controller.md) |

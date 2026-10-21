@@ -25,6 +25,10 @@
 # basic-ops local service endpoints
 /capabilities/skills/basic/basic-ops/scripts/config.yaml
 
+# Sub-agent run logs
+/capabilities/skills/basic/subagent/references/logs/*
+!/capabilities/skills/basic/subagent/references/logs/.gitkeep
+
 # Node / Obsidian plugin (obsidian-procoo)
 node_modules/
 bun.lockb

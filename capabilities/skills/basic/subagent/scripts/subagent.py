@@ -1,16 +1,68 @@
-"""Tool: create and control headless sub-agents through the local sub-agent server."""
+"""Tool: run one headless sub-agent through the local sub-agent server."""
 
 from __future__ import annotations
 
 import asyncio
+from functools import lru_cache
 import json
 import os
+from pathlib import Path
 import sys
-import traceback
+from typing import Any
 
-import _client
+import aiohttp
+import yaml
 
-_MODES = frozenset(("run", "spawn", "spawn_many", "wait", "status", "cancel"))
+_DEFAULT_URL = "http://127.0.0.1:12842"
+
+
+@lru_cache(maxsize=1)
+def _load_config() -> dict[str, Any]:
+    """Find and load the project ``config/config.yaml``.
+
+    Returns:
+        The parsed config mapping, or an empty dict when no file is found.
+    """
+    for directory in [Path.cwd(), *Path(__file__).resolve().parents]:
+        config_path = directory / "config" / "config.yaml"
+        if config_path.is_file():
+            try:
+                with open(config_path, encoding="utf-8") as handle:
+                    data = yaml.safe_load(handle)
+            except (OSError, yaml.YAMLError):
+                return {}
+            return data if isinstance(data, dict) else {}
+    return {}
+
+
+def _base_url() -> str:
+    """Return the sub-agent server base URL without a trailing slash."""
+    override = os.environ.get("PROCOO_SUBAGENT_URL", "").strip()
+    if override:
+        return override.rstrip("/")
+    section = _load_config().get("subagent") or {}
+    host = str(section.get("host", "127.0.0.1"))
+    port = int(section.get("port", 12842))
+    return f"http://{host}:{port}"
+
+
+def _api_key() -> str:
+    """Return the configured API key, or an empty string when auth is open."""
+    override = os.environ.get("PROCOO_SUBAGENT_API_KEY", "").strip()
+    if override:
+        return override
+    config = _load_config()
+    section = config.get("subagent") or {}
+    keys = section.get("api_keys")
+    if not keys:
+        keys = (config.get("auth") or {}).get("api_keys") or []
+    return str(keys[0]) if keys else ""
+
+
+def _headers() -> dict[str, str]:
+    """Build request headers, including the API key when configured."""
+    key = _api_key()
+    return {"X-Api-Key": key} if key else {}
 
 
 def _is_nested() -> bool:
@@ -60,133 +112,103 @@ def _build_spec(
     return spec
 
 
-def _dump(value: object) -> str:
-    """Serialise a result to a compact JSON string.
+async def _post(spec: dict) -> dict[str, Any]:
+    """Send one run request and return the decoded response.
 
     Args:
-        value: Any JSON-serialisable value.
+        spec: The sub-agent request.
 
     Returns:
-        The serialised string.
+        The response dict with ``text``, ``error``, and ``log_path``.
+
+    Raises:
+        RuntimeError: When the server returns an error response.
     """
-    return json.dumps(value, ensure_ascii=False)
+    timeout = aiohttp.ClientTimeout(total=None, connect=10.0)
+    url = f"{_base_url()}/subagents/run"
+    async with (
+        aiohttp.ClientSession(timeout=timeout) as session,
+        session.post(url, json=spec, headers=_headers()) as response,
+    ):
+        text = await response.text()
+        if response.status >= 400:
+            raise RuntimeError(f"Sub-agent server HTTP {response.status}: {text[:1000]}")
+        data = await response.json()
+    return data if isinstance(data, dict) else {}
+
+
+def _format_result(result: dict[str, Any]) -> str:
+    """Format a run response as the answer plus a log-path hint.
+
+    Args:
+        result: The response dict from the server.
+
+    Returns:
+        The answer text and, when available, the transcript path.
+    """
+    text = str(result.get("text") or "").strip()
+    error = str(result.get("error") or "").strip()
+    body = f"{error}\n\n{text}".strip() if error and text else (error or text)
+    log_path = str(result.get("log_path") or "").strip()
+    if log_path:
+        return f"{body}\n\nLog: {log_path}".strip()
+    return body
 
 
 async def run(
-    mode: str = "run",
     prompt: str = "",
     model: str = "",
     activated_skills: list[str] | None = None,
     tools: list[str] | None = None,
     tool_modes: dict | None = None,
     system_prompt: str = "",
-    specs: list[dict] | None = None,
-    agent_id: str = "",
     timeout: int = 0,
-    wait: bool = False,
 ) -> str:
-    """Create and control headless sub-agents that run one prompt independently.
+    """Run one headless sub-agent and wait for its final answer.
 
-    Sub-agents are separate agents with their own model, skills, and tools.
-    They are headless: they cannot ask the user for tool approval, and nested
-    sub-agents are disabled. Use `run` for a single blocking task, `spawn` +
-    `wait` for long tasks, and `spawn_many` for simple batches. Records are
-    kept in memory and disappear when the app exits.
+    The sub-agent is a separate agent with its own model, skills, and tools.
+    It is headless: it cannot ask the user for tool approval, and nested
+    sub-agents are disabled. The full reasoning and tool history is written to
+    a JSON log beside the skill; only the final answer and that log path are
+    returned.
 
     Args:
-        mode: One of "run", "spawn", "spawn_many", "wait", "status", "cancel".
-            Defaults to "run".
-        prompt: The task for a single spawned sub-agent.
+        prompt: The task for the sub-agent.
         model: Optional configured model name; empty uses the sub-agent default.
         activated_skills: Skill paths whose full instructions and tools the
             sub-agent receives.
         tools: Explicit tool names; empty uses every tool from activated_skills.
         tool_modes: Per-tool overrides, e.g. {"edit_file": "block"}.
         system_prompt: Optional extra instruction appended to the system prompt.
-        specs: List of request objects for mode="spawn_many".
-        agent_id: Target id for mode="wait", "status", or "cancel".
-        timeout: Spawn timeout in seconds (0 uses the server default), or the
-            maximum wait time for mode="wait".
-        wait: For mode="spawn_many", block until every job finishes.
+        timeout: Run timeout in seconds; 0 uses the server default.
 
     Returns:
-        A JSON string containing the record, records list, or an error object.
+        The final answer followed by the transcript log path.
     """
     if _is_nested():
-        return _dump(
-            {
-                "error": (
-                    "Nested sub-agents are disabled. This tool cannot be used "
-                    "from inside a sub-agent."
-                )
-            }
-        )
-    if mode not in _MODES:
-        return _dump(
-            {"error": (f"Unknown mode: {mode}. Valid modes: " + ", ".join(sorted(_MODES)))}
-        )
+        return "Nested sub-agents are disabled. This tool cannot be used from inside a sub-agent."
+    if not prompt.strip():
+        return "Sub-agent prompt is empty."
 
-    if isinstance(specs, str):
-        try:
-            specs = json.loads(specs)
-        except (json.JSONDecodeError, TypeError):
-            return _dump({"error": "specs must be a list of request objects."})
     if isinstance(tool_modes, str):
         try:
             tool_modes = json.loads(tool_modes)
         except (json.JSONDecodeError, TypeError):
-            return _dump({"error": "tool_modes must be an object."})
+            return "tool_modes must be a JSON object."
 
+    spec = _build_spec(
+        prompt,
+        model,
+        activated_skills,
+        tools,
+        tool_modes,
+        system_prompt,
+        timeout or 540,
+    )
     try:
-        if mode == "run":
-            if not prompt.strip():
-                return _dump({"error": "mode='run' requires a non-empty prompt."})
-            spec = _build_spec(
-                prompt,
-                model,
-                activated_skills,
-                tools,
-                tool_modes,
-                system_prompt,
-                timeout or 540,
-            )
-            return _dump(await _client.run(spec))
-
-        if mode == "spawn":
-            if not prompt.strip():
-                return _dump({"error": "mode='spawn' requires a non-empty prompt."})
-            spec = _build_spec(
-                prompt,
-                model,
-                activated_skills,
-                tools,
-                tool_modes,
-                system_prompt,
-                timeout,
-            )
-            return _dump(await _client.spawn(spec))
-
-        if mode == "spawn_many":
-            if not specs:
-                return _dump({"error": "mode='spawn_many' requires a non-empty specs list."})
-            records = await _client.spawn_many(specs, wait=wait)
-            return _dump({"records": records})
-
-        if mode == "wait":
-            if not agent_id:
-                return _dump({"error": "mode='wait' requires agent_id."})
-            return _dump(await _client.wait(agent_id, timeout=timeout))
-
-        if mode == "status":
-            if agent_id:
-                return _dump(await _client.get(agent_id))
-            return _dump({"records": await _client.list_agents()})
-
-        if not agent_id:
-            return _dump({"error": "mode='cancel' requires agent_id."})
-        return _dump(await _client.cancel(agent_id))
-    except Exception:
-        return _dump({"error": traceback.format_exc()})
+        return _format_result(await _post(spec))
+    except Exception as error:
+        return f"Sub-agent failed: {error}"
 
 
 if __name__ == "__main__":

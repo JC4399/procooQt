@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel
 
 
 class SubAgentStatus(StrEnum):
@@ -16,22 +16,12 @@ class SubAgentStatus(StrEnum):
     ERROR = "error"
     CANCELLED = "cancelled"
 
-    @property
-    def terminal(self) -> bool:
-        """Return whether no further state change is possible."""
-        return self in (
-            SubAgentStatus.DONE,
-            SubAgentStatus.ERROR,
-            SubAgentStatus.CANCELLED,
-        )
-
 
 class SubAgentSpec(BaseModel):
     """Request describing one headless sub-agent.
 
     Attributes:
         prompt: The user message the sub-agent runs.
-        name: Optional display label used in logs and records.
         model: Model name; empty means the configured sub-agent default.
         activated_skills: Skill paths whose instructions and tools are loaded.
         tools: Explicit tool names; empty means tools from activated skills.
@@ -43,7 +33,6 @@ class SubAgentSpec(BaseModel):
     """
 
     prompt: str
-    name: str = ""
     model: str = ""
     activated_skills: list[str] = []
     tools: list[str] = []
@@ -51,22 +40,6 @@ class SubAgentSpec(BaseModel):
     system_prompt: str = ""
     timeout: int = 0
     parent_id: str = ""
-
-    @model_validator(mode="before")
-    @classmethod
-    def _migrate_primary_skills(cls, data: object) -> object:
-        """Map the legacy ``primary_skills`` key to ``activated_skills``.
-
-        Args:
-            data: The raw request payload.
-
-        Returns:
-            The payload with the legacy key renamed when present.
-        """
-        if isinstance(data, dict) and "primary_skills" in data:
-            data = dict(data)
-            data.setdefault("activated_skills", data.pop("primary_skills"))
-        return data
 
 
 class SubAgentRecord(BaseModel):
@@ -77,23 +50,25 @@ class SubAgentRecord(BaseModel):
         status: Current lifecycle state.
         spec: The validated request that created the sub-agent.
         model_name: Resolved model name actually used.
+        activated_skills: Resolved skill paths loaded by the agent.
         tool_config: Resolved per-tool permission mapping.
         created_at: Creation timestamp as ``"%Y-%m-%d %H:%M:%S"``.
         finished_at: Terminal timestamp, or an empty string while running.
         text: Final assistant text.
         error: Error brief when the run failed.
-        tool_calls: Tool-call summaries observed during the run.
         tokens: ``{"input": int, "output": int}`` usage counters.
+        log_path: Absolute path to the run's JSON transcript.
     """
 
     id: str
     status: SubAgentStatus
     spec: SubAgentSpec
     model_name: str = ""
+    activated_skills: list[str] = []
     tool_config: dict[str, str] = {}
     created_at: str = ""
     finished_at: str = ""
     text: str = ""
     error: str = ""
-    tool_calls: list[dict] = []
     tokens: dict = {}
+    log_path: str = ""

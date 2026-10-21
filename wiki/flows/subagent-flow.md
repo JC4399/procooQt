@@ -1,7 +1,7 @@
 # Sub-agent flow
 
-How the optional `subagent` skill creates a headless agent, runs it, and returns
-its result — including the batch path used for mass production.
+How the optional `subagent` skill runs one headless agent, logs its full history,
+and returns only the answer plus the transcript path.
 
 Related: [subagent](../modules/subagent.md), [qt-subagent-controller](../modules/qt-subagent-controller.md), [chat-agent](../modules/chat-agent.md), [skill-manager](../modules/skill-manager.md).
 
@@ -11,10 +11,9 @@ Related: [subagent](../modules/subagent.md), [qt-subagent-controller](../modules
 capabilities/skills/basic/subagent/
   SKILL.md
   scripts/
-    subagent.py        # registered tool (mode dispatch)
-    _client.py         # shared HTTP client; not a registered tool
+    subagent.py        # registered tool; also owns the HTTP call
   references/
-    batch-patterns.md
+    logs/              # one JSON transcript per run (.gitkeep keeps the folder)
 ```
 
 The skill is optional: if it is not selected, the main agent never receives the
@@ -27,41 +26,24 @@ The skill is optional: if it is not selected, the main agent never receives the
 Main agent
   └─ tool: subagent.py (subprocess)
        │  reads PROCOO_SUBAGENT_DEPTH; rejects when > 0
-       │  POST /subagents (or /batch, /run)
+       │  POST /subagents/run
        ▼
 SubAgentServer (qasync loop)
-  └─ SubAgentManager.create
+  └─ SubAgentManager.run
        ├─ validate model / skills / tools / modes
-       ├─ store resolved config + queued record
-       └─ schedule _execute behind the semaphore
-              │
-              ├─ build Agent via chat_manager.create_chat
-              │    tool_env: PROCOO_SUBAGENT_DEPTH=1, PROCOO_SUBAGENT_ID=<id>
-              ├─ Agent.run(prompt)
-              │    └─ ReAct loop + tool subprocesses
-              ├─ drain event_queue (tool_call/tool_result/error)
-              ├─ store text, tokens, terminal status
-              └─ chat_manager.remove_chat(id)
+       ├─ wait for the concurrency semaphore
+       ├─ build Agent via chat_manager.create_chat
+       │    tool_env: PROCOO_SUBAGENT_DEPTH=1, PROCOO_SUBAGENT_ID=<id>
+       ├─ Agent.run(prompt)
+       │    └─ ReAct loop + tool subprocesses
+       ├─ drain event_queue (keeps the latest error brief)
+       ├─ write references/logs/<id>.json from agent.messages
+       └─ chat_manager.remove_chat(id)
 
-Tool script (spawn + wait, or spawn_many)
-  └─ GET /subagents/{id} until terminal
-       └─ returns JSON record to the main agent
+Tool script
+  └─ receives {text, error, log_path}
+       └─ prints <answer or error> + "Log: <path>"
 ```
-
-## Modes
-
-| Mode | Calls | Use |
-|---|---|---|
-| `run` | `POST /subagents/run` | One task, block for the answer |
-| `spawn` | `POST /subagents` | Long task; poll later |
-| `spawn_many` | `POST /subagents/batch` | Several independent tasks |
-| `wait` | `GET /subagents/{id}` polling | Retrieve a spawned result |
-| `status` | `GET /subagents` or `/subagents/{id}` | Inspect jobs |
-| `cancel` | `POST /subagents/{id}/cancel` | Stop a job |
-
-`run` and `wait` block inside a tool call, so they are bounded by the tool
-runner's subprocess limit. For work longer than that, use `spawn` and poll
-`status`.
 
 ## Selection semantics
 
@@ -72,24 +54,28 @@ runner's subprocess limit. For work longer than that, use `spawn` and poll
 - `model` — a configured model name; empty uses the sub-agent default.
 - `timeout` — per-run seconds; clamped to the configured maximum.
 
-## Batch / mass production
+## Log contract
 
-Two paths:
+- Directory: `capabilities/skills/basic/subagent/references/logs/`.
+- Filename: `subagent_<YYYYmmdd_HHMMSS>_<counter>.json`.
+- Payload keys mirror `storage/chats/*.json`: `id`, `skills_config`, `messages`,
+  `session`, `created_at`, `updated_at`, `message_count`, `model_name`,
+  `true_input_tokens`, `true_output_cum`.
+- Extra keys: `status`, `error`, and `spec`.
+- `skills_config` uses `{"activated": [...], "tools": {...}}`.
+- `messages` is the agent's full history, including thinking, responses, tool
+  calls, and tool results. The tool result only shows the final answer and the
+  log path, so the transcript is the place for full metadata.
 
-1. `subagent(mode="spawn_many", specs=[...])` for a simple list of requests.
-2. An agent-authored script importing `_client.py` from the skill's `scripts/`
-   directory and using `asyncio.gather` over `spawn` / `wait`. The reference at
-   `references/batch-patterns.md` is the template.
-
-The tool script is a thin client, so any Python or shell script that can reach
-the localhost endpoint can spawn sub-agents.
+Writes are atomic (temp file + replace). If writing fails, the run still
+succeeds and `log_path` is empty.
 
 ## Nesting guard
 
 Nesting is disabled in three layers:
 
 1. `subagent.py` refuses to run when `PROCOO_SUBAGENT_DEPTH > 0`.
-2. `SubAgentManager.create` rejects a non-empty `parent_id` and strips the
+2. `SubAgentManager.run` rejects a non-empty `parent_id` and strips the
    `subagent` skill from child skill lists.
 3. Sub-agent Agents pass `PROCOO_SUBAGENT_DEPTH=1` to their tool subprocesses.
 
@@ -98,17 +84,13 @@ hand-craft an HTTP request.
 
 ## Result contract
 
-A record has:
+The HTTP response and tool result contain only:
 
 | Field | Meaning |
 |---|---|
-| `status` | `queued`, `running`, `done`, `error`, or `cancelled` |
-| `text` | Last assistant response (success) |
-| `error` | Error brief (failure) |
-| `tool_calls` | Observed tool calls with modes and error flags |
-| `tokens` | `{"input": int, "output": int}` |
-| `model_name` | Resolved model |
-| `tool_config` | Resolved per-tool modes |
-| `spec` | Original request |
+| `text` | Last assistant response |
+| `error` | Error brief when the run failed |
+| `log_path` | Absolute transcript path, or an empty string |
 
-Records are in memory only and capped by `subagent.max_records`.
+The full record (model, activated skills, tool config, token counts, status,
+spec) lives in the transcript, not in the tool output.
