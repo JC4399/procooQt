@@ -761,8 +761,7 @@ def build_context_snapshot(agent: Any) -> dict[str, Any]:
     return {
         "system_prompt": agent.sys_prompt,
         "pending_additions": agent._pending_sys_message,
-        "primary_skills": agent.primary_skills,
-        "secondary_skills": agent.secondary_skills,
+        "activated_skills": agent.activated_skills,
         "tools": agent._tools,
         "tool_config": agent._tool_config,
     }

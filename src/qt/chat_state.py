@@ -26,7 +26,7 @@ class ChatState:
         true_input_tokens: Latest true input token count from ``token_usage``.
         true_output_cum: Cumulative true output token count for the current run.
         message_count: Current message count reported by the worker.
-        primary_count: Number of primary skills selected for this chat.
+        activated_count: Number of activated skills selected for this chat.
         allow_count: Number of tools set to ``allow``.
         ask_count: Number of tools set to ``ask``.
         block_count: Number of tools set to ``block``.
@@ -43,7 +43,7 @@ class ChatState:
     true_input_tokens: int = 0
     true_output_cum: int = 0
     message_count: int = 0
-    primary_count: int = 0
+    activated_count: int = 0
     allow_count: int = 0
     ask_count: int = 0
     block_count: int = 0

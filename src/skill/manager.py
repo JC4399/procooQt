@@ -214,7 +214,7 @@ class SkillManager:
         """
         contents = []
         for path in skill_paths:
-            content = self.load_skill_content(path)
+            content = self.load_skill_content(self.normalize_skill_path(path))
             if content:
                 contents.append(content.model_dump())
         return contents
@@ -291,7 +291,7 @@ class SkillManager:
         """
         definitions: list[dict] = []
         for skill_path in selected_skills:
-            for tool_info in self.scan_tools(skill_path):
+            for tool_info in self.scan_tools(self.normalize_skill_path(skill_path)):
                 definitions.append(self._build_tool_definition(tool_info))
         return definitions
 
@@ -640,9 +640,10 @@ class SkillManager:
         Returns:
             Dict mapping tool name to its configured mode.
         """
+        selected = {self.normalize_skill_path(path) for path in selected_skills}
         config = {}
         for tool_info in self.all_tools:
-            if tool_info.skill_path in selected_skills:
+            if tool_info.skill_path in selected:
                 mode = tool_modes.get(tool_info.name, "ask")
                 config[tool_info.name] = mode
         return config
@@ -698,20 +699,27 @@ class SkillManager:
 
     def get_skill_by_path(self, path: str) -> SkillInfo | None:
         """Look up a ``SkillInfo`` by its relative path."""
-        return self._skill_by_path.get(self._normalize_skill_path(path))
+        return self._skill_by_path.get(self.normalize_skill_path(path))
 
     @staticmethod
-    def _normalize_skill_path(path: str) -> str:
+    def normalize_skill_path(path: str) -> str:
         """Coerce a skill path to its canonical forward-slash form.
 
-        Windows separators are converted so user-typed paths match the stored
-        forward-slash representation on every platform.
+        Windows separators are converted so user-typed, stored, and preset
+        paths match the forward-slash representation used by the skill tree
+        and tool metadata on every platform.
+
+        Args:
+            path: A skill relative path using either separator style.
+
+        Returns:
+            The canonical forward-slash path.
         """
         return path.replace("\\", "/")
 
     def path_to_display_name(self, path: str) -> str:
         """Get the display name for a skill path."""
-        info = self._skill_by_path.get(self._normalize_skill_path(path))
+        info = self._skill_by_path.get(self.normalize_skill_path(path))
         return info.name if info else path
 
     def get_validation_issues(self) -> list[ValidationIssue]:
@@ -900,7 +908,7 @@ class SkillManager:
         if not self.skills_dir.is_dir():
             return None
 
-        entry = self.skills_dir / self._normalize_skill_path(skill_path)
+        entry = self.skills_dir / self.normalize_skill_path(skill_path)
         skill_md = entry / "SKILL.md"
         if entry.is_dir() and skill_md.is_file():
             return entry

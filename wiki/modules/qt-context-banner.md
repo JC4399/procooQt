@@ -39,8 +39,8 @@ full (untruncated, fenced); no other snapshot fields are rendered.
 
 ### Config delta
 
-`build_delta_context_sections` emits Added Primary Skills, Added Secondary
-Skills, Added Tools, and Tool Mode Changes — each only when non-empty. The
+`build_delta_context_sections` emits Added Activated Skills, Added Tools, and
+Tool Mode Changes — each only when non-empty. The
 `SkillController` appends the resulting banner and pops any previous trailing
 delta so at most one delta is shown.
 
@@ -52,7 +52,7 @@ delta so at most one delta is shown.
 |---|---|---|---|---|
 | `build_context_banner_item(title: str, sections: list[dict], *, is_delta=False) -> dict[int, object]` | `title` — headline; `sections` — `{header, content}` dicts (content = list of str or list of lists); `is_delta` — orange scheme | role-keyed dict with kind `context_banner` | `_normalize_sections` → `json.dumps` into `sections` role → `make_item` with `collapsed=not is_delta` | None |
 | `build_context_sections_from_snapshot(snapshot: dict) -> list[dict]` | `snapshot` — stored context snapshot | list of `{header, content}` dicts | Reads `system_prompt` only; emits the full (untruncated) fenced System Prompt section when non-empty | None |
-| `build_delta_context_sections(added_primary: list[dict], added_secondary: list[dict], added_tools: list[dict], mode_changes: dict[str, tuple[str, str]]) -> list[dict]` | Added skill/tool content dicts; `mode_changes` — tool → `(old, new)` | list of `{header, content}` dicts | Builds "Added Primary/Secondary Skills", "Added Tools", "Tool Mode Changes" sections, only when non-empty; sorts mode changes | None |
+| `build_delta_context_sections(added_activated: list[dict], added_tools: list[dict], mode_changes: dict[str, tuple[str, str]]) -> list[dict]` | Added skill/tool content dicts; `mode_changes` — tool → `(old, new)` | list of `{header, content}` dicts | Builds "Added Activated Skills", "Added Tools", "Tool Mode Changes" sections, only when non-empty; sorts mode changes | None |
 
 ### Shared helpers
 

@@ -24,8 +24,7 @@ def _is_nested() -> bool:
 def _build_spec(
     prompt: str,
     model: str,
-    primary_skills: list[str] | None,
-    secondary_skills: list[str] | None,
+    activated_skills: list[str] | None,
     tools: list[str] | None,
     tool_modes: dict | None,
     system_prompt: str,
@@ -36,8 +35,7 @@ def _build_spec(
     Args:
         prompt: The sub-agent task.
         model: Optional model name.
-        primary_skills: Optional primary skill paths.
-        secondary_skills: Optional secondary skill paths.
+        activated_skills: Optional activated skill paths.
         tools: Optional explicit tool names.
         tool_modes: Optional per-tool mode overrides.
         system_prompt: Optional extra system instruction.
@@ -49,10 +47,8 @@ def _build_spec(
     spec: dict = {"prompt": prompt}
     if model:
         spec["model"] = model
-    if primary_skills:
-        spec["primary_skills"] = primary_skills
-    if secondary_skills:
-        spec["secondary_skills"] = secondary_skills
+    if activated_skills:
+        spec["activated_skills"] = activated_skills
     if tools:
         spec["tools"] = tools
     if tool_modes:
@@ -80,8 +76,7 @@ async def run(
     mode: str = "run",
     prompt: str = "",
     model: str = "",
-    primary_skills: list[str] | None = None,
-    secondary_skills: list[str] | None = None,
+    activated_skills: list[str] | None = None,
     tools: list[str] | None = None,
     tool_modes: dict | None = None,
     system_prompt: str = "",
@@ -103,11 +98,9 @@ async def run(
             Defaults to "run".
         prompt: The task for a single spawned sub-agent.
         model: Optional configured model name; empty uses the sub-agent default.
-        primary_skills: Skill paths whose full instructions and tools the
+        activated_skills: Skill paths whose full instructions and tools the
             sub-agent receives.
-        secondary_skills: Skill paths described to the sub-agent without
-            preloading their tools.
-        tools: Explicit tool names; empty uses every tool from primary_skills.
+        tools: Explicit tool names; empty uses every tool from activated_skills.
         tool_modes: Per-tool overrides, e.g. {"edit_file": "block"}.
         system_prompt: Optional extra instruction appended to the system prompt.
         specs: List of request objects for mode="spawn_many".
@@ -151,8 +144,7 @@ async def run(
             spec = _build_spec(
                 prompt,
                 model,
-                primary_skills,
-                secondary_skills,
+                activated_skills,
                 tools,
                 tool_modes,
                 system_prompt,
@@ -166,8 +158,7 @@ async def run(
             spec = _build_spec(
                 prompt,
                 model,
-                primary_skills,
-                secondary_skills,
+                activated_skills,
                 tools,
                 tool_modes,
                 system_prompt,

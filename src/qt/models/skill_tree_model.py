@@ -2,9 +2,9 @@
 
 The nested ``{folders, skills}`` tree returned by ``SkillManager.get_skill_tree`` is
 flattened into rows (folders and skills) so a QML delegate can render the whole tree in
-one list. Folder collapse state and the primary/secondary selections are owned by the
-model and survive search filtering; a selection made while a skill is hidden by the
-search term is preserved.
+one list. Folder collapse state and the activated selections are owned by the model
+and survive search filtering; a selection made while a skill is hidden by the search
+term is preserved.
 """
 
 from __future__ import annotations
@@ -37,8 +37,7 @@ class SkillTreeModel(ListModel):
         self._tree: dict = dict(EMPTY_TREE)
         self._search = ""
         self._collapsed: set[str] = set()
-        self._primary: set[str] = set()
-        self._secondary: set[str] = set()
+        self._activated: set[str] = set()
         self._folder_nodes: dict[str, dict] = {}
 
     # ------------------------------------------------------------------
@@ -58,8 +57,7 @@ class SkillTreeModel(ListModel):
         self._tree = tree or dict(EMPTY_TREE)
         self._search = (search or "").strip()
         valid = self._collect_skill_paths(self._tree)
-        self._primary &= valid
-        self._secondary &= valid
+        self._activated &= valid
         self._flatten()
 
     def set_folder_expanded(self, path: str, expanded: bool) -> None:
@@ -90,56 +88,36 @@ class SkillTreeModel(ListModel):
     #  Public: selection
     # ------------------------------------------------------------------
 
-    def apply_selection(self, primary: set[str], secondary: set[str]) -> None:
-        """Set the primary/secondary selections and refresh the affected roles.
+    def apply_selection(self, activated: set[str]) -> None:
+        """Set the activated selection and refresh the affected roles.
 
         Args:
-            primary: Primary skill paths.
-            secondary: Secondary skill paths.
+            activated: Activated skill paths.
         """
         valid = self._collect_skill_paths(self._tree)
-        self._primary = set(primary) & valid
-        self._secondary = set(secondary) & valid
+        self._activated = set(activated) & valid
         self._apply_selection_roles()
 
-    def set_selection(self, path: str, kind: str, checked: bool) -> None:
-        """Set one skill's primary or secondary selection.
+    def set_selection(self, path: str, checked: bool) -> None:
+        """Set one skill's activated selection.
 
         Args:
             path: The skill's relative path.
-            kind: Either ``"primary"`` or ``"secondary"``.
             checked: The new checkbox state.
         """
-        target = self._primary if kind == "primary" else self._secondary
         if checked:
-            target.add(path)
+            self._activated.add(path)
         else:
-            target.discard(path)
+            self._activated.discard(path)
         self._apply_selection_roles()
 
-    def collect_selected_primary(self) -> list[str]:
-        """Return the selected primary skill paths in display order.
+    def collect_selected_activated(self) -> list[str]:
+        """Return the selected activated skill paths in display order.
 
         Returns:
-            Sorted list of primary skill paths.
+            Sorted list of activated skill paths.
         """
-        return sorted(self._primary)
-
-    def collect_selected_secondary(self) -> list[str]:
-        """Return the selected secondary skill paths in display order.
-
-        Returns:
-            Sorted list of secondary skill paths.
-        """
-        return sorted(self._secondary)
-
-    def selected_union(self) -> set[str]:
-        """Return the union of selected primary and secondary skill paths.
-
-        Returns:
-            Set of skill paths selected in either column.
-        """
-        return self._primary | self._secondary
+        return sorted(self._activated)
 
     # ------------------------------------------------------------------
     #  Private: flattening
@@ -218,8 +196,7 @@ class SkillTreeModel(ListModel):
             int(SkillRole.DESCRIPTION): "",
             int(SkillRole.DEPTH): depth,
             int(SkillRole.IS_FOLDER): True,
-            int(SkillRole.PRIMARY): False,
-            int(SkillRole.SECONDARY): False,
+            int(SkillRole.ACTIVATED): False,
             int(SkillRole.HAS_TOOLS): False,
             int(SkillRole.EXPANDED): expanded,
             int(SkillRole.SKILL_COUNT): self._count_skills(folder_tree),
@@ -242,8 +219,7 @@ class SkillTreeModel(ListModel):
             int(SkillRole.DESCRIPTION): skill.description,
             int(SkillRole.DEPTH): depth,
             int(SkillRole.IS_FOLDER): False,
-            int(SkillRole.PRIMARY): skill.path in self._primary,
-            int(SkillRole.SECONDARY): skill.path in self._secondary,
+            int(SkillRole.ACTIVATED): skill.path in self._activated,
             int(SkillRole.HAS_TOOLS): skill.has_tools,
             int(SkillRole.EXPANDED): False,
             int(SkillRole.SKILL_COUNT): 0,
@@ -263,10 +239,7 @@ class SkillTreeModel(ListModel):
                 folder_tree = self._folder_nodes.get(path, {})
                 values = {int(SkillRole.SELECTED_COUNT): self._count_selected(folder_tree)}
             else:
-                values = {
-                    int(SkillRole.PRIMARY): path in self._primary,
-                    int(SkillRole.SECONDARY): path in self._secondary,
-                }
+                values = {int(SkillRole.ACTIVATED): path in self._activated}
             self.update_item(row, values)
 
     # ------------------------------------------------------------------
@@ -310,10 +283,9 @@ class SkillTreeModel(ListModel):
             tree: A skill tree node.
 
         Returns:
-            Number of skills selected as primary or secondary.
+            Number of skills selected as activated.
         """
-        selected = self._primary | self._secondary
-        count = sum(1 for s in tree.get("skills", []) if s.path in selected)
+        count = sum(1 for s in tree.get("skills", []) if s.path in self._activated)
         for folder_tree in tree.get("folders", {}).values():
             count += self._count_selected(folder_tree)
         return count

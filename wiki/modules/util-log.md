@@ -58,14 +58,14 @@ One module provides ANSI-colored terminal logging:
 |---|---|---|
 | `format_skill_change` | `(skill_name, skill_type, value) -> str` | colored skill checkbox line |
 | `format_tool_change` | `(full_tool_name, value) -> str` | colored tool radio line |
-| `format_preset_save` | `(preset_name, primary, secondary, tools) -> str` | preset save line |
-| `format_preset_load` | `(preset_name, primary, secondary, tools) -> str` | preset load line |
+| `format_preset_save` | `(preset_name, activated, tools) -> str` | preset save line |
+| `format_preset_load` | `(preset_name, activated, tools) -> str` | preset load line |
 | `format_preset_delete` | `(preset_name) -> str` | preset delete line |
 
 ### `log_chat_skills`
 
 | | |
 |---|---|
-| Signature | `def log_chat_skills(primary_skills: list[str], secondary_skills: list[str], tool_defs: list[dict]) -> None` |
-| Inputs | `primary_skills`, `secondary_skills` — skill path lists; `tool_defs` — tool defs with `name` + `skill_path`. |
+| Signature | `def log_chat_skills(activated_skills: list[str], tool_defs: list[dict]) -> None` |
+| Inputs | `activated_skills` — skill path list; `tool_defs` — tool defs with `name` + `skill_path`. |
 | Output | `None` (prints summary to stderr). |

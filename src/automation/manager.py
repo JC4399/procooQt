@@ -263,8 +263,9 @@ class AutomationManager:
         if missing_required or activation is None:
             return None
 
-        primary_skills = self._string_list(metadata.get("primary_skills"))
-        secondary_skills = self._string_list(metadata.get("secondary_skills"))
+        activated_skills = self._string_list(
+            metadata.get("activated_skills", metadata.get("primary_skills"))
+        )
 
         has_scripts = (entry / "scripts").is_dir()
         if has_scripts and not any(
@@ -286,8 +287,7 @@ class AutomationManager:
             activation=activation,
             schedule=schedule,
             event=event,
-            primary_skills=primary_skills,
-            secondary_skills=secondary_skills,
+            activated_skills=activated_skills,
             has_scripts=has_scripts,
             has_references=has_references,
             enabled=self.is_enabled(rel_path),

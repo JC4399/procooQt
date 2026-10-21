@@ -126,10 +126,10 @@ COLOR_CARD_HEADER_DIVIDER = COLOR_BORDER_LIGHT
 # ------------------------------------------------------------------
 # Chip / badge colors (dark bg + colored text)
 # ------------------------------------------------------------------
-COLOR_CHIP_PRIMARY_BG = "#1a2b4c"
-COLOR_CHIP_PRIMARY_FG = "#79c0ff"
-COLOR_CHIP_SECONDARY_BG = COLOR_ELEVATED_BG
-COLOR_CHIP_SECONDARY_FG = COLOR_TEXT_SECONDARY
+COLOR_CHIP_ACTIVATED_BG = "#1a2b4c"
+COLOR_CHIP_ACTIVATED_FG = "#79c0ff"
+COLOR_CHIP_TOOLS_BG = COLOR_ELEVATED_BG
+COLOR_CHIP_TOOLS_FG = COLOR_TEXT_SECONDARY
 COLOR_CHIP_ALLOW_BG = "#1a3b1a"
 COLOR_CHIP_ALLOW_FG = COLOR_ACCENT_GREEN
 COLOR_CHIP_ASK_BG = "#3b2e00"
@@ -140,7 +140,7 @@ COLOR_CHIP_BLOCK_FG = COLOR_ACCENT_RED
 # Chip foreground variants for the compact config/token number readouts
 # (cyan / green / yellow / red chips).
 #
-COLOR_CHIP_PRIMARY_FG_MUTED = "#38B2AC"
+COLOR_CHIP_ACTIVATED_FG_MUTED = "#38B2AC"
 COLOR_CHIP_ALLOW_FG_MUTED = "#48BB78"
 COLOR_CHIP_ASK_FG_MUTED = "#ECC94B"
 COLOR_CHIP_BLOCK_FG_MUTED = "#E53E3E"
@@ -330,17 +330,17 @@ COLORS: dict[str, str] = {
     "toolResultBg": COLOR_TOOL_RESULT_BG,
     "toolResultBorder": COLOR_TOOL_RESULT_BORDER,
     "cardHeaderDivider": COLOR_CARD_HEADER_DIVIDER,
-    "chipPrimaryBg": COLOR_CHIP_PRIMARY_BG,
-    "chipPrimaryFg": COLOR_CHIP_PRIMARY_FG,
-    "chipSecondaryBg": COLOR_CHIP_SECONDARY_BG,
-    "chipSecondaryFg": COLOR_CHIP_SECONDARY_FG,
+    "chipActivatedBg": COLOR_CHIP_ACTIVATED_BG,
+    "chipActivatedFg": COLOR_CHIP_ACTIVATED_FG,
+    "chipToolsBg": COLOR_CHIP_TOOLS_BG,
+    "chipToolsFg": COLOR_CHIP_TOOLS_FG,
     "chipAllowBg": COLOR_CHIP_ALLOW_BG,
     "chipAllowFg": COLOR_CHIP_ALLOW_FG,
     "chipAskBg": COLOR_CHIP_ASK_BG,
     "chipAskFg": COLOR_CHIP_ASK_FG,
     "chipBlockBg": COLOR_CHIP_BLOCK_BG,
     "chipBlockFg": COLOR_CHIP_BLOCK_FG,
-    "chipPrimaryFgMuted": COLOR_CHIP_PRIMARY_FG_MUTED,
+    "chipActivatedFgMuted": COLOR_CHIP_ACTIVATED_FG_MUTED,
     "chipAllowFgMuted": COLOR_CHIP_ALLOW_FG_MUTED,
     "chipAskFgMuted": COLOR_CHIP_ASK_FG_MUTED,
     "chipBlockFgMuted": COLOR_CHIP_BLOCK_FG_MUTED,

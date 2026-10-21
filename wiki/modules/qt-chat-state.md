@@ -39,7 +39,7 @@ updates (`token_usage`, `message_count`, `approval_needed`, `approval_cleared`,
 | `true_input_tokens` | Latest true input token count from `token_usage` |
 | `true_output_cum` | Cumulative true output token count |
 | `message_count` | Current message count reported by the worker |
-| `primary_count` / `allow_count` / `ask_count` / `block_count` | Config counts |
+| `activated_count` / `allow_count` / `ask_count` / `block_count` | Config counts |
 | `model_name` | Selected model (empty = config default) |
 
 ## Function Reference

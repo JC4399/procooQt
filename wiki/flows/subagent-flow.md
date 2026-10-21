@@ -65,10 +65,9 @@ runner's subprocess limit. For work longer than that, use `spawn` and poll
 
 ## Selection semantics
 
-- `primary_skills` — full instructions + all tools from those skills.
-- `secondary_skills` — descriptions only; tools are not preloaded.
+- `activated_skills` — full instructions + all tools from those skills.
 - `tools` — explicit tool names across all discovered skills; overrides the
-  primary-skill tool set.
+  activated-skill tool set.
 - `tool_modes` — `allow` or `block`; `ask` is rejected because no user is present.
 - `model` — a configured model name; empty uses the sub-agent default.
 - `timeout` — per-run seconds; clamped to the configured maximum.

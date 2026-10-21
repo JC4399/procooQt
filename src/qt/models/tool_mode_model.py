@@ -47,7 +47,7 @@ class ToolModeModel(ListModel):
 
         Args:
             tools: Every discovered tool.
-            selected: Skill paths currently selected as primary or secondary.
+            selected: Skill paths currently selected as activated.
             modes: Mapping of tool name to mode (``"allow"``/``"ask"``/``"block"``).
             display_names: Mapping of skill path to display name for group headers.
         """

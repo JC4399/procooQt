@@ -13,14 +13,15 @@ sidebar checkbox / radio / preset change (SkillDock.qml)
    ▼
 skill._handle_skill_toggle / _handle_tool_mode_change / _handle_load_preset
    │  update models + selected counts + log (format_skill_change /
-   │  format_tool_change); return early while _loading_chat_config
+   │  format_tool_change); preset paths are normalized to forward slashes;
+   │  return early while _loading_chat_config
    ▼
 _schedule_sync → _spawn(_sync_config_to_chat)
    │
    ▼
 _collect_sidebar_config
    │  _collect_selected_skills + _collect_tool_modes + build_tool_config
-   │  -> {primary, secondary, tools}
+   │  -> {activated, tools}
    ▼
 _persist_config: stored["skills_config"] = config; save_chat
    │  returns the previous tool-mode mapping
@@ -34,10 +35,13 @@ _apply_live_config (only when a live chat exists)
    ▼
 worker.update_config(...)   [call_soon_threadsafe to the chat's thread]
    │  -> Agent.update_skill_config
-   │     - compute removed/demoted -> warnings
-   │     - accumulate new instructions -> _pending_sys_message
-   │     - register new tools, set tool_config
-   │     - return {warnings, added_primary, added_secondary, added_tools}
+   │     - no user message yet: _replace_skill_config
+   │         rebuild sys_prompt + tool set exactly (add/remove freely)
+   │     - chat started: _apply_skill_delta
+   │         compute removed/demoted -> warnings
+   │         accumulate new instructions -> _pending_sys_message
+   │         register new tools, set tool_config
+   │     - return {warnings, added_activated, added_tools}
    ▼ (worker emits config_updated → chat.config_updated)
 if warnings: toast each
    │
@@ -48,11 +52,17 @@ worker.append_banner(...) (pops the previous delta, appends the new one)
 worker.request_rebuild()
 ```
 
-## Key detail: `_pending_sys_message`
+## Key detail: pre-start replacement vs. post-start delta
 
-`Agent.update_skill_config` does **not** mutate the system prompt. Instead it
-accumulates new primary instructions + secondary descriptions into
-`_pending_sys_message`. On the next `run()`, the agent flushes this buffer as a
+Before the first user message, `Agent.update_skill_config` calls
+`_replace_skill_config`: it rebuilds `sys_prompt` from the base system message
+and the new skill contents, refreshes the token tracker, replaces `_tools`
+exactly, clears `_pending_sys_message`, and resets the committed sets. Skills
+can therefore be added **and removed** freely, and no delta banner is produced.
+
+Once a `role: user` message exists, `update_skill_config` calls
+`_apply_skill_delta`. It does **not** mutate the system prompt; instead it
+accumulates new activated instructions into `_pending_sys_message`. On the next `run()`, the agent flushes this buffer as a
 `system` message **before** the user message, so the LLM receives the new
 context mid-conversation. Removal/demotion only produces warnings, because
 content already in the conversation history cannot be withdrawn.
@@ -61,8 +71,7 @@ content already in the conversation history cannot be withdrawn.
 
 `build_delta_context_sections` produces sections:
 
-- **Added Primary Skills** (name + truncated instructions)
-- **Added Secondary Skills** (name + description)
+- **Added Activated Skills** (name + truncated instructions)
 - **Added Tools** (name + description)
 - **Tool Mode Changes** (`old → new`)
 

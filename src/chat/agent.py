@@ -64,8 +64,7 @@ class Agent:
         messages: Conversation history in OpenAI-compatible format with ``_``
             prefixed metadata keys (``reasoning_content`` on assistant, ``_mode`` on
             tool_calls).
-        primary_skills: Names of primary (fully loaded) skills.
-        secondary_skills: Names of secondary (description-only) skills.
+        activated_skills: Names of activated (fully loaded) skills.
         sys_prompt: Full system prompt including all skill instructions.
     """
 
@@ -73,8 +72,7 @@ class Agent:
         self,
         chat_id: str,
         model: dict,
-        primary_skill_contents: list[dict],
-        secondary_skill_contents: list[dict],
+        activated_skill_contents: list[dict],
         tool_functions: list[dict],
         tool_config: dict[str, str],
         skills_dir: str,
@@ -90,8 +88,7 @@ class Agent:
         Args:
             chat_id: Unique chat identifier.
             model: LLM configuration dict (model_name, api_key, api_base).
-            primary_skill_contents: List of skill-content dicts for primary skills.
-            secondary_skill_contents: List of skill-content dicts for secondary skills.
+            activated_skill_contents: List of skill-content dicts for activated skills.
             tool_functions: List of tool-definition dicts (name, script_path, …).
             tool_config: Per-tool mode mapping (``"allow"``, ``"ask"``, ``"block"``).
             skills_dir: Path to the skills directory.
@@ -117,24 +114,14 @@ class Agent:
         self._tool_env: dict[str, str] = dict(tool_env or {})
         self._current_assistant_msg: dict | None = None
         self.skills_dir = skills_dir
-        self.primary_skills = [s.get("path", "") for s in primary_skill_contents]
-        self.secondary_skills = [s.get("path", "") for s in secondary_skill_contents]
-        self.primary_skill_contents: list[dict] = list(primary_skill_contents)
-        self.secondary_skill_contents: list[dict] = list(secondary_skill_contents)
+        self.activated_skills = [s.get("path", "") for s in activated_skill_contents]
+        self.activated_skill_contents: list[dict] = list(activated_skill_contents)
         self._tool_defs: list[dict] = list(tool_functions) if tool_functions else []
         self._pending_sys_message: str = ""
-        self._committed_primary: set[str] = set(self.primary_skills)
-        self._committed_secondary: set[str] = set(self.secondary_skills)
+        self._committed_activated: set[str] = set(self.activated_skills)
 
-        self.sys_prompt = system_message
-        for skill in primary_skill_contents:
-            self.sys_prompt += f"\n\n{skill.get('instructions', '')}"
-            spath = skill.get("path", "")
-            if spath:
-                abs_skill_dir = (Path(self.skills_dir) / spath).resolve()
-                self.sys_prompt += f"\n[Skill directory: `{abs_skill_dir}/`]"
-        if secondary_skill_contents:
-            self.sys_prompt += self._format_secondary_skills_prompt(secondary_skill_contents)
+        self._base_system_message = system_message
+        self.sys_prompt = self._build_sys_prompt(activated_skill_contents)
 
         self._tokens = ChatTokenTracker(self.sys_prompt)
 
@@ -155,7 +142,7 @@ class Agent:
         self._max_bytes: int = int(limits.get("max_bytes", 0) or 0)
         self._max_tokens: int = int(limits.get("max_tokens", 0) or 0)
 
-        log_chat_skills(self.primary_skills, self.secondary_skills, self._tool_defs)
+        log_chat_skills(self.activated_skills, self._tool_defs)
 
     # ------------------------------------------------------------------
     #  Public: Configuration
@@ -188,80 +175,118 @@ class Agent:
 
     def update_skill_config(
         self,
-        primary_skill_contents: list[dict],
-        secondary_skill_contents: list[dict],
+        activated_skill_contents: list[dict],
         tool_functions: list[dict],
         tool_config: dict[str, str],
     ) -> dict:
         """Push new skill/tool configuration to the live agent.
 
-        Computes a delta against the previous config and accumulates
-        new context (primary instructions, secondary descriptions) into an
-        internal buffer.  The buffer is injected as a system message into
-        the conversation history immediately before the next user message.
+        Before the first user message the configuration is freely adjustable:
+        the system prompt and tool set are rebuilt to match the new config
+        exactly, so skills can be removed as well as added.  Once the chat has
+        started, only a delta is applied — new context is accumulated into an
+        internal buffer that is injected as a system message immediately before
+        the next user message, and removals only produce warnings.
 
         Returns:
-            dict with ``warnings`` (list[str]), ``added_primary`` (list[str]),
-            ``added_secondary`` (list[str]), ``added_tools`` (list[str]).
+            dict with ``warnings`` (list[str]), ``added_activated`` (list[str]),
+            and ``added_tools`` (list[str]).
+        """
+        chat_started = any(m.get("role") == "user" for m in self.messages)
+        if not chat_started:
+            return self._replace_skill_config(
+                activated_skill_contents,
+                tool_functions,
+                tool_config,
+            )
+        return self._apply_skill_delta(
+            activated_skill_contents,
+            tool_functions,
+            tool_config,
+        )
+
+    def _replace_skill_config(
+        self,
+        activated_skill_contents: list[dict],
+        tool_functions: list[dict],
+        tool_config: dict[str, str],
+    ) -> dict:
+        """Rebuild the prompt and tool set to exactly match the given config.
+
+        Used before the first user message, when nothing has been committed to
+        the conversation history yet.
+
+        Args:
+            activated_skill_contents: New activated skill contents.
+            tool_functions: New tool definition dicts.
+            tool_config: New per-tool mode mapping.
+
+        Returns:
+            An empty delta result (no warnings or additions).
+        """
+        new_activated_names = {s.get("path", "") for s in activated_skill_contents}
+
+        self.sys_prompt = self._build_sys_prompt(activated_skill_contents)
+        self._tokens.update_sys_prompt(self.sys_prompt)
+        self._pending_sys_message = ""
+        self._committed_activated = set(new_activated_names)
+        self._tools = {td["name"]: td for td in tool_functions}
+        self.activated_skills = list(new_activated_names)
+        self.activated_skill_contents = list(activated_skill_contents)
+        self._tool_defs = list(tool_functions) if tool_functions else []
+        self.set_tool_config(tool_config)
+
+        return {
+            "warnings": [],
+            "added_activated": [],
+            "added_tools": [],
+        }
+
+    def _apply_skill_delta(
+        self,
+        activated_skill_contents: list[dict],
+        tool_functions: list[dict],
+        tool_config: dict[str, str],
+    ) -> dict:
+        """Apply a post-start skill/tool delta, warning on removals.
+
+        Args:
+            activated_skill_contents: New activated skill contents.
+            tool_functions: New tool definition dicts.
+            tool_config: New per-tool mode mapping.
+
+        Returns:
+            dict with ``warnings``, ``added_activated``, and ``added_tools``.
         """
         warnings: list[str] = []
-        added_primary: list[str] = []
-        added_secondary: list[str] = []
+        added_activated: list[str] = []
         added_tools: list[str] = []
 
-        new_primary_names = {s.get("path", "") for s in primary_skill_contents}
-        new_secondary_names = {s.get("path", "") for s in secondary_skill_contents}
+        new_activated_names = {s.get("path", "") for s in activated_skill_contents}
 
-        removed_from_primary = self._committed_primary - new_primary_names
-        removed_from_secondary = self._committed_secondary - new_secondary_names
-        demoted = self._committed_primary & new_secondary_names
+        removed_from_activated = self._committed_activated - new_activated_names
 
-        if removed_from_primary:
+        if removed_from_activated:
             warnings.append(
-                f"Skills removed from primary: {', '.join(sorted(removed_from_primary))}. "
+                f"Skills removed from activated: {', '.join(sorted(removed_from_activated))}. "
                 "Their instructions and tools remain in the conversation history "
                 "and cannot be removed."
             )
-        if removed_from_secondary:
-            warnings.append(
-                f"Skills removed from secondary: {', '.join(sorted(removed_from_secondary))}. "
-                "Their descriptions remain in the conversation history and cannot be removed."
-            )
-        if demoted:
-            warnings.append(
-                f"Skills demoted from primary to secondary: {', '.join(sorted(demoted))}. "
-                "Their full instructions remain in the conversation history and cannot be removed."
-            )
 
-        pending_primary = new_primary_names - self._committed_primary
-        pending_secondary = (
-            new_secondary_names - self._committed_primary - self._committed_secondary
-        )
+        pending_activated = new_activated_names - self._committed_activated
 
         additions: list[str] = []
 
-        for skill in primary_skill_contents:
+        for skill in activated_skill_contents:
             spath = skill.get("path", "")
-            if spath in pending_primary:
+            if spath in pending_activated:
                 instructions = skill.get("instructions", "")
                 if instructions:
                     additions.append(instructions)
                 if spath:
                     abs_skill_dir = (Path(self.skills_dir) / spath).resolve()
                     additions.append(f"[Skill directory: `{abs_skill_dir}/`]")
-                added_primary.append(spath)
-
-        pending_secondary_skills = [
-            s for s in secondary_skill_contents if s.get("path", "") in pending_secondary
-        ]
-        if pending_secondary_skills:
-            additions.append(
-                self._format_secondary_skills_prompt(
-                    pending_secondary_skills, header="The following additional"
-                )
-            )
-            for s in pending_secondary_skills:
-                added_secondary.append(s.get("path", ""))
+                added_activated.append(spath)
 
         if additions:
             self._pending_sys_message = "\n\n".join(additions)
@@ -275,18 +300,15 @@ class Agent:
                 self._tools[tname] = td
                 added_tools.append(tname)
 
-        self.primary_skills = list(new_primary_names)
-        self.secondary_skills = list(new_secondary_names)
-        self.primary_skill_contents = list(primary_skill_contents)
-        self.secondary_skill_contents = list(secondary_skill_contents)
+        self.activated_skills = list(new_activated_names)
+        self.activated_skill_contents = list(activated_skill_contents)
         self._tool_defs = list(tool_functions) if tool_functions else []
 
         self.set_tool_config(tool_config)
 
         return {
             "warnings": warnings,
-            "added_primary": added_primary,
-            "added_secondary": added_secondary,
+            "added_activated": added_activated,
             "added_tools": added_tools,
         }
 
@@ -317,8 +339,7 @@ class Agent:
                 self.messages.append(
                     {"role": "system", "content": pending},
                 )
-                self._committed_primary = set(self.primary_skills)
-                self._committed_secondary = set(self.secondary_skills)
+                self._committed_activated = set(self.activated_skills)
 
             self.messages.append({"role": "user", "content": message_content or ""})
 
@@ -829,31 +850,24 @@ class Agent:
             if key in properties and key not in required and tool_args[key] in ([], {}):
                 del tool_args[key]
 
-    def _format_secondary_skills_prompt(
-        self,
-        skill_contents: list[dict],
-        header: str = "The following",
-    ) -> str:
-        """Build the secondary-skills section of the system prompt.
+    def _build_sys_prompt(self, activated_skill_contents: list[dict]) -> str:
+        """Build the full system prompt from the base message and skill contents.
 
         Args:
-            skill_contents: List of skill dicts with ``name``, ``description``, ``path`` keys.
-            header: Prefix for the section heading (e.g. ``"The following additional"``).
+            activated_skill_contents: List of skill dicts whose full instructions
+                are embedded in the prompt.
 
         Returns:
-            Formatted string ready to append to the system prompt.
+            The assembled system prompt string.
         """
-        lines = [
-            f"- **{s.get('name', 'Unknown')}**: "
-            f"{s.get('description', 'No description')}. "
-            f"Scripts at `{self.skills_dir}/{s.get('path', '')}/scripts/`"
-            for s in skill_contents
-        ]
-        return (
-            f"\n\n{header} skills are available for on-demand discovery. Their tools are "
-            "NOT pre-loaded into your toolkit. To use them, read the skill directory and "
-            "invoke scripts at the paths listed below as needed.\n\n" + "\n".join(lines)
-        )
+        prompt = self._base_system_message
+        for skill in activated_skill_contents:
+            prompt += f"\n\n{skill.get('instructions', '')}"
+            spath = skill.get("path", "")
+            if spath:
+                abs_skill_dir = (Path(self.skills_dir) / spath).resolve()
+                prompt += f"\n[Skill directory: `{abs_skill_dir}/`]"
+        return prompt
 
     # ------------------------------------------------------------------
     #  Private: Event helpers

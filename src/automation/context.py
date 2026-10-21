@@ -98,14 +98,12 @@ class AutomationContext:
             AutomationError: If the agent reports an error or returns no text.
         """
         chat_id = f"automation:{self.automation.path}:{time.strftime('%Y%m%d_%H%M%S')}"
-        primary = self.automation.primary_skills
-        secondary = self.automation.secondary_skills
-        tool_defs = self._skill_manager.load_tool_functions(primary)
+        activated = self.automation.activated_skills
+        tool_defs = self._skill_manager.load_tool_functions(activated)
         agent = chat_manager.create_chat(
             chat_id=chat_id,
             model=self._config.llm_config(self._config.llm_model_name),
-            primary_skill_contents=self._skill_manager.load_skill_contents(primary),
-            secondary_skill_contents=self._skill_manager.load_skill_contents(secondary),
+            activated_skill_contents=self._skill_manager.load_skill_contents(activated),
             tool_functions=tool_defs,
             tool_config={td["name"]: "allow" for td in tool_defs},
             skills_dir=self._skills_dir,

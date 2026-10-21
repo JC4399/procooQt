@@ -28,7 +28,7 @@ async def main() -> None:
         [
             {
                 "prompt": prompt,
-                "primary_skills": ["basic/basic-ops"],
+                "activated_skills": ["basic/basic-ops"],
                 "tools": ["read_file"],
             }
             for prompt in prompts

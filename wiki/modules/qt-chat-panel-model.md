@@ -18,7 +18,7 @@ rebuilds a panel delegate that only changed position.
   - `activeChatId`, `chatModel`, `tabModel` — the panel's chat and tabs.
   - `busy`, `approvalVisible`, `approvalText`, `loading` — per-chat runtime.
   - `inputTokens`, `outputTokens` — live true token accounting (no estimate).
-  - `primaryCount`, `allowCount`, `askCount`, `blockCount` — config summary.
+  - `activatedCount`, `allowCount`, `askCount`, `blockCount` — config summary.
   - `modelName` — LLM model selected for the active chat.
 - `set_panel(...)`, `set_runtime(...)`, `set_tokens(...)`, and `update_tab(...)`
   mutators used by `SessionController`.
@@ -47,7 +47,7 @@ not invalidated by another panel's refresh.
 | `approvalVisible` / `approvalText` | `bool` / `str` | `runtime_changed` | Pending tool approval |
 | `inputTokens` / `outputTokens` | `int` | `runtime_changed` | Context / cumulative output tokens |
 | `loading` | `bool` | `runtime_changed` | Switch-rebuild overlay showing |
-| `primaryCount` / `allowCount` / `askCount` / `blockCount` | `int` | `runtime_changed` | Skill/tool counts for the active chat |
+| `activatedCount` / `allowCount` / `askCount` / `blockCount` | `int` | `runtime_changed` | Skill/tool counts for the active chat |
 | `modelName` | `str` | `runtime_changed` | LLM model name for the active chat |
 
 ## Steps / Flow
@@ -76,6 +76,6 @@ not invalidated by another panel's refresh.
 |---|---|---|---|---|
 | `def __init__(self, index: int, parent: QObject \| None = None) -> None` | panel slot; parent | `None` | init fields + `ChatTabModel` | — |
 | `def set_panel(self, active_chat_id, chat_model, tabs, tabs_active_id, states) -> None` | active chat, model, tab summaries, active tab id, states | `None` | compare active/model → store → `tab_model.set_chats(...)` (incremental) → emit `active_chat_changed`/`chat_model_changed` only on change | No-op when unchanged; tab model self-dedupes |
-| `def set_runtime(self, busy, approval_visible, approval_text, input_tokens, output_tokens, loading, primary_count, allow_count, ask_count, block_count, model_name) -> None` | 11 runtime values | `None` | compare all → store → emit `runtime_changed` | No-op when unchanged |
+| `def set_runtime(self, busy, approval_visible, approval_text, input_tokens, output_tokens, loading, activated_count, allow_count, ask_count, block_count, model_name) -> None` | 11 runtime values | `None` | compare all → store → emit `runtime_changed` | No-op when unchanged |
 | `def set_tokens(self, input_tokens: int, output_tokens: int) -> None` | input/output tokens | `None` | dedupe → store → emit `runtime_changed` | Token-bar-only refresh (no full runtime rebuild) |
 | `def update_tab(self, chat_id: str, status: str, blinking: bool) -> None` | chat, `ChatStatus`, blink flag | `None` | `tab_model.update_chat(...)` | Role-scoped `dataChanged` only; no panel rebuild |

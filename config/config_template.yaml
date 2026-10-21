@@ -38,6 +38,15 @@ subagent:
   max_timeout: 3600
   max_records: 100
 
+basic_ops:
+  # External services used by the basic-ops skill scripts.
+  # VLM server used by read_file mode=pdf-ocr / image submode=ocr.
+  ocr_url: "http://localhost:3334/ocr"
+  # Embedding server used by access_db to embed records and queries.
+  embed_url: "http://localhost:3336/v1/embeddings"
+  # Reranker server used by access_db hybrid search.
+  rerank_url: "http://localhost:3337/v1/reranking"
+
 limits:
   max_chat_mb: 70
   max_chat_tokens: 0

@@ -22,7 +22,7 @@ these slots.
 - Sync pipeline `_collect_*` → `_persist_config` → `_apply_live_config` →
   `_handle_worker_config_updated` → `worker.append_banner` → `worker.request_rebuild`.
 - `_load_config_into_sidebar`, `_rebuild_skill_sidebar`, `_refresh_skills`.
-- Per-chat summary publisher `_publish_config_summary` (primary/allow/ask/block
+- Per-chat summary publisher `_publish_config_summary` (activated/allow/ask/block
   counts on the chat's `ChatState`).
 - Config-chip builders `_update_config_chips`, `_summary_chip`, `_chip` (legacy;
   no longer consumed by QML).
@@ -75,11 +75,11 @@ these slots.
 
 ### Sync (`_sync_config_to_chat`)
 
-1. `_collect_sidebar_config` → `{primary, secondary, tools}` (DRY collectors).
+1. `_collect_sidebar_config` → `{activated, tools}` (DRY collectors).
 2. `_persist_config` loads the stored chat, saves the new `skills_config`, and
    returns the previous tool-mode map.
 3. `_update_config_chips` (legacy chips) and `_publish_config_summary(chat_id,
-   config)` — the latter writes primary/allow/ask/block counts to the chat's
+   config)` — the latter writes activated/allow/ask/block counts to the chat's
    `ChatState` and refreshes its panel.
 4. `_apply_live_config`:
    - `await asyncio.to_thread(_load_config_payloads)` loads skill contents and
@@ -124,7 +124,7 @@ expanding leftward over the panel body.
 | `_handle_chat_activated(chat_id: str) -> None` | `chat_id` (empty = none) | `None` | Empty → clear selection + modes under `_loading_chat_config`; else `_load_config_into_sidebar` | Emits `tool_modes_changed`, `config_changed` |
 | `_handle_search_changed(text: str) -> None` | `text` | `None` | Strips text, `_skill_model.rebuild(tree, search)`, emit | Emits `skills_changed` |
 | `_handle_clear_search() -> None` | — | `None` | Calls `_handle_search_changed("")` | Emits `skills_changed` |
-| `_handle_skill_toggle(path: str, kind: str, checked: bool) -> None` | `path`; `kind` (`primary`/`secondary`); `checked` | `None` | `set_selection` → `_refresh_tool_model` → emit; schedule sync unless loading | Emits `skills_changed`, `tool_modes_changed`; schedules sync |
+| `_handle_skill_toggle(path: str, checked: bool) -> None` | `path`; `checked` | `None` | `set_selection` → `_refresh_tool_model` → emit; schedule sync unless loading | Emits `skills_changed`, `tool_modes_changed`; schedules sync |
 | `_handle_tool_mode_change(tool_name: str, mode: str) -> None` | `tool_name`; `mode` | `None` | No-op if unchanged; update `_tool_modes` + model; schedule sync unless loading | Emits `tool_modes_changed`; schedules sync |
 | `_handle_folder_toggle(path: str, expanded: bool) -> None` | `path`; `expanded` | `None` | `_skill_model.set_folder_expanded`, emit | Emits `skills_changed` |
 
@@ -133,16 +133,17 @@ expanding leftward over the panel body.
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
 | `_handle_save_preset() -> None` | — (name from `presetName`) | `None` | Validate name (else error toast); collect config; `preset_store.save_preset`; refresh | Emits `preset_name_changed`, `presets_changed`, `toast_requested` (info on success, error on empty name) |
-| `_handle_load_preset(name: str) -> None` | `name` (empty clears) | `None` | Empty → clear; else load, apply selection/modes under the loading flag, refresh chips, schedule sync | Emits `tool_modes_changed`, `config_changed`, `toast_requested` (info on load/clear, warning if preset missing); schedules sync |
+| `_handle_load_preset(name: str) -> None` | `name` (empty clears) | `None` | Empty → clear; else load, normalize activated paths via `_normalize_activated`, apply selection/modes under the loading flag, refresh chips, schedule sync | Emits `tool_modes_changed`, `config_changed`, `toast_requested` (info on load/clear, warning if preset missing); schedules sync |
 | `_handle_delete_preset(name: str) -> None` | `name` | `None` | `preset_store.delete_preset`; clear typed name if it matched; refresh | Emits `preset_name_changed`, `presets_changed`, `toast_requested` (info on success) |
 
 ### Collectors (DRY)
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `_collect_selected_skills() -> dict[str, list[str]]` | — | `{primary, secondary}` path lists | `_skill_model.collect_selected_primary/_secondary` | None |
+| `_normalize_activated(paths: list[str]) -> set[str]` | stored/preset paths | canonical path set | `skill_manager.normalize_skill_path` per path | None |
+| `_collect_selected_skills() -> list[str]` | — | activated path list | `_skill_model.collect_selected_activated()` | None |
 | `_collect_tool_modes() -> dict[str, str]` | — | copy of `_tool_modes` | `dict(self._tool_modes)` | None |
-| `_collect_sidebar_config() -> dict[str, Any]` | — | `{primary, secondary, tools}` | Collects selections + `skill_manager.build_tool_config(...)` | None |
+| `_collect_sidebar_config() -> dict[str, Any]` | — | `{activated, tools}` | Collects selections + `skill_manager.build_tool_config(...)` | None |
 
 ### Sync pipeline
 
@@ -154,17 +155,17 @@ expanding leftward over the panel body.
 | `_sync_config_to_chat() async -> None` | — | `None` | Bails while loading or when `_sidebar_chat_id` is empty; collect → persist → chips + summary → live apply | Persists, emits `config_changed`, updates the panel |
 | `_persist_config(chat_id, config) -> dict[str, str]` | `chat_id`; `config` | previous tool-mode map | Load stored chat, replace `skills_config`, save | Writes chat file; `{}` if missing |
 | `_apply_live_config(chat_id, config, old_tool_config) async -> None` | ids/config | `None` | Bails if no live chat; load payloads off-loop; `worker.update_config`; pending payloads stored for the result callback | Queues a worker command |
-| `_load_config_payloads(config) -> tuple[list, list, list, dict]` | `config` | primary content, secondary content, tool defs, tool config | Blocking `SkillManager` loads (run under `to_thread`) | None |
+| `_load_config_payloads(config) -> tuple[list, list, dict]` | `config` | activated content, tool defs, tool config | Blocking `SkillManager` loads (run under `to_thread`) | None |
 | `_handle_worker_config_updated(chat_id, result) -> None` | chat, result dict | `None` | Pops pending payloads; toasts warnings; `_append_delta_banner`; `worker.request_rebuild` | Queues worker commands |
-| `_append_delta_banner(chat_id, config, old_tool_config, result, primary, secondary, tool_defs, worker) -> None` | sync inputs + result + worker | `None` | If changes exist, `worker.append_banner(...)` | Queues a worker command |
+| `_append_delta_banner(chat_id, config, old_tool_config, result, activated, tool_defs, worker) -> None` | sync inputs + result + worker | `None` | If changes exist, `worker.append_banner(...)` | Queues a worker command |
 
 ### Sidebar and model state
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `_load_config_into_sidebar(chat_id: str) -> None` | `chat_id` | `None` | Read stored chat's `skills_config`; apply selection + modes under the loading flag; refresh tool model + chips + summary | Emits `tool_modes_changed`, `config_changed` |
+| `_load_config_into_sidebar(chat_id: str) -> None` | `chat_id` | `None` | Read stored chat's `skills_config`; normalize activated paths via `_normalize_activated`; apply selection + modes under the loading flag; refresh tool model + chips + summary | Emits `tool_modes_changed`, `config_changed` |
 | `_rebuild_skill_sidebar() -> None` | — | `None` | `_skill_model.rebuild(tree, search)`; re-apply modes; refresh tool model; emit | Emits `skills_changed` |
-| `_refresh_tool_model() -> None` | — | `None` | `_tool_model.rebuild(all_tools, selected_union, modes, display_names)`; emit | Emits `tool_modes_changed` |
+| `_refresh_tool_model() -> None` | — | `None` | `_tool_model.rebuild(all_tools, selected_activated, modes, display_names)`; emit | Emits `tool_modes_changed` |
 | `_apply_tool_modes(modes: dict) -> None` | `modes` | `None` | Merge over defaults for every discovered tool (missing → `"ask"`) | Replaces `_tool_modes` |
 | `_refresh_presets(*, emit=True) -> None` | `emit` | `None` | Reload `preset_store.list_presets()` | Emits `presets_changed` when `emit` |
 
@@ -172,8 +173,8 @@ expanding leftward over the panel body.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `_publish_config_summary(chat_id, config) -> None` | chat id, `{primary, secondary, tools}` | `None` | Set primary/allow/ask/block counts on `ChatState` → `session.refresh_chat_panels(chat_id)` | Updates the chat's panel |
-| `_update_config_chips() -> None` | — | `None` | Legacy: build "Primary/Secondary/Allow/Ask/Block" summary chips | Emits `config_changed` |
+| `_publish_config_summary(chat_id, config) -> None` | chat id, `{activated, tools}` | `None` | Set activated/allow/ask/block counts on `ChatState` → `session.refresh_chat_panels(chat_id)` | Updates the chat's panel |
+| `_update_config_chips() -> None` | — | `None` | Legacy: build "Activated/Allow/Ask/Block" summary chips | Emits `config_changed` |
 | `_summary_chip(label, count, bg, fg) static -> dict[str, str]` | label/count/colors | `{label, bg, fg}` | `_chip(f"{label}: {count}", bg, fg)` | None |
 | `_chip(label, bg, fg) static -> dict[str, str]` | label/colors | `{label, bg, fg}` | Builds a chip dict | None |
 | `_on_skill_files_changed() -> None` | — | `None` | Background-thread callback: **emit only** | Emits `skill_files_changed` |

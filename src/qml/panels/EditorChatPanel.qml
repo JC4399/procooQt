@@ -117,9 +117,9 @@ Rectangle {
                 }
 
                 // Scroll so a card body caret at content y / h is on screen,
-                // nudging only when it would otherwise be clipped. Auto-scroll
-                // reacts to the resulting contentY change (deactivating when we
-                // move away from the bottom).
+                // nudging only when it would otherwise be clipped. Only used
+                // while auto-scroll is off; when it is on the caret is disabled
+                // instead so the view stays pinned to the newest card.
                 function ensureVisible(y, h) {
                     const margin = 8
                     const maxY = Math.max(0, contentHeight - height)
@@ -305,6 +305,12 @@ Rectangle {
                                     value: chatList
                                     when: cardLoader.item !== null && model.kind !== "context_banner"
                                 }
+                                Binding {
+                                    target: cardLoader.item
+                                    property: "caretEnabled"
+                                    value: !autoScrollToggle.checked
+                                    when: cardLoader.item !== null && model.kind !== "context_banner"
+                                }
                             }
 
                             Connections {
@@ -319,7 +325,10 @@ Rectangle {
                                 }
 
                                 function onCaretMoved(caretY, caretHeight) {
-                                    chatList.ensureVisible(caretY, caretHeight)
+                                    if (autoScrollToggle.checked)
+                                        panel.clearCaretFocus()
+                                    else
+                                        chatList.ensureVisible(caretY, caretHeight)
                                 }
                             }
                         }
@@ -336,6 +345,10 @@ Rectangle {
                 onToggled: {
                     if (checked)
                         chatList.scrollToBottom()
+                }
+                onCheckedChanged: {
+                    if (checked)
+                        panel.clearCaretFocus()
                 }
             }
         }
@@ -357,7 +370,7 @@ Rectangle {
         ConfigTokenBar {
             Layout.fillWidth: true
             Layout.rightMargin: editorSkillDock.railWidth
-            primaryCount: editorChat.primaryCount
+                activatedCount: editorChat.activatedCount
             allowCount: editorChat.allowCount
             askCount: editorChat.askCount
             blockCount: editorChat.blockCount
@@ -488,6 +501,12 @@ Rectangle {
     // ------------------------------------------------------------------
     //  Input submission
     // ------------------------------------------------------------------
+
+    // Auto-scroll owns the viewport while enabled, so any body caret must yield.
+    function clearCaretFocus() {
+        chatList.forceActiveFocus(Qt.OtherFocusReason)
+    }
+
     function submit() {
         if (!input.text.trim())
             return

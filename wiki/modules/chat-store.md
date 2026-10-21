@@ -25,7 +25,7 @@ run.
 ```json
 {
   "id": "20240101_120000",
-  "skills_config": {"primary": [], "secondary": [], "tools": {}},
+  "skills_config": {"activated": [], "tools": {}},
   "messages": [],
   "session": "Default",
   "created_at": "...",

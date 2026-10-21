@@ -16,10 +16,11 @@ You have access to the following tools:
 
 ## Service Configuration
 
-The external services used by these tools are configured in `scripts/config.yaml`:
-`ocr_url` for OCR, plus `embed_url` / `rerank_url` for the records database. Copy
-`scripts/config_template.yaml` to `scripts/config.yaml` and adjust the URLs. The
-local `config.yaml` is gitignored; the template is committed.
+The external services used by these tools are configured in the project's
+`config/config.yaml` under `basic_ops`: `ocr_url` for OCR, plus `embed_url` /
+`rerank_url` for the records database. When the section or a key is absent, the
+scripts fall back to the localhost defaults (`http://localhost:3334/ocr`,
+`http://localhost:3336/v1/embeddings`, `http://localhost:3337/v1/reranking`).
 
 ## General Policy
 
@@ -594,11 +595,11 @@ The database is a single flat table of records:
 | updated_at | text | ISO-8601 timestamp |
 
 Embeddings and reranking come from external servers whose endpoints are set in
-`scripts/config.yaml` (`embed_url` and `rerank_url`; see
-`scripts/config_template.yaml` for the example URLs). Both are provided by a
-llama.cpp server and live outside this skill — the tools assume the endpoints are
-up. The reranker runs with a small physical batch size (~512 tokens): feeding it
-a long record (or several at once) makes it return HTTP 500 "input is too large".
+the project's `config/config.yaml` under `basic_ops` (`embed_url` and
+`rerank_url`). Both are provided by a llama.cpp server and live outside this
+skill — the tools assume the endpoints are up. The reranker runs with a small
+physical batch size (~512 tokens): feeding it a long record (or several at once)
+makes it return HTTP 500 "input is too large".
 `access_db` does not trim the candidates; if reranking fails or every score falls
 below `min_score`, hybrid falls back to the embedding (cosine) results only, so a
 failure never empties the result set.

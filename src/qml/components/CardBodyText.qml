@@ -17,13 +17,16 @@ TextEdit {
     // False for the frozen prefix when a live tail follows, so only one editor
     // takes keyboard focus / tab.
     property bool caretActive: true
+    // False while the hosting panel's auto-scroll is active, so the caret can
+    // never compete with the view being pinned to the newest card.
+    property bool caretEnabled: true
 
     // Emitted when the caret moves while this editor is focused; the hosting
     // card re-emits it so the panel can scroll the caret on screen.
     signal caretMoved(real caretY, real caretHeight)
 
     function focusEditor() {
-        if (root.visible)
+        if (root.visible && root.caretEnabled)
             root.forceActiveFocus()
     }
 
@@ -36,17 +39,22 @@ TextEdit {
     font.family: Theme.fontMono
     font.pointSize: Theme.metrics.fontSizeMarkdown
     wrapMode: TextEdit.Wrap
-    selectByMouse: true
+    selectByMouse: root.caretEnabled
     // Read-only editors disable keyboard selection by default; force it on so
     // shift+arrow / ctrl+arrow / home/end select.
     selectByKeyboard: true
-    activeFocusOnTab: root.caretActive
+    activeFocusOnPress: root.caretEnabled
+    activeFocusOnTab: root.caretActive && root.caretEnabled
     persistentSelection: true
     selectionColor: Theme.colors.selectionBg
     selectedTextColor: Theme.colors.selectionFg
     // Set imperatively (not a binding) so Qt's blink timer can toggle
     // cursorVisible without clobbering the focus link.
     onActiveFocusChanged: root.cursorVisible = root.activeFocus
+    onCaretEnabledChanged: {
+        if (!root.caretEnabled && root.activeFocus)
+            root.focus = false
+    }
     // Read-only editors do not paint the built-in cursor, so a custom delegate
     // draws (and blinks) the caret instead.
     cursorDelegate: Component {

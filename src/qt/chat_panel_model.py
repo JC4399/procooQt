@@ -39,7 +39,7 @@ class ChatPanelModel(QObject):
         self._input_tokens = 0
         self._output_tokens = 0
         self._loading = False
-        self._primary_count = 0
+        self._activated_count = 0
         self._allow_count = 0
         self._ask_count = 0
         self._block_count = 0
@@ -100,9 +100,9 @@ class ChatPanelModel(QObject):
         return self._loading
 
     @Property(int, notify=runtime_changed)
-    def primaryCount(self) -> int:  # noqa: N802
-        """Return the active chat's primary skill count."""
-        return self._primary_count
+    def activatedCount(self) -> int:  # noqa: N802
+        """Return the active chat's activated skill count."""
+        return self._activated_count
 
     @Property(int, notify=runtime_changed)
     def allowCount(self) -> int:  # noqa: N802
@@ -176,7 +176,7 @@ class ChatPanelModel(QObject):
         input_tokens: int,
         output_tokens: int,
         loading: bool,
-        primary_count: int,
+        activated_count: int,
         allow_count: int,
         ask_count: int,
         block_count: int,
@@ -194,7 +194,7 @@ class ChatPanelModel(QObject):
             input_tokens: Context (input) token count.
             output_tokens: Cumulative output token count.
             loading: Whether the rebuild overlay is showing.
-            primary_count: Number of primary skills.
+            activated_count: Number of activated skills.
             allow_count: Number of allow-mode tools.
             ask_count: Number of ask-mode tools.
             block_count: Number of block-mode tools.
@@ -207,7 +207,7 @@ class ChatPanelModel(QObject):
             and self._input_tokens == input_tokens
             and self._output_tokens == output_tokens
             and self._loading == loading
-            and self._primary_count == primary_count
+            and self._activated_count == activated_count
             and self._allow_count == allow_count
             and self._ask_count == ask_count
             and self._block_count == block_count
@@ -220,7 +220,7 @@ class ChatPanelModel(QObject):
         self._input_tokens = input_tokens
         self._output_tokens = output_tokens
         self._loading = loading
-        self._primary_count = primary_count
+        self._activated_count = activated_count
         self._allow_count = allow_count
         self._ask_count = ask_count
         self._block_count = block_count

@@ -2,12 +2,12 @@ import QtQuick
 import QtQuick.Layouts
 
 // Combined active-config + token bar shown above the text input for one chat
-// panel: four colored count squares (primary / allow / ask / block) at the left
+// panel: four colored count squares (activated / allow / ask / block) at the left
 // and the live total token count at the right.
 Rectangle {
     id: bar
 
-    property int primaryCount: 0
+    property int activatedCount: 0
     property int allowCount: 0
     property int askCount: 0
     property int blockCount: 0
@@ -43,8 +43,8 @@ Rectangle {
 
         CountSquare {
             Layout.alignment: Qt.AlignVCenter
-            count: bar.primaryCount
-            squareColor: Theme.colors.chipPrimaryFgMuted
+            count: bar.activatedCount
+            squareColor: Theme.colors.chipActivatedFgMuted
         }
 
         CountSquare {

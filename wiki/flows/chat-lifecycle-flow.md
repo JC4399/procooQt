@@ -110,7 +110,8 @@ layer (`layer.enabled`) to keep dragging smooth.
 1. Return the live chat if already in `chat_manager`.
 2. Load the stored dict off-thread (toast error if missing).
 3. `_create_manager_chat` **on a worker thread** (`asyncio.to_thread`):
-   `load_skill_contents` (primary/secondary) + `load_tool_functions` (primary) +
+   normalize the stored `skills_config.activated` paths to forward slashes, then
+   `load_skill_contents` (activated) + `load_tool_functions` (activated) +
    `build_tool_config`, resolve `model_name` (fallback to the config default),
    then `chat_manager.create_chat(...)` with the system prompt and `chat_limits`.
 4. `await chat.refresh_estimated()` (offloaded); backfill `context_snapshot` and

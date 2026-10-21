@@ -145,24 +145,22 @@ Incremental list of chat items for one chat.
 ### `SkillTreeModel`
 
 Flattens the nested `{folders, skills}` tree from `SkillManager.get_skill_tree`
-into depth-tagged rows. Folder collapse and primary/secondary selections are
-owned by the model and survive search filtering.
+into depth-tagged rows. Folder collapse and activated selections are owned by the
+model and survive search filtering.
 
 | Signature | Inputs | Output | Flow / Side effects |
 |---|---|---|---|
-| `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `SkillRole`; init tree/search/collapsed/primary/secondary |
+| `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `SkillRole`; init tree/search/collapsed/activated |
 | `def rebuild(self, tree: dict, search: str = "") -> None` | tree, search term | `None` | drop stale selections → `_flatten` |
 | `def set_folder_expanded(self, path: str, expanded: bool) -> None` | folder path, flag | `None` | update `_collapsed` → `_flatten` |
 | `def is_folder_expanded(self, path: str) -> bool` | folder path | `True` if a search is active or not collapsed | — |
-| `def apply_selection(self, primary: set[str], secondary: set[str]) -> None` | path sets | `None` | intersect with valid paths → `_apply_selection_roles` |
-| `def set_selection(self, path: str, kind: str, checked: bool) -> None` | path, `"primary"`/`"secondary"`, checked | `None` | mutate set → `_apply_selection_roles` |
-| `def collect_selected_primary(self) -> list[str]` | — | sorted primary paths | — |
-| `def collect_selected_secondary(self) -> list[str]` | — | sorted secondary paths | — |
-| `def selected_union(self) -> set[str]` | — | union of primary + secondary | — |
+| `def apply_selection(self, activated: set[str]) -> None` | path set | `None` | intersect with valid paths → `_apply_selection_roles` |
+| `def set_selection(self, path: str, checked: bool) -> None` | path, checked | `None` | mutate set → `_apply_selection_roles` |
+| `def collect_selected_activated(self) -> list[str]` | — | sorted activated paths | — |
 | `_flatten()` | — | `None` | rebuild rows → `set_items` |
 | `_flatten_node(node, depth, parent_path, rows, keys)` | node etc. | `None` | recurse folders (sorted), then skills; search hides empty folders |
 | `_folder_row(...)` / `_skill_row(skill, depth)` | row data | `Item` | build role dict; folder gets `SKILL_COUNT`/`SELECTED_COUNT` |
-| `_apply_selection_roles()` | — | `None` | `update_item` per row (folders → `SELECTED_COUNT`, skills → `PRIMARY`/`SECONDARY`) |
+| `_apply_selection_roles()` | — | `None` | `update_item` per row (folders → `SELECTED_COUNT`, skills → `ACTIVATED`) |
 | `_skill_matches(skill)` | `SkillInfo` | `bool` | case-insensitive name/description match |
 | `_count_skills(tree)` / `_count_selected(tree)` | subtree | `int` | recursive counts |
 | `_collect_skill_paths(tree)` (`@staticmethod`) | subtree | set of paths | recursive collect |

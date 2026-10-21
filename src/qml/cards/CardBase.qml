@@ -38,6 +38,9 @@ Rectangle {
     // visible during keyboard navigation. Bound by the hosting panel; null when
     // the card is unhosted.
     property var scrollTarget: null
+    // False while the hosting panel's auto-scroll is active. The caret is then
+    // disabled so it cannot pull the viewport away from the newest card.
+    property bool caretEnabled: true
 
     signal deleteRequested(int msgIndex)
     signal regenerateRequested(int msgIndex)
@@ -77,7 +80,7 @@ Rectangle {
     // Collapsed or bodyless cards have no caret target. The live tail takes
     // focus when present, otherwise the frozen prefix.
     function focusBody() {
-        if (!card.hasBody || card.bodyCollapsed)
+        if (!card.hasBody || card.bodyCollapsed || !card.caretEnabled)
             return
         if (bodyText.bodyHtml !== "")
             bodyText.focusEditor()
@@ -272,6 +275,7 @@ Rectangle {
                     bodyHtml: card.bodyHtml
                     textColor: card.bodyColor
                     scrollTarget: card.scrollTarget
+                    caretEnabled: card.caretEnabled
                     // Only the tail takes focus when a live tail follows.
                     caretActive: bodyText.bodyHtml === ""
                     visible: card.bodyHtml !== "" && !card.bodyCollapsed
@@ -287,6 +291,7 @@ Rectangle {
                     bodyHtml: card.bodyTailHtml
                     textColor: card.bodyColor
                     scrollTarget: card.scrollTarget
+                    caretEnabled: card.caretEnabled
                     visible: card.bodyTailHtml !== "" && !card.bodyCollapsed
                     onCaretMoved: function (caretY, caretHeight) {
                         card.caretMoved(caretY, caretHeight)

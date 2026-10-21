@@ -48,8 +48,7 @@ Automation identity = relative path from `automations_dir` (e.g. `"reports/daily
 | `activation` | yes | `scheduled` or `event` |
 | `schedule` | scheduled only | 5-field cron expression (validated with `croniter`) |
 | `event` | event only | Event name matched by the HTTP server |
-| `primary_skills` | no | Skill paths fed to the automation's headless agent |
-| `secondary_skills` | no | Secondary skill paths |
+| `activated_skills` | no | Skill paths fed to the automation's headless agent |
 | `start_date` | no | First day the automation may fire, `YYYY-MM-DD` |
 | `end_date` | no | Last day the automation may fire, `YYYY-MM-DD` |
 
@@ -132,7 +131,7 @@ a Qt signal (the [automation controller](qt-automation-controller.md) does this)
 |---|---|
 | `ActivationType` (`StrEnum`) | `SCHEDULED`, `EVENT` |
 | `AutomationResultKind` (`StrEnum`) | `SUCCESS`, `INFO`, `ERROR` |
-| `AutomationInfo` | `name`, `path`, `directory`, `description`, `activation`, `schedule`, `event`, `primary_skills`, `secondary_skills`, `has_scripts`, `has_references`, `enabled`, `last_run`, `start_date`, `end_date` |
+| `AutomationInfo` | `name`, `path`, `directory`, `description`, `activation`, `schedule`, `event`, `activated_skills`, `has_scripts`, `has_references`, `enabled`, `last_run`, `start_date`, `end_date` |
 | `AutomationResult` | `kind`, `path`, `task`, `message`, `log`, `data`, `timestamp` |
 
 Module-level helper: `parse_iso_date(value: str) -> date | None` — parses

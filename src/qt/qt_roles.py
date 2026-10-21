@@ -54,12 +54,11 @@ class SkillRole(IntEnum):
     DESCRIPTION = 3
     DEPTH = 4
     IS_FOLDER = 5
-    PRIMARY = 6
-    SECONDARY = 7
-    HAS_TOOLS = 8
-    EXPANDED = 9
-    SKILL_COUNT = 10
-    SELECTED_COUNT = 11
+    ACTIVATED = 6
+    HAS_TOOLS = 7
+    EXPANDED = 8
+    SKILL_COUNT = 9
+    SELECTED_COUNT = 10
 
 
 class ToolRole(IntEnum):

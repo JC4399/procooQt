@@ -57,9 +57,8 @@ The tool is `subagent`. Its main arguments are:
 | `mode` | `run`, `spawn`, `spawn_many`, `wait`, `status`, or `cancel` |
 | `prompt` | The task for one sub-agent |
 | `model` | Optional configured model name |
-| `primary_skills` | Skill paths whose instructions and tools are loaded |
-| `secondary_skills` | Skill paths described only, without preloading tools |
-| `tools` | Explicit tool names; empty means all tools from primary skills |
+| `activated_skills` | Skill paths whose instructions and tools are loaded |
+| `tools` | Explicit tool names; empty means all tools from activated skills |
 | `tool_modes` | Per-tool overrides, e.g. `{"edit_file": "block"}` |
 | `system_prompt` | Optional extra instruction |
 | `specs` | List of request objects for `spawn_many` |
@@ -76,14 +75,14 @@ One task, wait for the answer:
 
 ```text
 subagent(mode="run", prompt="Summarise the file at C:/work/report.md",
-         primary_skills=["basic/basic-ops"], tools=["read_file"])
+         activated_skills=["basic/basic-ops"], tools=["read_file"])
 ```
 
 Start a long task and poll later:
 
 ```text
 subagent(mode="spawn", prompt="Audit the repository and list risky call sites",
-         primary_skills=["basic/basic-ops"])
+         activated_skills=["basic/basic-ops"])
 subagent(mode="wait", agent_id="subagent:20261021_143000:1", timeout=1200)
 ```
 

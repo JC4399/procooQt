@@ -16,7 +16,8 @@ layers.
 - `event_queue` — `asyncio.Queue` of UI events.
 - `run(message_content)` — executes one user turn.
 - `approve_tool` / `deny_tool` — release pending approvals.
-- `update_skill_config` — hot-swap skills/tools with delta warnings.
+- `update_skill_config` — freely replace skills/tools before the first user
+  message, then hot-swap with delta warnings afterwards.
 - `set_model` — swap the LLM client for subsequent turns.
 - `run_tool` — subprocess tool execution.
 
@@ -27,8 +28,9 @@ layers.
 | `chat_id` | `str` | unique id |
 | `event_queue` | `asyncio.Queue` | UI events |
 | `messages` | `list[dict]` | conversation history |
-| `primary_skills` / `secondary_skills` | `list[str]` | skill paths |
+| `activated_skills` | `list[str]` | skill paths |
 | `sys_prompt` | `str` | full system prompt |
+| `_base_system_message` | `str` | base system message without skill sections |
 | `_tools` | `dict[str, dict]` | registered tool defs |
 | `_tool_config` | `dict[str, str]` | per-tool mode |
 | `_tool_env` | `dict[str, str]` | extra env vars for tool subprocesses |
@@ -79,10 +81,10 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 
 | | |
 |---|---|
-| Signature | `def __init__(self, chat_id, model, primary_skill_contents, secondary_skill_contents, tool_functions, tool_config, skills_dir, system_message="You are a helpful assistant.", sampling_config=None, initial_messages=None, summary_prompt="", chat_limits=None, tool_env=None) -> None` |
+| Signature | `def __init__(self, chat_id, model, activated_skill_contents, tool_functions, tool_config, skills_dir, system_message="You are a helpful assistant.", sampling_config=None, initial_messages=None, summary_prompt="", chat_limits=None, tool_env=None) -> None` |
 | Inputs | see docstring; `model` = `{model_name, api_key, api_base}`; `tool_config` = per-tool mode; `initial_messages` seeds history; `summary_prompt` = summarization instruction; `chat_limits` = `{"max_bytes": int, "max_tokens": int}` (0 or negative disables); `tool_env` = extra env vars for tool subprocesses (used by sub-agents for depth/id). |
 | Output | `None` |
-| Flow | init queue/approvals → set `sys_prompt = system_message` (empty stays empty; no hardcoded fallback) → append primary/secondary skill instructions → `ChatTokenTracker` → `_build_model(model)` (`OpenAIModel(stream=True)`) → register tools → log skills. |
+| Flow | init queue/approvals → store `_base_system_message` → `_build_sys_prompt(activated)` → `ChatTokenTracker` → `_build_model(model)` (`OpenAIModel(stream=True)`) → register tools → log skills. |
 
 ### `_build_model` / `set_model`
 
@@ -106,10 +108,19 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 
 | | |
 |---|---|
-| Signature | `def update_skill_config(self, primary_skill_contents, secondary_skill_contents, tool_functions, tool_config) -> dict` |
+| Signature | `def update_skill_config(self, activated_skill_contents, tool_functions, tool_config) -> dict` |
 | Inputs | new skill contents, tool defs, tool config. |
-| Output | `{warnings, added_primary, added_secondary, added_tools}`. |
-| Flow | compute removed/demoted → build warnings → accumulate additions into `_pending_sys_message` → add new tools → `set_tool_config`. |
+| Output | `{warnings, added_activated, added_tools}`. |
+| Flow | If no `role: user` message exists yet → `_replace_skill_config`: rebuild `sys_prompt` via `_build_sys_prompt`, refresh `ChatTokenTracker`, clear `_pending_sys_message`, replace `_tools` exactly, reset committed sets, and return an empty delta result. Otherwise → `_apply_skill_delta`: compute removed → build warnings → accumulate additions into `_pending_sys_message` → add new tools → `set_tool_config`. |
+
+### `_replace_skill_config` / `_apply_skill_delta`
+
+| | |
+|---|---|
+| Signature | `def _replace_skill_config(activated_skill_contents, tool_functions, tool_config) -> dict` / `def _apply_skill_delta(...) -> dict` |
+| Inputs | Same payloads as `update_skill_config`. |
+| Output | Empty delta result for the pre-start replacement; `{warnings, added_activated, added_tools}` for the post-start delta. |
+| Flow | `_replace_skill_config` is used before the first user message so skills can be added **and removed** freely; `_apply_skill_delta` preserves the append-only, warning-based behaviour once the chat has started. |
 
 ### `run_tool`
 
@@ -150,5 +161,5 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 | `_build_tool_schemas` | OpenAI tool schema from `_tools` |
 | `_parse_tool_media` | detect `_media` marker in tool output |
 | `_inject_media_user_message` | inject image content as user message |
-| `_format_secondary_skills_prompt` | secondary-skills prompt section |
+| `_build_sys_prompt` | assemble base message + activated instructions |
 | `_strip_empty_optional_args` | drop empty optional params |

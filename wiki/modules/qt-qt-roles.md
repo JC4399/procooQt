@@ -72,12 +72,11 @@ enum into the `{role id: bytes}` mapping Qt expects.
 | `DESCRIPTION` | 3 | Skill description |
 | `DEPTH` | 4 | Nesting depth for indentation |
 | `IS_FOLDER` | 5 | `True` for a folder row |
-| `PRIMARY` | 6 | Selected as primary |
-| `SECONDARY` | 7 | Selected as secondary |
-| `HAS_TOOLS` | 8 | Skill declares tools |
-| `EXPANDED` | 9 | Folder expansion state |
-| `SKILL_COUNT` | 10 | Total skills in a folder subtree |
-| `SELECTED_COUNT` | 11 | Selected skills in a folder subtree |
+| `ACTIVATED` | 6 | Selected as activated |
+| `HAS_TOOLS` | 7 | Skill declares tools |
+| `EXPANDED` | 8 | Folder expansion state |
+| `SKILL_COUNT` | 9 | Total skills in a folder subtree |
+| `SELECTED_COUNT` | 10 | Selected skills in a folder subtree |
 
 ### `ToolRole` — `ToolModeModel`
 

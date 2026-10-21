@@ -22,7 +22,6 @@ _WHITE_BOLD = "\033[1;37m"
 _BLUE = "\033[34m"
 _GREEN = "\033[32m"
 _BOLD_GREEN = "\033[1;32m"
-_BOLD_YELLOW = "\033[1;33m"
 
 
 class ColoredFormatter(logging.Formatter):
@@ -80,28 +79,18 @@ def format_tool_change(full_tool_name: str, value: str) -> str:
     return f"Tool   {_CYAN}{full_tool_name:<50}{_RESET} mode={color_val}"
 
 
-def format_preset_save(
-    preset_name: str, primary: list[str], secondary: list[str], tools: dict
-) -> str:
+def format_preset_save(preset_name: str, activated: list[str], tools: dict) -> str:
     """Return an ANSI-colored string for a preset save log line."""
     color_name = _WHITE_BOLD + preset_name + _RESET
     color_label = _GREEN + "save" + _RESET
-    return (
-        f"Preset {color_label}  {color_name:<30}"
-        f"  primary={primary}  secondary={secondary}  tools={tools}"
-    )
+    return f"Preset {color_label}  {color_name:<30}  activated={activated}  tools={tools}"
 
 
-def format_preset_load(
-    preset_name: str, primary: list[str], secondary: list[str], tools: dict
-) -> str:
+def format_preset_load(preset_name: str, activated: list[str], tools: dict) -> str:
     """Return an ANSI-colored string for a preset load log line."""
     color_name = _WHITE_BOLD + preset_name + _RESET
     color_label = _BLUE + "load" + _RESET
-    return (
-        f"Preset {color_label}  {color_name:<30}"
-        f"  primary={primary}  secondary={secondary}  tools={tools}"
-    )
+    return f"Preset {color_label}  {color_name:<30}  activated={activated}  tools={tools}"
 
 
 def format_preset_delete(preset_name: str) -> str:
@@ -112,19 +101,16 @@ def format_preset_delete(preset_name: str) -> str:
 
 
 def log_chat_skills(
-    primary_skills: list[str],
-    secondary_skills: list[str],
+    activated_skills: list[str],
     tool_defs: list[dict],
 ) -> None:
     """Print loaded chat skills and their tools to stderr.
 
     Args:
-        primary_skills: Names of primary (fully loaded) skill paths.
-        secondary_skills: Names of secondary (description-only) skill paths.
+        activated_skills: Names of activated (fully loaded) skill paths.
         tool_defs: Tool definition dicts, each with ``name`` and ``skill_path`` keys.
     """
-    primary = ", ".join(primary_skills) if primary_skills else "(none)"
-    secondary = ", ".join(secondary_skills) if secondary_skills else "(none)"
+    activated = ", ".join(activated_skills) if activated_skills else "(none)"
 
     tools_by_skill: dict[str, list[str]] = {}
     for td in tool_defs:
@@ -132,13 +118,12 @@ def log_chat_skills(
         tools_by_skill.setdefault(skill_path, []).append(td["name"])
 
     print(f"\n  {_BOLD}chat skills{_RESET}", file=sys.stderr)
-    print(f"  {_BOLD}primary{_RESET}    {_BOLD_GREEN}{primary}{_RESET}", file=sys.stderr)
-    print(f"  {_BOLD}secondary{_RESET}  {_BOLD_YELLOW}{secondary}{_RESET}", file=sys.stderr)
+    print(f"  {_BOLD}activated{_RESET}    {_BOLD_GREEN}{activated}{_RESET}", file=sys.stderr)
     print(f"  {_BOLD}tools{_RESET}", file=sys.stderr)
-    if not primary_skills or not tools_by_skill:
+    if not activated_skills or not tools_by_skill:
         print(f"      {_GRAY}(none){_RESET}", file=sys.stderr)
     else:
-        for skill_path in primary_skills:
+        for skill_path in activated_skills:
             tool_names = tools_by_skill.get(skill_path, [])
             names = ", ".join(tool_names) if tool_names else "(none)"
             print(f"      {_CYAN}{skill_path}{_RESET}: {names}", file=sys.stderr)

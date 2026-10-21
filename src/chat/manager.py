@@ -23,8 +23,7 @@ class ChatManager:
         self,
         chat_id: str,
         model: dict | None = None,
-        primary_skill_contents: list[dict] | None = None,
-        secondary_skill_contents: list[dict] | None = None,
+        activated_skill_contents: list[dict] | None = None,
         tool_functions: list[dict] | None = None,
         tool_config: dict[str, str] | None = None,
         skills_dir: str = "",
@@ -40,8 +39,7 @@ class ChatManager:
         Args:
             chat_id: Unique chat identifier.
             model: LLM configuration dict (model_name, api_key, api_base).
-            primary_skill_contents: List of skill-content dicts for primary skills.
-            secondary_skill_contents: List of skill-content dicts for secondary skills.
+            activated_skill_contents: List of skill-content dicts for activated skills.
             tool_functions: List of tool-definition dicts (name, script_path, …).
             tool_config: Per-tool mode mapping (``"allow"``, ``"ask"``, ``"block"``).
             skills_dir: Path to the skills directory.
@@ -63,8 +61,7 @@ class ChatManager:
         chat = Agent(
             chat_id=chat_id,
             model=model or {},
-            primary_skill_contents=primary_skill_contents or [],
-            secondary_skill_contents=secondary_skill_contents or [],
+            activated_skill_contents=activated_skill_contents or [],
             tool_functions=tool_functions or [],
             tool_config=tool_config or {},
             skills_dir=skills_dir,
@@ -89,23 +86,21 @@ class ChatManager:
     def update_chat_config(
         self,
         chat_id: str,
-        primary_skill_contents: list[dict],
-        secondary_skill_contents: list[dict],
+        activated_skill_contents: list[dict],
         tool_functions: list[dict],
         tool_config: dict[str, str],
     ) -> dict:
         """Push new skill/tool config to a live chat.
 
         Returns the result dict from ``Agent.update_skill_config`` (with
-        ``warnings``, ``added_primary``, etc.), or an empty result if no
+        ``warnings``, ``added_activated``, etc.), or an empty result if no
         live chat exists for *chat_id*.
         """
         chat = self.get_chat(chat_id)
         if chat is None:
             return {"warnings": []}
         return chat.update_skill_config(
-            primary_skill_contents,
-            secondary_skill_contents,
+            activated_skill_contents,
             tool_functions,
             tool_config,
         )

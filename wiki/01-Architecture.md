@@ -164,9 +164,8 @@ capabilities directory so it can open skill scripts and automation files.
 ### Skill paths
 
 Skills are identified by their relative path from `skills_dir` (e.g.
-`"coding/python"`). A **primary** skill's full instructions + tools are
-loaded into the system prompt; a **secondary** skill contributes only a
-description for on-demand discovery. See [`skill-manager`](modules/skill-manager.md).
+`"coding/python"`). An **activated** skill's full instructions + tools are
+loaded into the system prompt. See [`skill-manager`](modules/skill-manager.md).
 
 ### Automations
 

@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 
 // One row of the flattened skill tree: either a collapsible folder header or a
-// skill row with primary/secondary checkboxes and a tool-count badge.
+// skill row with an activated checkbox and a tool-count badge.
 Rectangle {
     id: node
 
@@ -11,15 +11,13 @@ Rectangle {
     property string description: ""
     property int depth: 0
     property bool isFolder: false
-    property bool primary: false
-    property bool secondary: false
+    property bool activated: false
     property bool hasTools: false
     property bool expanded: false
     property int skillCount: 0
     property int selectedCount: 0
 
-    signal primaryToggled(string path, bool checked)
-    signal secondaryToggled(string path, bool checked)
+    signal activatedToggled(string path, bool checked)
     signal folderToggled(string path, bool expanded)
 
     implicitHeight: 28
@@ -37,7 +35,7 @@ Rectangle {
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: 6 + node.depth * 16
-        anchors.rightMargin: 6
+        anchors.rightMargin: 11
         spacing: 6
 
         // Folder header
@@ -91,7 +89,7 @@ Rectangle {
             visible: !node.isFolder && node.hasTools
             implicitWidth: toolsLabel.implicitWidth + 8
             implicitHeight: 16
-            color: Theme.colors.chipSecondaryBg
+            color: Theme.colors.chipToolsBg
             border.color: Theme.colors.borderDefault
             border.width: 1
             radius: 0
@@ -100,7 +98,7 @@ Rectangle {
                 id: toolsLabel
                 anchors.centerIn: parent
                 text: qsTr("tools")
-                color: Theme.colors.chipSecondaryFg
+                color: Theme.colors.chipToolsFg
                 font.family: Theme.fontMono
                 font.pointSize: Theme.metrics.fontSizeBase
             }
@@ -111,15 +109,8 @@ Rectangle {
         FlatCheckBox {
             visible: !node.isFolder
             accent: Theme.colors.accentCyan
-            checked: node.primary
-            onClicked: node.primaryToggled(node.path, checked)
-        }
-
-        FlatCheckBox {
-            visible: !node.isFolder
-            accent: Theme.colors.accentAmber
-            checked: node.secondary
-            onClicked: node.secondaryToggled(node.path, checked)
+            checked: node.activated
+            onClicked: node.activatedToggled(node.path, checked)
         }
     }
 }

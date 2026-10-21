@@ -21,6 +21,9 @@ live changes.
   skills (used by sub-agents).
 - `get_skill_tree` (nested UI tree), `build_tool_config`,
   `build_tool_config_by_name`, `default_tool_modes`.
+- `normalize_skill_path` — canonical forward-slash form applied at every
+  path-accepting boundary (`load_skill_contents`, `load_tool_functions`,
+  `build_tool_config`, lookups) so stored Windows-separator paths still match.
 - `refresh`, `start_watching`, `stop_watching` (watchdog-based live reload).
 - `get_validation_issues` (errors/warnings).
 
@@ -78,8 +81,9 @@ A directory with no `SKILL.md` is treated as a grouping folder.
 | `build_tool_config_by_name` | `(tool_modes: dict, names: list[str]) -> dict[str, str]` | per-tool mode map for explicit names; defaults to `"allow"` |
 | `default_tool_modes` | `() -> dict[str, str]` | `"ask"` for every tool |
 | `get_skill_tree` | `() -> dict` | nested `{folders, skills}` tree |
-| `get_skill_by_path` | `(path: str) -> SkillInfo \| None` | lookup by path |
-| `path_to_display_name` | `(path: str) -> str` | display name for path |
+| `get_skill_by_path` | `(path: str) -> SkillInfo \| None` | lookup by path (normalized) |
+| `normalize_skill_path` | `(path: str) -> str` | canonical forward-slash path |
+| `path_to_display_name` | `(path: str) -> str` | display name for path (normalized) |
 | `get_validation_issues` | `() -> list[ValidationIssue]` | collected issues |
 | `refresh` | `() -> None` | clear caches, re-discover |
 | `start_watching` | `(callback: Callable[[], None]) -> None` | register a change callback (multiple supported; starts the watcher lazily) |

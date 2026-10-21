@@ -14,14 +14,36 @@ import traceback
 
 import yaml
 
-_CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
-if not _CONFIG_PATH.is_file():
-    _CONFIG_PATH = _CONFIG_PATH.with_name("config_template.yaml")
-with open(_CONFIG_PATH, encoding="utf-8") as _config_file:
-    _CONFIG = yaml.safe_load(_config_file) or {}
+_DEFAULT_EMBED_URL = "http://localhost:3336/v1/embeddings"
+_DEFAULT_RERANK_URL = "http://localhost:3337/v1/reranking"
 
-EMBED_URL: str = _CONFIG.get("embed_url", "http://localhost:3336/v1/embeddings")
-RERANK_URL: str = _CONFIG.get("rerank_url", "http://localhost:3337/v1/reranking")
+
+# ------------------------------------------------------------------
+#  Config
+# ------------------------------------------------------------------
+
+
+def _load_config() -> dict:
+    """Find and load the project ``config/config.yaml``.
+
+    Returns:
+        The parsed config mapping, or an empty dict when no file is found.
+    """
+    for directory in [Path.cwd(), *Path(__file__).resolve().parents]:
+        config_path = directory / "config" / "config.yaml"
+        if config_path.is_file():
+            try:
+                with open(config_path, encoding="utf-8") as handle:
+                    data = yaml.safe_load(handle)
+            except (OSError, yaml.YAMLError):
+                return {}
+            return data if isinstance(data, dict) else {}
+    return {}
+
+
+_BASIC_OPS = _load_config().get("basic_ops") or {}
+EMBED_URL: str = str(_BASIC_OPS.get("embed_url", _DEFAULT_EMBED_URL))
+RERANK_URL: str = str(_BASIC_OPS.get("rerank_url", _DEFAULT_RERANK_URL))
 RRF_K = 60
 
 STOPWORDS = frozenset(

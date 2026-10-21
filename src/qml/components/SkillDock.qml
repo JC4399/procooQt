@@ -366,17 +366,13 @@ Item {
                         description: model.description
                         depth: model.depth
                         isFolder: model.is_folder
-                        primary: model.primary
-                        secondary: model.secondary
+                        activated: model.activated
                         hasTools: model.has_tools
                         expanded: model.expanded
                         skillCount: model.skill_count
                         selectedCount: model.selected_count
-                        onPrimaryToggled: function (path, checked) {
-                            skill._handle_skill_toggle(path, "primary", checked)
-                        }
-                        onSecondaryToggled: function (path, checked) {
-                            skill._handle_skill_toggle(path, "secondary", checked)
+                        onActivatedToggled: function (path, checked) {
+                            skill._handle_skill_toggle(path, checked)
                         }
                         onFolderToggled: function (path, expanded) {
                             skill._handle_folder_toggle(path, expanded)

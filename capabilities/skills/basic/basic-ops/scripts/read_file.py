@@ -25,13 +25,34 @@ THUMBNAIL_LABEL_MARGIN = 10
 
 MAX_DIM = 3000
 
-_CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
-if not _CONFIG_PATH.is_file():
-    _CONFIG_PATH = _CONFIG_PATH.with_name("config_template.yaml")
-with open(_CONFIG_PATH, encoding="utf-8") as _config_file:
-    _CONFIG = yaml.safe_load(_config_file) or {}
+_DEFAULT_OCR_URL = "http://localhost:3334/ocr"
 
-OCR_URL: str = _CONFIG.get("ocr_url", "http://localhost:3334/ocr")
+
+# ---------------------------------------------------------------------------
+#  Config
+# ---------------------------------------------------------------------------
+
+
+def _load_config() -> dict:
+    """Find and load the project ``config/config.yaml``.
+
+    Returns:
+        The parsed config mapping, or an empty dict when no file is found.
+    """
+    for directory in [Path.cwd(), *Path(__file__).resolve().parents]:
+        config_path = directory / "config" / "config.yaml"
+        if config_path.is_file():
+            try:
+                with open(config_path, encoding="utf-8") as handle:
+                    data = yaml.safe_load(handle)
+            except (OSError, yaml.YAMLError):
+                return {}
+            return data if isinstance(data, dict) else {}
+    return {}
+
+
+_BASIC_OPS = _load_config().get("basic_ops") or {}
+OCR_URL: str = str(_BASIC_OPS.get("ocr_url", _DEFAULT_OCR_URL))
 
 
 # ---------------------------------------------------------------------------
@@ -896,9 +917,9 @@ async def _pdf_image(
         if sub == "thumbnail":
             return await _pdf_image_thumbnail(str(path), page_list, path.name)
         if sub == "cropping":
-            return await _pdf_image_cropping(doc, page_list, dpi, bbox, path.name, total_pages)
+            return await _pdf_image_cropping(str(path), page_list, dpi, bbox, path.name, total_pages)
         if sub == "full":
-            return await _pdf_image_full(doc, page_list, dpi, path.name, total_pages)
+            return await _pdf_image_full(str(path), page_list, dpi, path.name, total_pages)
         return f"Unknown submode: {sub!r}. Valid: full, thumbnail, cropping, test-resolution."
     finally:
         if doc:
@@ -957,7 +978,7 @@ async def _pdf_image_thumbnail(
 
 
 async def _pdf_image_full(
-    doc,
+    pdf_path: str,
     page_list: list[int],
     dpi: int,
     filename: str,
@@ -965,18 +986,28 @@ async def _pdf_image_full(
 ) -> str:
     """Render pages as full-resolution images (default pdf-image behavior).
 
+    Each page is rendered in a parallel worker process
+    (``concurrent.futures.ProcessPoolExecutor``), results gathered in page
+    order.
+
     Args:
-        doc: pymupdf document (open).
+        pdf_path: Absolute path to the PDF file (string, reopened per worker
+            for ProcessPoolExecutor compatibility).
         page_list: List of 1-indexed page numbers to render.
         dpi: Image resolution in dots per inch.
         filename: Display name for the description.
         total_pages: Total page count of the PDF.
     """
+    tasks = [(pdf_path, p, dpi) for p in page_list]
+
+    loop = asyncio.get_running_loop()
+    with concurrent.futures.ProcessPoolExecutor() as pool:
+        futures = [loop.run_in_executor(pool, _render_full_page_worker, task) for task in tasks]
+        results: list[tuple[int, str, int, int]] = list(await asyncio.gather(*futures))
+
     media: list[dict] = []
-    for p in page_list:
-        pix = doc[p - 1].get_pixmap(dpi=dpi)  # type: ignore[union-attr]
-        img_b64, width, height = _pix_to_png(pix)
-        desc = f"{filename} (Page {p}/{total_pages}, {width}x{height})"
+    for page_num, img_b64, width, height in results:
+        desc = f"{filename} (Page {page_num}/{total_pages}, {width}x{height})"
         media.append({"desc": desc, "data": img_b64})
 
     if len(page_list) == 1:
@@ -987,7 +1018,7 @@ async def _pdf_image_full(
 
 
 async def _pdf_image_cropping(
-    doc,
+    pdf_path: str,
     page_list: list[int],
     dpi: int,
     bbox,
@@ -996,22 +1027,37 @@ async def _pdf_image_cropping(
 ) -> str:
     """Render pages at ``dpi``, crop each by ``bbox``, and return the slices.
 
+    Each page is rendered and cropped in a parallel worker process
+    (``concurrent.futures.ProcessPoolExecutor``), results gathered in page
+    order.
+
     Args:
-        doc: pymupdf document (open).
+        pdf_path: Absolute path to the PDF file (string, reopened per worker
+            for ProcessPoolExecutor compatibility).
         page_list: List of 1-indexed page numbers to render.
         dpi: Image resolution in dots per inch.
         bbox: Normalized ``[x0, y0, x1, y1]`` crop region.
         filename: Display name for the description.
         total_pages: Total page count of the PDF.
     """
-    media: list[dict] = []
-    for p in page_list:
-        pix = doc[p - 1].get_pixmap(dpi=dpi)  # type: ignore[union-attr]
+    try:
+        _parse_bbox(bbox)
+    except ValueError as e:
+        return f"Invalid bbox: {e}"
+
+    tasks = [(pdf_path, p, dpi, bbox) for p in page_list]
+
+    loop = asyncio.get_running_loop()
+    with concurrent.futures.ProcessPoolExecutor() as pool:
+        futures = [loop.run_in_executor(pool, _render_crop_page_worker, task) for task in tasks]
         try:
-            img_b64, width, height = _pix_to_png(pix, bbox)
+            results: list[tuple[int, str, int, int]] = list(await asyncio.gather(*futures))
         except ValueError as e:
             return f"Invalid bbox: {e}"
-        desc = f"{filename} (Page {p}/{total_pages}, crop {width}x{height})"
+
+    media: list[dict] = []
+    for page_num, img_b64, width, height in results:
+        desc = f"{filename} (Page {page_num}/{total_pages}, crop {width}x{height})"
         media.append({"desc": desc, "data": img_b64})
 
     if len(page_list) == 1:
@@ -1165,17 +1211,27 @@ async def _pdf_ocr(
             if p < 1 or p > total_pages:
                 return f"Page {p} out of range. PDF has {total_pages} pages."
 
-        images_b64: list[str] = []
-        for p in page_list:
-            pix = doc[p - 1].get_pixmap(dpi=dpi)  # type: ignore[union-attr]
+        ocr_bbox = bbox if sub == "cropping" else None
+        if ocr_bbox is not None:
             try:
-                img_b64, _, _ = _pix_to_png(pix, bbox if sub == "cropping" else None)
+                _parse_bbox(ocr_bbox)
             except ValueError as e:
                 return f"Invalid bbox: {e}"
-            images_b64.append(img_b64)
+
+        tasks = [(str(path), p, dpi, ocr_bbox) for p in page_list]
+
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ProcessPoolExecutor() as pool:
+            futures = [loop.run_in_executor(pool, _render_crop_page_worker, task) for task in tasks]
+            try:
+                results: list[tuple[int, str, int, int]] = list(await asyncio.gather(*futures))
+            except ValueError as e:
+                return f"Invalid bbox: {e}"
+
+        images_b64: list[str] = [b64 for (_, b64, _, _) in results]
 
         markdown = await _ocr_images(images_b64)
-        if markdown.startswith(("OCR server", "aiohttp")):
+        if markdown.startswith(("OCR server", "OCR failed", "aiohttp")):
             return markdown
         if not markdown:
             return "(empty)"
@@ -1208,21 +1264,38 @@ async def _ocr_images(images_b64: list[str]) -> str:
     except ImportError:
         return "aiohttp is not installed. Install it with: pip install aiohttp"
 
-    try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.post(
-                OCR_URL,
-                json={"images": images_b64},
-                timeout=aiohttp.ClientTimeout(total=300 * max(1, len(images_b64))),
-            ) as resp,
-        ):
-            data = await resp.json()
-            if resp.status == 200:
-                return data.get("markdown", "")
-            return data.get("error", f"OCR server error {resp.status}")
-    except Exception as e:
-        return f"OCR server unavailable: {e}"
+    n = len(images_b64)
+    payload_mb = sum(len(b) for b in images_b64) * 0.75 / (1024 * 1024)
+    timeout_s = 300 * max(1, n)
+    size_note = f"~{payload_mb:.1f} MB, {n} images" if payload_mb > 5 else f"{n} images"
+
+    last_err = ""
+    for attempt in range(3):
+        try:
+            async with (
+                aiohttp.ClientSession() as session,
+                session.post(
+                    OCR_URL,
+                    json={"images": images_b64},
+                    timeout=aiohttp.ClientTimeout(total=timeout_s),
+                ) as resp,
+            ):
+                data = await resp.json()
+                if resp.status == 200:
+                    return data.get("markdown", "")
+                return data.get("error", f"OCR server error {resp.status}")
+        except (aiohttp.ServerTimeoutError, asyncio.TimeoutError):
+            return f"OCR server timed out ({timeout_s}s for {size_note}). Reduce pages per call."
+        except aiohttp.ClientPayloadError as e:
+            last_err = f"payload transfer error: {e}"
+        except aiohttp.ClientError as e:
+            last_err = f"connection error: {e}"
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+        if attempt < 2:
+            await asyncio.sleep(3)
+
+    return f"OCR failed after 3 attempts ({size_note}): {last_err}. Reduce pages per call if payload is large."
 
 
 async def _probe_ocr() -> str:
@@ -1424,6 +1497,57 @@ def _render_thumbnail_worker(args: tuple[str, int]) -> bytes:
         doc.close()
 
 
+def _render_full_page_worker(args: tuple[str, int, int]) -> tuple[int, str, int, int]:
+    """Module-level worker to render a single full-resolution PDF page.
+
+    Opens its own pymupdf document (required for ProcessPoolExecutor
+    compatibility).
+
+    Args:
+        args: Tuple of (pdf_path, page_num, dpi).
+
+    Returns:
+        Tuple of (page_num, base64_webp, width, height).
+    """
+    import pymupdf
+
+    pdf_path, page_num, dpi = args
+    doc = pymupdf.open(pdf_path)
+    try:
+        pix = doc[page_num - 1].get_pixmap(dpi=dpi)
+        img_b64, width, height = _pix_to_png(pix)
+    finally:
+        doc.close()
+    return (page_num, img_b64, width, height)
+
+
+def _render_crop_page_worker(args: tuple[str, int, int, list]) -> tuple[int, str, int, int]:
+    """Module-level worker to render and crop a single PDF page.
+
+    Opens its own pymupdf document (required for ProcessPoolExecutor
+    compatibility).
+
+    Args:
+        args: Tuple of (pdf_path, page_num, dpi, bbox).
+
+    Returns:
+        Tuple of (page_num, base64_webp, width, height).
+
+    Raises:
+        ValueError: If the bbox is invalid.
+    """
+    import pymupdf
+
+    pdf_path, page_num, dpi, bbox = args
+    doc = pymupdf.open(pdf_path)
+    try:
+        pix = doc[page_num - 1].get_pixmap(dpi=dpi)
+        img_b64, width, height = _pix_to_png(pix, bbox)
+    finally:
+        doc.close()
+    return (page_num, img_b64, width, height)
+
+
 def _combine_thumbnails(
     thumb_pngs: list[bytes],
     cols: int,
@@ -1568,6 +1692,7 @@ async def _convert_and_write(
             "Invalid pages",
             "Invalid bbox",
             "OCR server",
+            "OCR failed",
             "aiohttp",
         )
     ):

@@ -17,8 +17,7 @@ A skill is a folder of instructions with optional Python scripts. Select it for 
 | panel | one column of the chat page; up to four fit |
 | tab | one chat inside a panel |
 | skill | a folder under `capabilities/skills/` containing `SKILL.md` and optionally `scripts/` |
-| primary skill | instructions and tools loaded into the system prompt on every turn |
-| secondary skill | description only, listed so the agent knows the capability exists |
+| activated skill | instructions and tools loaded into the system prompt on every turn |
 | tool | one `.py` file under a skill's `scripts/`, callable by the model |
 | tool mode | allow, ask or block: run without asking, wait for approval, refuse |
 | preset | a saved skill and tool selection you can load into a chat |
@@ -117,7 +116,7 @@ The view follows the newest card while auto-scroll is on. Scroll up and it stops
 
 Five values sit above the input row and describe the active chat.
 
-Input tokens is the size of what the next turn will send: system prompt, loaded skills, and the whole conversation. Output tokens sums what the chat has produced over all its turns. Primary counts loaded skills, Allow, Ask and Block count tools in each permission mode, and the model name closes the row.
+Input tokens is the size of what the next turn will send: system prompt, loaded skills, and the whole conversation. Output tokens sums what the chat has produced over all its turns. Activated counts loaded skills, Allow, Ask and Block count tools in each permission mode, and the model name closes the row.
 
 The numbers come from the model provider, which reports real usage. They change on every round-trip; a turn that calls three tools updates them three or four times. After a restart they are restored from the values last saved with the chat.
 
@@ -151,7 +150,7 @@ It covers part of the panel while open. Drag its left edge to resize it, or clic
 
 The search field filters the skill tree by name, opening the folders that match and hiding the ones that lead nowhere. `×` clears it and restores the folders you had collapsed.
 
-A skill checkbox has two states. Primary sends the skill's instructions into the system prompt and registers its tools. Secondary sends the description only, enough for the agent to know the capability exists at a fraction of the context cost.
+Ticking a skill sends its instructions into the system prompt and registers its tools.
 
 Tools sit under the skill that owns them, each with a mode: Allow runs the call, Ask raises the approval bar, Block refuses it. The model dropdown sets the model for this chat. The preset bar loads a saved selection as soon as you pick it, saves one under a name, or deletes one. Open Editor raises the editor window.
 
@@ -189,7 +188,7 @@ Click a tab to open it. Clicking a tab in another panel changes that panel's act
 
 #### 1.2.4 Set skills and tools
 
-Open the dock, then search for a skill or open the folders. Tick a skill for secondary, or use the primary checkbox for the full load; ticking a skill that has scripts also brings its tools into the tool list. Set each tool to Allow, Ask or Block, and close the dock. The counts in the token bar change as you go.
+Open the dock, then search for a skill or open the folders. Tick a skill to load its instructions; ticking a skill that has scripts also brings its tools into the tool list. Set each tool to Allow, Ask or Block, and close the dock. The counts in the token bar change as you go.
 
 Ask is the useful mode while you are learning what a skill does, because it shows you every call before it runs. Move a tool to Allow once you trust it.
 
@@ -361,7 +360,7 @@ A toast is transient and reports something that needs no decision. A notificatio
 
 An automation is a directory holding an `AUTOMATION.py`, anywhere under `capabilities/automations/`. Its identity is the path relative to that folder, so `reports/daily` is the automation in `capabilities/automations/reports/daily/`.
 
-The file starts with YAML frontmatter and continues with Python. The frontmatter needs `name`, `description` and `activation`, plus `schedule` for a scheduled automation or `event` for an event-driven one. Optional keys add `primary_skills`, `secondary_skills`, `start_date` and `end_date`.
+The file starts with YAML frontmatter and continues with Python. The frontmatter needs `name`, `description` and `activation`, plus `schedule` for a scheduled automation or `event` for an event-driven one. Optional keys add `activated_skills`, `start_date` and `end_date`.
 
 The body must define `async def run(ctx)`. It returns a dict with a `status` of `success`, `info` or `error` and a `message`, and may add `data`. Procoo redirects the script's output into the notification log and stops a run after 30 minutes.
 
@@ -415,9 +414,9 @@ Open View history and type in the search field. Matching runs on the task name a
 
 The model reads a list of messages. It cannot see your files, the folder names on disk, your earlier chats, or the fact that a script exists unless something puts that in front of it.
 
-Before each turn, Procoo builds that list in a fixed order: the system prompt from the config, the instructions of every primary skill, the schemas of the available tools, and then the conversation. A skill works by adding text to that list and by adding tools whose results come back into it.
+Before each turn, Procoo builds that list in a fixed order: the system prompt from the config, the instructions of every activated skill, the schemas of the available tools, and then the conversation. A skill works by adding text to that list and by adding tools whose results come back into it.
 
-Two consequences follow, and they explain most of the advice below. Anything the agent needs to know must be in the list or reachable through a tool. And everything in a primary skill is sent again on every turn, so length costs money and dilutes attention.
+Two consequences follow, and they explain most of the advice below. Anything the agent needs to know must be in the list or reachable through a tool. And everything in an activated skill is sent again on every turn, so length costs money and dilutes attention.
 
 ### A.2 How the model chooses a tool
 
@@ -425,13 +424,11 @@ The model was trained to call tools by reading their name, their description and
 
 That is why a thin description fails while the code behind it is fine. The model has no way to infer that `run(path)` wants a relative path unless the description says so.
 
-### A.3 Primary or secondary
+### A.3 Activated skills
 
-A primary skill sends its full instructions and registers its tools. Choose primary for what every turn needs: the rules of the job, the conventions of the output, the tools that are always relevant.
+An activated skill sends its full instructions and registers its tools. Choose activated for what every turn needs: the rules of the job, the conventions of the output, the tools that are always relevant.
 
-A secondary skill sends its description only. That is enough for the agent to know the capability exists, and cheap enough to list a dozen of them.
-
-A skill that is occasionally useful belongs in secondary. A skill whose instructions you retype into every conversation belongs in primary.
+A skill whose instructions you retype into every conversation belongs in activated.
 
 ### A.4 Writing the instructions
 

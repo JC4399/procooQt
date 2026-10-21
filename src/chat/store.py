@@ -64,7 +64,7 @@ class ChatStore:
         if not path.exists():
             return None
         with open(path, encoding="utf-8") as f:
-            return json.load(f)
+            return self._normalize_chat_data(json.load(f))
 
     def load_all_chats(self) -> list[dict]:
         """Return the full parsed data for all saved chats, newest first.
@@ -85,8 +85,31 @@ class ChatStore:
                 logger.error("Corrupt chat file %s: %s", f.name, e)
                 continue
             data["id"] = f.stem
-            chats.append(data)
+            chats.append(self._normalize_chat_data(data))
         return chats
+
+    @staticmethod
+    def _normalize_chat_data(data: dict) -> dict:
+        """Migrate legacy skill keys in a stored chat record.
+
+        Args:
+            data: A parsed chat dictionary.
+
+        Returns:
+            The same dictionary with ``skills_config["primary"]`` renamed to
+            ``"activated"`` and legacy context-snapshot keys migrated.
+        """
+        skills_config = data.get("skills_config")
+        if isinstance(skills_config, dict) and "primary" in skills_config:
+            skills_config = dict(skills_config)
+            skills_config.setdefault("activated", skills_config.pop("primary"))
+            data["skills_config"] = skills_config
+        snapshot = data.get("context_snapshot")
+        if isinstance(snapshot, dict) and "primary_skills" in snapshot:
+            snapshot = dict(snapshot)
+            snapshot.setdefault("activated_skills", snapshot.pop("primary_skills"))
+            data["context_snapshot"] = snapshot
+        return data
 
     def list_chat_ids(self) -> list[str]:
         """Return all saved chat ids, newest first, without parsing any JSON.

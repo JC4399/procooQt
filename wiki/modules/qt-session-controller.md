@@ -163,7 +163,8 @@ every open window whenever a session is created or deleted anywhere.
 
 1. Return the live chat if `chat_manager` already has it.
 2. Load the stored record off-thread (toast + `None` if missing).
-3. Read `skills_config.primary` / `.secondary`; create the live chat through
+3. Read `skills_config.activated`, canonicalise each path with
+   `skill_manager.normalize_skill_path`; create the live chat through
    `_create_manager_chat` **on a worker thread** via `asyncio.to_thread`. It
    calls `chat_manager.create_chat` with model config, loaded skill contents,
    tool functions/config, `chat_limits`, and `initial_messages`.
@@ -229,7 +230,7 @@ chats fall back to it.
 | `def _panel_by_slot(self, slot)` | slot | Panel dict or `None` | linear search of `_panels` | — |
 | `def _active_by_slot(self)` | — | `dict[int, str]` | snapshot of slot → active chat | Used before layout mutation |
 | `def _rebuild_changed_panels(self, old_active)` | old slot→active map | `None` | blank + background rebuild only slots whose active chat changed | Calls `chat.rebuild_chat_display` |
-| `def _panel_runtime(self, chat_id)` | chat | 11-tuple | busy/approval/tokens/loading + primary/allow/ask/block counts + model name | Reads `ChatState`; tokens are the true `token_usage` values (no estimate) |
+| `def _panel_runtime(self, chat_id)` | chat | 11-tuple | busy/approval/tokens/loading + activated/allow/ask/block counts + model name | Reads `ChatState`; tokens are the true `token_usage` values (no estimate) |
 | `def _save_layout(self)` | — | `None` | snapshot `{splits:[{chat_ids, active_chat_id}]}` and queue a debounced off-thread persist | No synchronous disk I/O; collapses rapid calls |
 | `async def _flush_layout_loop(self)` | — | `None` | wait `_LAYOUT_SAVE_DEBOUNCE`, then `to_thread(chat_store.set_layout)` for the newest pending layout | Worker-thread disk write |
 | `def flush_layout(self)` | — | `None` | synchronously persist any pending layout (app shutdown) | GUI-thread disk write |
@@ -253,7 +254,7 @@ chats fall back to it.
 | `def _save_current_chat_for(self, chat_id, snapshot=None)` | id; optional snapshot | `None` | legacy helper; live-chat persistence now runs on the worker (`ChatWorker._do_persist`) | Writes store |
 | `def _generate_unique_chat_id(self) -> str` | — | Unique id | timestamp base, suffixed while colliding | — |
 | `async def _hydrate_chat(self, chat_id, stored=None)` | id; optional stored | Live chat or `None` | existing → off-thread load → off-thread `_create_manager_chat` → `refresh_estimated` → restore persisted token counts → snapshot save | `ChatError` path logs + toasts |
-| `def _create_manager_chat(self, chat_id, stored, primary, secondary)` | id, stored, skill paths | New chat | resolve `stored.model_name` (fallback default) → `chat_manager.create_chat` with model/skills/tools/`chat_limits`/initial messages | Synchronous; run via `to_thread` |
+| `def _create_manager_chat(self, chat_id, stored, activated)` | id, stored, skill paths | New chat | normalize `activated` paths → resolve `stored.model_name` (fallback default) → `chat_manager.create_chat` with model/skills/tools/`chat_limits`/initial messages | Synchronous; run via `to_thread` |
 | `def _cancel_pending_operations(self, chat_id)` | id | `None` | `remove_worker(chat_id)` + `chat_manager.remove_chat` | Stops the chat's worker thread |
 | `def _spawn(self, coro)` | coroutine | `None` | `asyncio.ensure_future` → track → discard on done | Fire-and-forget |
 | `def _emit_validation_issues(self)` | — | `None` | group warnings/errors from `skill_manager` → toast | Emits `toast_requested` |

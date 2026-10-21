@@ -139,9 +139,9 @@ class EditorChatController(QObject):
         return state.model_name or self.app.config.llm_model_name
 
     @Property(int, notify=state_changed)
-    def primaryCount(self) -> int:  # noqa: N802
-        """Return the editor chat's primary skill count."""
-        return self._state().primary_count
+    def activatedCount(self) -> int:  # noqa: N802
+        """Return the editor chat's activated skill count."""
+        return self._state().activated_count
 
     @Property(int, notify=state_changed)
     def allowCount(self) -> int:  # noqa: N802
@@ -311,19 +311,17 @@ class EditorChatController(QObject):
         """Build a skills/tool config from the active chat, tools forced allow.
 
         Returns:
-            A ``{"primary", "secondary", "tools"}`` config dict.
+            A ``{"activated", "tools"}`` config dict.
         """
-        primary: list[str] = []
-        secondary: list[str] = []
+        activated: list[str] = []
         chat_id = getattr(self.session, "active_chat_id", "") if self.session else ""
         if chat_id:
             stored = self.app.chat_store.load_chat(chat_id) or {}
             config = stored.get("skills_config", {})
-            primary = list(config.get("primary", []) or [])
-            secondary = list(config.get("secondary", []) or [])
-        tool_defs = self.app.skill_manager.load_tool_functions(primary)
+            activated = list(config.get("activated", config.get("primary", [])) or [])
+        tool_defs = self.app.skill_manager.load_tool_functions(activated)
         tools = {td["name"]: "allow" for td in tool_defs}
-        return {"primary": primary, "secondary": secondary, "tools": tools}
+        return {"activated": activated, "tools": tools}
 
     # ------------------------------------------------------------------
     #  Helpers

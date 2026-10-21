@@ -83,9 +83,8 @@ The file starts with YAML frontmatter:
 - **schedule** — a 5-field cron expression (e.g. `0 8 * * *` = every day at
   08:00). Required for `scheduled`. The expression is validated with `croniter`.
 - **event** — the event name matched by the HTTP server. Required for `event`.
-- **primary_skills** — optional list of skill paths to load into the
+- **activated_skills** — optional list of skill paths to load into the
   automation's agent (their tools run without approval).
-- **secondary_skills** — optional list of description-only skills.
 
 The `description` value is a YAML plain scalar: never put `": "` (colon + space)
 inside it, or the frontmatter fails to parse. Use a dash, or quote the value.
@@ -111,7 +110,7 @@ loop, so it must never block it: do CPU or file work in short steps, and use
 
 - `await ctx.ask(prompt) -> str` — run one headless agent turn (the same ReAct
   loop as chat) and return the assistant's reply. It uses the automation's
-  `primary_skills`/`secondary_skills`, and every tool is forced to `allow`
+  `activated_skills`, and every tool is forced to `allow`
   because no user is present to approve. Raises on agent failure.
 - `ctx.payload` — a `dict` holding the JSON body the caller posted to the event
   server (empty `{}` for scheduled runs).

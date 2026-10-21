@@ -113,14 +113,15 @@ longer blocks the GUI thread.
 
 ### Body caret navigation
 
-The body `CardBodyText` editors are always keyboard-selectable — there is no
-separate caret mode. Because they are `readOnly`, Qt would default
-`selectByKeyboard` to `false`, so `CardBodyText.qml` forces
+The body `CardBodyText` editors are keyboard-selectable whenever auto-scroll is
+off — there is no separate caret mode. Because they are `readOnly`, Qt would
+default `selectByKeyboard` to `false`, so `CardBodyText.qml` forces
 `selectByKeyboard: true`, giving caret movement and selection with arrows,
 `Shift`+arrows, `Ctrl`+arrows, `Home`/`End` and `Ctrl+A` (the browser-style
 interactions users expect). It is focusable by keyboard (`activeFocusOnTab:
-caretActive`) and by click, keeps its highlight when focus leaves
-(`persistentSelection: true`), and shows the caret while focused (`cursorVisible`
+caretActive && caretEnabled`) and by click (`activeFocusOnPress: caretEnabled`),
+keeps its highlight when focus leaves (`persistentSelection: true`), and shows
+the caret while focused (`cursorVisible`
 is set imperatively from `onActiveFocusChanged` rather than bound, so Qt's blink
 timer does not break the link). Because Qt does not paint a built-in cursor for a
 read-only editor, `CardBodyText` supplies a custom `cursorDelegate` — a 2 px
@@ -144,9 +145,14 @@ prefix.
 caret rectangle is mapped into the flickable's `contentItem`). `ChatPanel.qml`
 and `EditorChatPanel.qml` connect `caretMoved` to a `chatList.ensureVisible(y, h)`
 helper that nudges `contentY` only when the caret would be clipped, keeping the
-caret on screen. That `contentY` change flows through the existing
-`onContentYChanged` handler, so moving the caret away from the bottom deactivates
-auto-scroll exactly like a manual scroll would.
+caret on screen — but only while auto-scroll is off. Auto-scroll has higher
+priority: while it is on, `CardBase.caretEnabled` is bound to
+`!autoScrollToggle.checked`, which disables click/tab focus and mouse selection
+in both body editors, and `caretMoved` clears focus instead of scrolling. Every
+auto-scroll activation (button click, reaching the bottom, loading overlay, chat
+switch) also calls `clearCaretFocus()` so an existing caret yields immediately.
+Once the user scrolls away (auto-scroll off), clicking a body re-enables the
+caret and `ensureVisible` keeps it on screen again.
 
 The chat list in `ChatPanel.qml` (and the editor panel) is a **non-virtualized**
 `Flickable` + `Column` + `Repeater`: every card is instantiated so
@@ -162,10 +168,11 @@ flick, so it was reverted too. Auto-scroll sets
 `onContentYChanged` compares `contentY` against `Math.max(0, contentHeight -
 height)` and, on reaching the bottom, calls `activateWithFade()` (button fades
 in over 500 ms); scrolling away calls `deactivateWithFade()` (fades out over
-500 ms). The toggle starts `checked` so the first streamed card follows, and
-clicking it pauses/resumes follow manually (a paused toggle stays visible while
-hovered and fades out otherwise). `boundsBehavior: Flickable.StopAtBounds`
-prevents dragging past the last card.
+500 ms). Whenever `checked` becomes true the panel also clears any body caret,
+so auto-scroll always wins over caret navigation. The toggle starts `checked`
+so the first streamed card follows, and clicking it pauses/resumes follow
+manually (a paused toggle stays visible while hovered and fades out otherwise).
+`boundsBehavior: Flickable.StopAtBounds` prevents dragging past the last card.
 
 Mouse-wheel scrolling is handled by a `WheelHandler` on the chat `Flickable`,
 because Qt exposes no wheel-step property and the native platform step is much

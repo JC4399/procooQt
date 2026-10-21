@@ -183,13 +183,12 @@ class ChatWorker(QThread):
 
     def update_config(
         self,
-        primary: list[dict],
-        secondary: list[dict],
+        activated: list[dict],
         tools: list[dict],
         tool_config: dict[str, str],
     ) -> None:
         """Push new skill/tool configuration and emit the result."""
-        self._post(lambda: self._do_update_config(primary, secondary, tools, tool_config))
+        self._post(lambda: self._do_update_config(activated, tools, tool_config))
 
     def append_banner(self, banner: dict[str, Any]) -> None:
         """Append a delta context banner and rebuild."""
@@ -267,13 +266,12 @@ class ChatWorker(QThread):
 
     def _do_update_config(
         self,
-        primary: list[dict],
-        secondary: list[dict],
+        activated: list[dict],
         tools: list[dict],
         tool_config: dict[str, str],
     ) -> None:
         try:
-            result = self.agent.update_skill_config(primary, secondary, tools, tool_config)
+            result = self.agent.update_skill_config(activated, tools, tool_config)
         except Exception:
             logger.exception("ChatWorker[%s] config update failed", self.chat_id)
             return

@@ -41,6 +41,11 @@ subagent:
   max_timeout: 3600
   max_records: 100
 
+basic_ops:
+  ocr_url: "http://localhost:3334/ocr"              # read_file OCR
+  embed_url: "http://localhost:3336/v1/embeddings"  # access_db embeddings
+  rerank_url: "http://localhost:3337/v1/reranking"  # access_db hybrid reranking
+
 limits:
   max_chat_mb: 70            # 0 or negative disables the byte-size limit
   max_chat_tokens: 0         # 0 or negative disables the token limit
@@ -61,20 +66,20 @@ llm:
 `config/config.yaml` is gitignored; `config/config_template.yaml` is committed
 and holds the same keys with placeholder values.
 
-### basic-ops service endpoints
+### basic-ops service endpoints (`basic_ops`)
 
-The `basic-ops` skill keeps its external service URLs in a skill-local config at
-`capabilities/skills/basic/basic-ops/scripts/config.yaml`:
+The `basic-ops` skill scripts read their external service URLs from the main
+config under `basic_ops`:
 
-```yaml
-ocr_url: "http://localhost:3334/ocr"
-embed_url: "http://localhost:3336/v1/embeddings"
-rerank_url: "http://localhost:3337/v1/reranking"
-```
+| Key | Used by | Default |
+|---|---|---|
+| `ocr_url` | `read_file` (`pdf-ocr`, `image` `ocr`) | `http://localhost:3334/ocr` |
+| `embed_url` | `access_db` (add / semantic / hybrid) | `http://localhost:3336/v1/embeddings` |
+| `rerank_url` | `access_db` hybrid search | `http://localhost:3337/v1/reranking` |
 
-`read_file` reads `ocr_url`; `access_db` reads `embed_url` and `rerank_url`. Both
-scripts fall back to `scripts/config_template.yaml` when `config.yaml` is absent.
-The local `config.yaml` is gitignored; `config_template.yaml` is committed.
+Both scripts locate `config/config.yaml` from the current directory or the
+script's parent directories and fall back to the defaults above when the
+section or a key is absent. The scripts no longer read a skill-local config.
 
 ### Relative paths
 

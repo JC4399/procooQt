@@ -34,10 +34,10 @@ window, and cannot spawn further sub-agents.
 1. Reject an empty prompt and a non-empty `parent_id` (nesting disabled).
 2. Resolve the model: `spec.model` → `subagent.default_model` → `llm_model_name`;
    reject names not present in `llm_models`.
-3. De-duplicate and validate `primary_skills` / `secondary_skills`.
+3. De-duplicate and validate `activated_skills`.
 4. Resolve tools:
    - explicit `spec.tools` → `SkillManager.load_tool_functions_by_name`;
-   - otherwise tools from `primary_skills`.
+   - otherwise tools from `activated_skills`.
 5. Validate each selected tool mode (`allow` or `block`; `ask` is unavailable).
 6. Store the resolved config, a queued record, and schedule `_execute` behind the
    concurrency semaphore.
@@ -91,7 +91,7 @@ list disables it. The server binds `127.0.0.1` by default.
 | Class | Fields | Notes |
 |---|---|---|
 | `SubAgentStatus` | `QUEUED`, `RUNNING`, `DONE`, `ERROR`, `CANCELLED` | `.terminal` property |
-| `SubAgentSpec` | `prompt`, `name`, `model`, `primary_skills`, `secondary_skills`, `tools`, `tool_modes`, `system_prompt`, `timeout`, `parent_id` | Request body |
+| `SubAgentSpec` | `prompt`, `name`, `model`, `activated_skills`, `tools`, `tool_modes`, `system_prompt`, `timeout`, `parent_id` | Request body |
 | `SubAgentRecord` | `id`, `status`, `spec`, `model_name`, `tool_config`, `created_at`, `finished_at`, `text`, `error`, `tool_calls`, `tokens` | Response body |
 
 ### Manager

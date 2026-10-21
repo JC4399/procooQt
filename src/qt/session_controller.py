@@ -751,7 +751,7 @@ class SessionController(QObject):
             ):
                 state.true_input_tokens = int(chat.get("true_input_tokens", 0) or 0)
                 state.true_output_cum = int(chat.get("true_output_cum", 0) or 0)
-            state.primary_count = chat.get("primary_count", 0)
+            state.activated_count = chat.get("activated_count", 0)
             state.allow_count = chat.get("allow_count", 0)
             state.ask_count = chat.get("ask_count", 0)
             state.block_count = chat.get("block_count", 0)
@@ -847,7 +847,7 @@ class SessionController(QObject):
 
         Returns:
             ``(busy, approval_visible, approval_text, input_tokens, output_tokens,
-            loading, primary_count, allow_count, ask_count, block_count,
+            loading, activated_count, allow_count, ask_count, block_count,
             model_name)``.
         """
         if not chat_id:
@@ -859,7 +859,7 @@ class SessionController(QObject):
         loading = bool(state and state.is_loading)
         input_tokens = state.true_input_tokens if state else 0
         output_tokens = state.true_output_cum if state else 0
-        primary_count = state.primary_count if state else 0
+        activated_count = state.activated_count if state else 0
         allow_count = state.allow_count if state else 0
         ask_count = state.ask_count if state else 0
         block_count = state.block_count if state else 0
@@ -873,7 +873,7 @@ class SessionController(QObject):
             input_tokens,
             output_tokens,
             loading,
-            primary_count,
+            activated_count,
             allow_count,
             ask_count,
             block_count,
@@ -1016,7 +1016,7 @@ class SessionController(QObject):
         skills = stored.get("skills_config", {}) or {}
         tools = skills.get("tools", {}) or {}
         counts = {
-            "primary_count": len(skills.get("primary", []) or []),
+            "activated_count": len(skills.get("activated", []) or []),
             "allow_count": sum(1 for mode in tools.values() if mode == "allow"),
             "ask_count": sum(1 for mode in tools.values() if mode == "ask"),
             "block_count": sum(1 for mode in tools.values() if mode == "block"),
@@ -1125,14 +1125,13 @@ class SessionController(QObject):
             session: The live chat object from ``chat_manager``.
 
         Returns:
-            A dict with system_prompt, pending_additions, primary_skills,
-            secondary_skills, tools, and tool_config.
+            A dict with system_prompt, pending_additions, activated_skills, tools,
+            and tool_config.
         """
         return {
             "system_prompt": session.sys_prompt,
             "pending_additions": session._pending_sys_message,
-            "primary_skills": session.primary_skills,
-            "secondary_skills": session.secondary_skills,
+            "activated_skills": session.activated_skills,
             "tools": session._tools,
             "tool_config": session._tool_config,
         }
@@ -1154,8 +1153,7 @@ class SessionController(QObject):
         """
         source = self.app.chat_store.load_chat(source_chat_id) if source_chat_id else None
         skills_config = (source or {}).get("skills_config") or {
-            "primary": [],
-            "secondary": [],
+            "activated": [],
             "tools": {},
         }
         model_name = (source or {}).get("model_name") or self.app.config.llm_model_name
@@ -1265,12 +1263,9 @@ class SessionController(QObject):
             return None
 
         skills_cfg = stored.get("skills_config", {})
-        primary = skills_cfg.get("primary", [])
-        secondary = skills_cfg.get("secondary", [])
+        activated = skills_cfg.get("activated", [])
         try:
-            session = await asyncio.to_thread(
-                self._create_manager_chat, chat_id, stored, primary, secondary
-            )
+            session = await asyncio.to_thread(self._create_manager_chat, chat_id, stored, activated)
         except Exception as error:
             chat_error = ChatError(
                 brief=f"Failed to create chat '{chat_id}'",
@@ -1294,31 +1289,30 @@ class SessionController(QObject):
         self,
         chat_id: str,
         stored: dict,
-        primary: list[str],
-        secondary: list[str],
+        activated: list[str],
     ) -> Any:
         """Create the live manager chat from stored skill/tool config.
 
         Args:
             chat_id: The chat id.
             stored: The stored chat data dict.
-            primary: Selected primary skill paths.
-            secondary: Selected secondary skill paths.
+            activated: Selected activated skill paths.
 
         Returns:
             The newly created chat from ``chat_manager``.
         """
         tools_cfg = stored.get("skills_config", {}).get("tools", {})
+        manager = self.app.skill_manager
+        activated = [manager.normalize_skill_path(path) for path in activated]
         model_name = stored.get("model_name") or self.app.config.llm_model_name
         if model_name not in self.app.config.llm_models:
             model_name = self.app.config.llm_model_name
         return chat_manager.create_chat(
             chat_id=chat_id,
             model=self.app.config.llm_config(model_name),
-            primary_skill_contents=self.app.skill_manager.load_skill_contents(primary),
-            secondary_skill_contents=self.app.skill_manager.load_skill_contents(secondary),
-            tool_functions=self.app.skill_manager.load_tool_functions(primary),
-            tool_config=self.app.skill_manager.build_tool_config(tools_cfg, primary),
+            activated_skill_contents=manager.load_skill_contents(activated),
+            tool_functions=manager.load_tool_functions(activated),
+            tool_config=manager.build_tool_config(tools_cfg, activated),
             skills_dir=self.app.config.skills_dir,
             system_message=self.app.config.agent_system_prompt,
             initial_messages=stored.get("messages", []),

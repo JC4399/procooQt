@@ -42,7 +42,7 @@ class SubAgentManager:
         self._app = app
         self.records: dict[str, SubAgentRecord] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        self._prepared: dict[str, tuple[str, list[str], list[str], list[dict], dict[str, str]]] = {}
+        self._prepared: dict[str, tuple[str, list[str], list[dict], dict[str, str]]] = {}
         self._semaphore: asyncio.Semaphore | None = None
         self._counter = 0
 
@@ -64,12 +64,10 @@ class SubAgentManager:
         """
         self._validate_spec(spec)
         model_name = self._resolve_model(spec)
-        primary = self._dedupe(spec.primary_skills)
-        secondary = self._dedupe(spec.secondary_skills)
-        self._validate_skills(primary + secondary)
-        primary = self._strip_subagent_skill(primary)
-        secondary = self._strip_subagent_skill(secondary)
-        tool_defs, tool_config = self._resolve_tools(spec, primary)
+        activated = self._dedupe(spec.activated_skills)
+        self._validate_skills(activated)
+        activated = self._strip_subagent_skill(activated)
+        tool_defs, tool_config = self._resolve_tools(spec, activated)
 
         record_id = self._new_id()
         record = SubAgentRecord(
@@ -82,8 +80,7 @@ class SubAgentManager:
         )
         self._prepared[record_id] = (
             model_name,
-            primary,
-            secondary,
+            activated,
             tool_defs,
             tool_config,
         )
@@ -254,13 +251,13 @@ class SubAgentManager:
         return kept
 
     def _resolve_tools(
-        self, spec: SubAgentSpec, primary: list[str]
+        self, spec: SubAgentSpec, activated: list[str]
     ) -> tuple[list[dict], dict[str, str]]:
         """Resolve tool definitions and per-tool modes.
 
         Args:
             spec: The request whose tools should be resolved.
-            primary: Validated primary skill paths.
+            activated: Validated activated skill paths.
 
         Returns:
             A ``(tool_definitions, tool_config)`` tuple.
@@ -280,7 +277,7 @@ class SubAgentManager:
                     detail=f"These tools were not discovered: {', '.join(missing)}",
                 )
         else:
-            tool_defs = manager.load_tool_functions(primary)
+            tool_defs = manager.load_tool_functions(activated)
 
         selected = {definition["name"] for definition in tool_defs}
         unknown_modes = sorted(set(spec.tool_modes) - selected)
@@ -289,7 +286,7 @@ class SubAgentManager:
                 brief=f"Tool mode set for unselected tool: {', '.join(unknown_modes)}",
                 detail=(
                     "tool_modes may only reference tools selected by 'tools' or "
-                    f"the primary skills. Unselected: {', '.join(unknown_modes)}"
+                    f"the activated skills. Unselected: {', '.join(unknown_modes)}"
                 ),
             )
 
@@ -346,8 +343,7 @@ class SubAgentManager:
         chat_id: str,
         spec: SubAgentSpec,
         model_name: str,
-        primary: list[str],
-        secondary: list[str],
+        activated: list[str],
         tool_defs: list[dict],
         tool_config: dict[str, str],
     ) -> None:
@@ -357,8 +353,7 @@ class SubAgentManager:
             chat_id: Temporary chat id (equal to the sub-agent id).
             spec: The validated request.
             model_name: Resolved model name.
-            primary: Primary skill paths.
-            secondary: Secondary skill paths.
+            activated: Activated skill paths.
             tool_defs: Resolved tool definitions.
             tool_config: Resolved tool modes.
         """
@@ -371,8 +366,7 @@ class SubAgentManager:
         chat_manager.create_chat(
             chat_id=chat_id,
             model=config.llm_config(model_name),
-            primary_skill_contents=manager.load_skill_contents(primary),
-            secondary_skill_contents=manager.load_skill_contents(secondary),
+            activated_skill_contents=manager.load_skill_contents(activated),
             tool_functions=tool_defs,
             tool_config=tool_config,
             skills_dir=config.skills_dir,

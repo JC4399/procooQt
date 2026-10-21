@@ -1,7 +1,7 @@
 """``SkillController`` — skill tree, tool modes, presets, and live config sync.
 
-Owns the skill tree and tool-mode models: the right sidebar's primary/secondary
-checkboxes, per-tool allow/ask/block modes, preset load/save/delete, search filtering,
+Owns the skill tree and tool-mode models: the right sidebar's activated checkboxes,
+per-tool allow/ask/block modes, preset load/save/delete, search filtering,
 the active-config chip bar, and the config-sync flow that pushes selections to the
 live chat and appends a delta context banner.
 
@@ -33,16 +33,14 @@ from .error_handler import TOAST_ERROR, TOAST_INFO, TOAST_WARNING
 from .models.skill_tree_model import SkillTreeModel
 from .models.tool_mode_model import ToolModeModel
 from .theme import (
+    COLOR_CHIP_ACTIVATED_BG,
+    COLOR_CHIP_ACTIVATED_FG,
     COLOR_CHIP_ALLOW_BG,
     COLOR_CHIP_ALLOW_FG,
     COLOR_CHIP_ASK_BG,
     COLOR_CHIP_ASK_FG,
     COLOR_CHIP_BLOCK_BG,
     COLOR_CHIP_BLOCK_FG,
-    COLOR_CHIP_PRIMARY_BG,
-    COLOR_CHIP_PRIMARY_FG,
-    COLOR_CHIP_SECONDARY_BG,
-    COLOR_CHIP_SECONDARY_FG,
 )
 
 if TYPE_CHECKING:
@@ -53,8 +51,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("procoo_qt")
 
-_CHIP_PRIMARY = (COLOR_CHIP_PRIMARY_BG, COLOR_CHIP_PRIMARY_FG)
-_CHIP_SECONDARY = (COLOR_CHIP_SECONDARY_BG, COLOR_CHIP_SECONDARY_FG)
+_CHIP_ACTIVATED = (COLOR_CHIP_ACTIVATED_BG, COLOR_CHIP_ACTIVATED_FG)
 _MODE_CHIP_COLORS: dict[str, tuple[str, str]] = {
     "allow": (COLOR_CHIP_ALLOW_BG, COLOR_CHIP_ALLOW_FG),
     "ask": (COLOR_CHIP_ASK_BG, COLOR_CHIP_ASK_FG),
@@ -226,7 +223,7 @@ class SkillController(QObject):
         if not chat_id:
             self._loading_chat_config = True
             try:
-                self._skill_model.apply_selection(set(), set())
+                self._skill_model.apply_selection(set())
                 self._apply_tool_modes({})
             finally:
                 self._loading_chat_config = False
@@ -259,22 +256,21 @@ class SkillController(QObject):
     #  Slot: Skill toggle
     # ------------------------------------------------------------------
 
-    @Slot(str, str, bool)
-    def _handle_skill_toggle(self, path: str, kind: str, checked: bool) -> None:
-        """Handle a primary/secondary checkbox toggle.
+    @Slot(str, bool)
+    def _handle_skill_toggle(self, path: str, checked: bool) -> None:
+        """Handle an activated checkbox toggle.
 
         Args:
             path: The skill's relative path.
-            kind: Either ``"primary"`` or ``"secondary"``.
             checked: The new checkbox state.
         """
-        self._skill_model.set_selection(path, kind, checked)
+        self._skill_model.set_selection(path, checked)
         self._refresh_tool_model()
         self.skills_changed.emit()
         if self._loading_chat_config:
             return
         display = self.app.skill_manager.path_to_display_name(path)
-        logger.info("%s", format_skill_change(display, kind, checked))
+        logger.info("%s", format_skill_change(display, "activated", checked))
         self._schedule_sync()
 
     # ------------------------------------------------------------------
@@ -328,18 +324,16 @@ class SkillController(QObject):
             self.toast_requested.emit("Please enter a preset name.", TOAST_ERROR)
             return
         config = self._collect_sidebar_config()
-        primary = config["primary"]
-        secondary = config["secondary"]
+        activated = config["activated"]
         tool_modes = self._collect_tool_modes()
         self.app.preset_store.save_preset(
             cleaned,
             {
-                "primary_skills": primary,
-                "secondary_skills": secondary,
+                "activated_skills": activated,
                 "tools": tool_modes,
             },
         )
-        logger.info("%s", format_preset_save(cleaned, primary, secondary, tool_modes))
+        logger.info("%s", format_preset_save(cleaned, activated, tool_modes))
         self._preset_name = cleaned
         self.preset_name_changed.emit()
         self._refresh_presets()
@@ -355,7 +349,7 @@ class SkillController(QObject):
         if not name:
             self._loading_chat_config = True
             try:
-                self._skill_model.apply_selection(set(), set())
+                self._skill_model.apply_selection(set())
                 self._apply_tool_modes({})
             finally:
                 self._loading_chat_config = False
@@ -368,21 +362,21 @@ class SkillController(QObject):
         if not preset:
             self.toast_requested.emit(f"Preset '{name}' not found.", TOAST_WARNING)
             return
-        primary = set(preset.get("primary_skills", []))
-        secondary = set(preset.get("secondary_skills", []))
+        activated = self._normalize_activated(
+            preset.get("activated_skills", preset.get("primary_skills", [])) or []
+        )
         tools = preset.get("tools", {})
         logger.info(
             "%s",
             format_preset_load(
                 name,
-                preset.get("primary_skills", []),
-                preset.get("secondary_skills", []),
+                preset.get("activated_skills", preset.get("primary_skills", [])),
                 tools,
             ),
         )
         self._loading_chat_config = True
         try:
-            self._skill_model.apply_selection(primary, secondary)
+            self._skill_model.apply_selection(activated)
             self._apply_tool_modes(tools)
         finally:
             self._loading_chat_config = False
@@ -411,16 +405,25 @@ class SkillController(QObject):
     #  State: Collect selections (DRY — shared by sync and presets)
     # ------------------------------------------------------------------
 
-    def _collect_selected_skills(self) -> dict[str, list[str]]:
-        """Read the current primary/secondary selections.
+    def _normalize_activated(self, paths: list[str]) -> set[str]:
+        """Canonicalise stored or preset skill paths before applying them.
+
+        Args:
+            paths: Skill paths that may use Windows separators.
 
         Returns:
-            Dict with ``primary`` and ``secondary`` skill-path lists.
+            Set of forward-slash skill paths.
         """
-        return {
-            "primary": self._skill_model.collect_selected_primary(),
-            "secondary": self._skill_model.collect_selected_secondary(),
-        }
+        manager = self.app.skill_manager
+        return {manager.normalize_skill_path(path) for path in paths}
+
+    def _collect_selected_skills(self) -> list[str]:
+        """Read the current activated selections.
+
+        Returns:
+            Sorted list of activated skill paths.
+        """
+        return self._skill_model.collect_selected_activated()
 
     def _collect_tool_modes(self) -> dict[str, str]:
         """Read the current per-tool mode selections.
@@ -434,16 +437,15 @@ class SkillController(QObject):
         """Collect the sidebar selections into a chat config dict.
 
         Returns:
-            Dict with ``primary``, ``secondary``, and ``tools`` (tool config for
-            the selected primary skills).
+            Dict with ``activated`` and ``tools`` (tool config for the selected
+            activated skills).
         """
-        selected = self._collect_selected_skills()
+        activated = self._collect_selected_skills()
         tool_config = self.app.skill_manager.build_tool_config(
-            self._collect_tool_modes(), selected["primary"]
+            self._collect_tool_modes(), activated
         )
         return {
-            "primary": selected["primary"],
-            "secondary": selected["secondary"],
+            "activated": activated,
             "tools": tool_config,
         }
 
@@ -502,7 +504,7 @@ class SkillController(QObject):
 
         Args:
             chat_id: The active chat id.
-            config: The collected ``{primary, secondary, tools}`` config.
+            config: The collected ``{activated, tools}`` config.
 
         Returns:
             The previous tool-mode mapping, used to compute mode changes.
@@ -530,7 +532,7 @@ class SkillController(QObject):
         """
         if chat_manager.get_chat(chat_id) is None:
             return
-        primary, secondary, tool_defs, tool_config = await asyncio.to_thread(
+        activated, tool_defs, tool_config = await asyncio.to_thread(
             self._load_config_payloads, config
         )
         worker = get_worker(chat_id)
@@ -539,11 +541,10 @@ class SkillController(QObject):
         self._pending_config[chat_id] = (
             config,
             old_tool_config,
-            primary,
-            secondary,
+            activated,
             tool_defs,
         )
-        worker.update_config(primary, secondary, tool_defs, tool_config)
+        worker.update_config(activated, tool_defs, tool_config)
 
     @Slot(str, object)
     def _handle_worker_config_updated(self, chat_id: str, result: object) -> None:
@@ -558,14 +559,13 @@ class SkillController(QObject):
         for warning in cast(dict, result).get("warnings", []):
             self.toast_requested.emit(warning, TOAST_WARNING)
         if pending is not None and worker is not None:
-            config, old_tool_config, primary, secondary, tool_defs = pending
+            config, old_tool_config, activated, tool_defs = pending
             self._append_delta_banner(
                 chat_id,
                 config,
                 old_tool_config,
                 cast(dict, result),
-                primary,
-                secondary,
+                activated,
                 tool_defs,
                 worker,
             )
@@ -574,22 +574,21 @@ class SkillController(QObject):
 
     def _load_config_payloads(
         self, config: dict[str, Any]
-    ) -> tuple[list[dict], list[dict], list[dict], dict[str, str]]:
+    ) -> tuple[list[dict], list[dict], dict[str, str]]:
         """Load skill contents and tool definitions for a config (blocking I/O).
 
         Args:
-            config: The collected ``{primary, secondary, tools}`` config.
+            config: The collected ``{activated, tools}`` config.
 
         Returns:
-            Tuple of primary contents, secondary contents, tool definitions, and
-            the built tool-mode mapping.
+            Tuple of activated contents, tool definitions, and the built tool-mode
+            mapping.
         """
         manager = self.app.skill_manager
-        primary = manager.load_skill_contents(config["primary"])
-        secondary = manager.load_skill_contents(config["secondary"])
-        tool_defs = manager.load_tool_functions(config["primary"])
-        tool_config = manager.build_tool_config(config["tools"], config["primary"])
-        return primary, secondary, tool_defs, tool_config
+        activated = manager.load_skill_contents(config["activated"])
+        tool_defs = manager.load_tool_functions(config["activated"])
+        tool_config = manager.build_tool_config(config["tools"], config["activated"])
+        return activated, tool_defs, tool_config
 
     def _append_delta_banner(
         self,
@@ -597,8 +596,7 @@ class SkillController(QObject):
         config: dict[str, Any],
         old_tool_config: dict[str, str],
         result: dict[str, Any],
-        primary: list[dict],
-        secondary: list[dict],
+        activated: list[dict],
         tool_defs: list[dict],
         worker: ChatWorker,
     ) -> None:
@@ -609,16 +607,13 @@ class SkillController(QObject):
             config: The collected config dict.
             old_tool_config: The previous tool-mode mapping.
             result: The ``update_chat_config`` result dict.
-            primary: Loaded primary skill contents.
-            secondary: Loaded secondary skill contents.
+            activated: Loaded activated skill contents.
             tool_defs: Loaded tool definitions.
             worker: The chat's worker (owns the banner list).
         """
-        added_primary = result.get("added_primary", [])
-        added_secondary = result.get("added_secondary", [])
+        added_activated = result.get("added_activated", [])
         added_tools = result.get("added_tools", [])
-        added_primary_contents = [s for s in primary if s.get("path", "") in added_primary]
-        added_secondary_contents = [s for s in secondary if s.get("path", "") in added_secondary]
+        added_activated_contents = [s for s in activated if s.get("path", "") in added_activated]
         added_tool_defs = [td for td in tool_defs if td.get("name", "") in added_tools]
         mode_changes: dict[str, tuple[str, str]] = {}
         for tool_name, new_mode in config["tools"].items():
@@ -626,9 +621,9 @@ class SkillController(QObject):
             if old_mode and old_mode != new_mode:
                 mode_changes[tool_name] = (old_mode, new_mode)
 
-        if added_primary or added_secondary or added_tools or mode_changes:
+        if added_activated or added_tools or mode_changes:
             sections = build_delta_context_sections(
-                added_primary_contents, added_secondary_contents, added_tool_defs, mode_changes
+                added_activated_contents, added_tool_defs, mode_changes
             )
             worker.append_banner(
                 {
@@ -653,12 +648,11 @@ class SkillController(QObject):
         if not stored:
             return
         config = stored.get("skills_config", {})
-        primary = set(config.get("primary", []))
-        secondary = set(config.get("secondary", []))
+        activated = self._normalize_activated(config.get("activated", []) or [])
         tools = config.get("tools", {})
         self._loading_chat_config = True
         try:
-            self._skill_model.apply_selection(primary, secondary)
+            self._skill_model.apply_selection(activated)
             self._apply_tool_modes(tools)
         finally:
             self._loading_chat_config = False
@@ -671,13 +665,13 @@ class SkillController(QObject):
 
         Args:
             chat_id: The chat whose counts to publish.
-            config: A ``{primary, secondary, tools}`` config dict.
+            config: A ``{activated, tools}`` config dict.
         """
         if not chat_id:
             return
         tools = config.get("tools", {}) or {}
         state = self.session.state(chat_id)
-        state.primary_count = len(config.get("primary", []) or [])
+        state.activated_count = len(config.get("activated", []) or [])
         state.allow_count = sum(1 for mode in tools.values() if mode == "allow")
         state.ask_count = sum(1 for mode in tools.values() if mode == "ask")
         state.block_count = sum(1 for mode in tools.values() if mode == "block")
@@ -699,7 +693,7 @@ class SkillController(QObject):
         display_names = {p: manager.path_to_display_name(p) for p in manager.skill_paths}
         self._tool_model.rebuild(
             manager.all_tools,
-            self._skill_model.selected_union(),
+            set(self._skill_model.collect_selected_activated()),
             self._tool_modes,
             display_names,
         )
@@ -731,15 +725,11 @@ class SkillController(QObject):
     def _update_config_chips(self) -> None:
         """Rebuild the active-config chip list from current selections."""
         config = self._collect_sidebar_config()
-        primary = config["primary"]
-        secondary = config["secondary"]
+        activated = config["activated"]
         tools = config["tools"]
         chips: list[dict[str, str]] = [
             self._summary_chip(
-                "Primary", len(primary), COLOR_CHIP_PRIMARY_BG, COLOR_CHIP_PRIMARY_FG
-            ),
-            self._summary_chip(
-                "Secondary", len(secondary), COLOR_CHIP_SECONDARY_BG, COLOR_CHIP_SECONDARY_FG
+                "Activated", len(activated), COLOR_CHIP_ACTIVATED_BG, COLOR_CHIP_ACTIVATED_FG
             ),
             self._summary_chip(
                 "Allow",
@@ -760,13 +750,9 @@ class SkillController(QObject):
                 COLOR_CHIP_BLOCK_FG,
             ),
         ]
-        for path in primary:
+        for path in activated:
             chips.append(
-                self._chip(self.app.skill_manager.path_to_display_name(path), *_CHIP_PRIMARY)
-            )
-        for path in secondary:
-            chips.append(
-                self._chip(self.app.skill_manager.path_to_display_name(path), *_CHIP_SECONDARY)
+                self._chip(self.app.skill_manager.path_to_display_name(path), *_CHIP_ACTIVATED)
             )
         for tool_name, mode in tools.items():
             bg, fg = _MODE_CHIP_COLORS.get(mode, _MODE_CHIP_COLORS["ask"])
@@ -776,7 +762,7 @@ class SkillController(QObject):
 
     @staticmethod
     def _summary_chip(label: str, count: int, bg: str, fg: str) -> dict[str, str]:
-        """Build a summary chip such as ``"Primary: 3"``.
+        """Build a summary chip such as ``"Activated: 3"``.
 
         Args:
             label: The chip label prefix.

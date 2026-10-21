@@ -119,16 +119,14 @@ def build_context_sections_from_snapshot(snapshot: dict) -> list[dict]:
 
 
 def build_delta_context_sections(
-    added_primary: list[dict],
-    added_secondary: list[dict],
+    added_activated: list[dict],
     added_tools: list[dict],
     mode_changes: dict[str, tuple[str, str]],
 ) -> list[dict]:
     """Build section dicts showing what changed in a config delta.
 
     Args:
-        added_primary: Newly added primary skill content dicts.
-        added_secondary: Newly added secondary skill content dicts.
+        added_activated: Newly added activated skill content dicts.
         added_tools: Newly added tool definition dicts.
         mode_changes: Mapping of tool name to ``(old_mode, new_mode)``.
 
@@ -137,21 +135,13 @@ def build_delta_context_sections(
     """
     sections: list[dict] = []
 
-    if added_primary:
+    if added_activated:
         lines = []
-        for skill in added_primary:
+        for skill in added_activated:
             name = skill.get("name", "")
             instructions = _shorten(skill.get("instructions", ""), 200)
-            lines.append(f"- **{name}** (primary):\n  {instructions}")
-        sections.append({"header": "Added Primary Skills", "content": ["\n".join(lines)]})
-
-    if added_secondary:
-        lines = []
-        for skill in added_secondary:
-            name = skill.get("name", "")
-            desc = skill.get("description", "")
-            lines.append(f"- **{name}** (secondary):\n  {desc}")
-        sections.append({"header": "Added Secondary Skills", "content": ["\n".join(lines)]})
+            lines.append(f"- **{name}** (activated):\n  {instructions}")
+        sections.append({"header": "Added Activated Skills", "content": ["\n".join(lines)]})
 
     if added_tools:
         lines = []

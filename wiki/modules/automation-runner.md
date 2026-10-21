@@ -50,9 +50,9 @@ the runner compiles the code body directly.
 ### `AutomationContext.ask`
 
 1. Build a temporary chat id `automation:<path>:<timestamp>`.
-2. `chat_manager.create_chat(...)` with the automation's `primary_skills` /
-   `secondary_skills`, the default LLM, the base system prompt, and all tools
-   forced to `allow` (there is no user to approve).
+2. `chat_manager.create_chat(...)` with the automation's `activated_skills`, the
+   default LLM, the base system prompt, and all tools forced to `allow` (there
+   is no user to approve).
 3. `asyncio.ensure_future(agent.run(prompt))`; drain `agent.event_queue`,
    logging `tool_call`/`tool_result` and capturing `error` briefs.
 4. Remove the chat and return the last non-empty assistant message. Raise

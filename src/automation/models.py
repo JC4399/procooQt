@@ -53,8 +53,7 @@ class AutomationInfo(BaseModel):
         activation: Trigger type — ``scheduled`` or ``event``.
         schedule: Cron expression (``activation == scheduled``).
         event: Event name (``activation == event``).
-        primary_skills: Optional skill paths fed to the automation's agent.
-        secondary_skills: Optional secondary skill paths.
+        activated_skills: Optional skill paths fed to the automation's agent.
         has_scripts: Whether the folder contains a ``scripts/`` subdirectory.
         has_references: Whether the folder contains a ``references/`` subdirectory.
         enabled: Whether the automation is currently enabled (from state store).
@@ -70,8 +69,7 @@ class AutomationInfo(BaseModel):
     activation: ActivationType
     schedule: str = ""
     event: str = ""
-    primary_skills: list[str] = []
-    secondary_skills: list[str] = []
+    activated_skills: list[str] = []
     has_scripts: bool = False
     has_references: bool = False
     enabled: bool = True

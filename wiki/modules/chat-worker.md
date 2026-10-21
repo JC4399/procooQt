@@ -74,7 +74,7 @@ response is guaranteed by finalization, not by the stream:
 | `def deny_approval(self, tool_id, reason)` | id, reason | `None` | post `agent.deny_tool` | unblocks agent |
 | `def cancel_turn(self)` | — | `None` | post `_do_cancel` | cancels run task |
 | `def set_model(self, model)` | config | `None` | post `agent.set_model` | — |
-| `def update_config(self, primary, secondary, tools, tool_config)` | payloads | `None` | post `_do_update_config` | emits `config_updated` |
+| `def update_config(self, activated, tools, tool_config)` | payloads | `None` | post `_do_update_config` | emits `config_updated` |
 | `def append_banner(self, banner)` | banner | `None` | post `_do_append_banner` | rebuild |
 | `def delete_turn(self, msg_index)` | index | `None` | post `_do_delete_turn` | mutates messages; persists |
 | `def regenerate(self, gen_id)` | generation | `None` | post `_do_regenerate` | trims + restarts |
