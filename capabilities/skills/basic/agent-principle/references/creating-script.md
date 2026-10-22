@@ -2,10 +2,11 @@
 
 ## Purpose
 
-A script is a tool the skill calls to do fixed, input-to-output work. Code is more
-reliable than improvisation: it computes, transforms, or produces side effects the
-same way every time, behind a typed interface the harness can enforce. Write a
-script when the work is deterministic, repetitive, or safer in code.
+A script is a tool the skill calls to do fixed, input-to-output work. Code is
+more reliable than improvisation: it computes, transforms, or produces side
+effects the same way every time, behind a typed interface the harness can
+enforce. Write a script when the work is deterministic, repetitive, or safer in
+code.
 
 ## Deliverable
 
@@ -26,15 +27,15 @@ JSON output.
 
 ## Contract
 
-An agent harness is the controlled environment that mediates between the model and
-the outside world. It registers tools, routes the agent's calls, and captures
-output. This means:
+An agent harness is the controlled environment that mediates between the model
+and the outside world. It registers tools, routes the agent's calls, and
+captures output. This means:
 
-- **SKILL.md is the soul and skeleton** — it says what to do and why, in prose the
-  agent reads and reasons over.
-- **Scripts are static input-to-output machines** — they hold no knowledge, only
-  action. The agent calls them to compute, transform, or produce side effects, and
-  the script's typed interface is the safety boundary.
+- **SKILL.md is the soul and skeleton.** It says what to do and why, in prose
+  the agent reads and reasons over.
+- **Scripts are static input-to-output machines.** They hold no knowledge, only
+  action. The agent calls them to compute, transform, or produce side effects,
+  and the script's typed interface is the safety boundary.
 
 ### Safety and Reliability Rules
 
@@ -110,7 +111,7 @@ from a fixed source:
 |---|---|
 | `description` | First paragraph of the docstring (up to blank line or `Args:`) |
 | `parameters.properties.<name>.type` | Python annotation mapped to JSON Schema |
-| `parameters.properties.<name>.description` | `Args:` section — param name matched to its description |
+| `parameters.properties.<name>.description` | `Args:` section: param name matched to its description |
 | `parameters.required` | Parameters **without** a default value |
 
 Type mapping:
@@ -153,13 +154,13 @@ If no `run()` function is found, or parsing fails, the tool receives an empty
 schema (`{"description": "", "parameters": {"type": "object", "properties": {},
 "required": []}}`) and a warning is logged.
 
-Default execution timeout is 60 seconds. To override, add a `timeout` parameter to
-`run()` with an integer default (e.g. `timeout: int = 120`).
+Default execution timeout is 60 seconds. To override, add a `timeout` parameter
+to `run()` with an integer default (e.g. `timeout: int = 120`).
 
 ### Standalone Utilities
 
-Only files following the canonical template are discovered as tools. Scripts using
-alternative interfaces (`argparse`, `sync def main`, no `async def run`) are
-silently skipped — the agent never sees them and cannot call them. If you need a
-utility, wrap it with an `async def run(...)` that delegates to it, or place it
-outside `scripts/` and invoke it from your `run` function.
+Only files following the canonical template are discovered as tools. Scripts
+using alternative interfaces (`argparse`, `sync def main`, no `async def run`)
+are silently skipped. The agent never sees them and cannot call them. If you
+need a utility, wrap it with an `async def run(...)` that delegates to it, or
+place it outside `scripts/` and invoke it from your `run` function.

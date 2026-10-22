@@ -4,10 +4,11 @@
 
 An automation lets the user run work without opening a chat and without being
 present. It is a Python program the app runs on a schedule or when an external
-system reports an event; it may call the LLM through the same agent loop the chat
-UI uses. An automation is the right form when the work is a task to be performed
-on its own — a report built every morning, a notification sent when a system
-flags something — rather than a conversation the user drives.
+system reports an event; it may call the LLM through the same agent loop the
+chat UI uses. An automation is the right form when the work is a task to be
+performed on its own, such as a report built every morning or a notification
+sent when a system flags something. It is the wrong form when the user is
+driving a conversation.
 
 The agent is competent but knows nothing about the task until the automation
 briefs it. A well-built automation states its purpose, its deliverable, and its
@@ -36,7 +37,7 @@ define `async def run(ctx)`, which returns one of:
 | `{"status": "error", "message": str}` | A step failed | A red **error** card (Confirm / Debug) |
 | `None` or a `str` | Treated as success (`message` = the string) | A grey success **log** |
 
-Anything else — an exception, a bad shape, an unknown status — becomes an
+Anything else (an exception, a bad shape, an unknown status) becomes an
 `error`. The app also captures stdout and stderr as the run log.
 
 ## Methodology
@@ -72,24 +73,24 @@ A directory is an automation if it (at any depth) contains an `AUTOMATION.py`.
 The parent folders are grouping only. The automation's identity is its path
 relative to `capabilities/automations/` (e.g. `reports/daily`).
 
-### AUTOMATION.py — the frontmatter
+### AUTOMATION.py: the frontmatter
 
 The file starts with YAML frontmatter:
 
-- **name** — the display name.
-- **description** — what the automation does and when it matters. This is the
+- **name**: the display name.
+- **description**: what the automation does and when it matters. This is the
   label the user sees on the automation card.
-- **activation** — `scheduled` or `event`. Required.
-- **schedule** — a 5-field cron expression (e.g. `0 8 * * *` = every day at
+- **activation**: `scheduled` or `event`. Required.
+- **schedule**: a 5-field cron expression (e.g. `0 8 * * *` = every day at
   08:00). Required for `scheduled`. The expression is validated with `croniter`.
-- **event** — the event name matched by the HTTP server. Required for `event`.
-- **activated_skills** — optional list of skill paths to load into the
+- **event**: the event name matched by the HTTP server. Required for `event`.
+- **activated_skills**: optional list of skill paths to load into the
   automation's agent (their tools run without approval).
 
 The `description` value is a YAML plain scalar: never put `": "` (colon + space)
 inside it, or the frontmatter fails to parse. Use a dash, or quote the value.
 
-### AUTOMATION.py — the body
+### AUTOMATION.py: the body
 
 After the frontmatter, write the code with a comment header that states, in this
 order: **Purpose** (why the automation exists), **Deliverable** (what a run
@@ -108,13 +109,13 @@ loop, so it must never block it: do CPU or file work in short steps, and use
 
 `run(ctx)` receives an `AutomationContext`:
 
-- `await ctx.ask(prompt) -> str` — run one headless agent turn (the same ReAct
+- `await ctx.ask(prompt) -> str`: run one headless agent turn (the same ReAct
   loop as chat) and return the assistant's reply. It uses the automation's
   `activated_skills`, and every tool is forced to `allow`
   because no user is present to approve. Raises on agent failure.
-- `ctx.payload` — a `dict` holding the JSON body the caller posted to the event
+- `ctx.payload`: a `dict` holding the JSON body the caller posted to the event
   server (empty `{}` for scheduled runs).
-- `ctx.log(message)` — append a line to the run log. stdout/stderr are captured
+- `ctx.log(message)`: append a line to the run log. stdout/stderr are captured
   too.
 
 ### Activation
@@ -150,7 +151,7 @@ only when needed. Most automations need neither.
 Two traps seen when turning an existing script into an automation:
 
 - **Keep the code self-standing.** Copy every file the script needs (its modules,
-  config, data) into the automation folder — do not import them from the original
+  config, data) into the automation folder. Do not import them from the original
   project location. The user expects the automation folder to be the whole
   program. If the copied code needs packages the app venv lacks, give the
   automation its own `.venv` and run the work as a subprocess under it.
@@ -158,19 +159,19 @@ Two traps seen when turning an existing script into an automation:
   separate processes (e.g. `ProcessPoolExecutor`, one process per module), keep
   that. Running the same work in one `asyncio` event loop serialises every
   blocking call (slow network-drive scans, CPU work) and can be many times
-  slower — async concurrency only helps the parts that actually `await`.
+  slower. Async concurrency only helps the parts that actually `await`.
 
 ## Testing
 
 Test each path before shipping:
 
-- **Happy path** — run the automation (event: post the event; schedule: use the
+- **Happy path**: run the automation (event: post the event; schedule: use the
   page's Run now) and confirm the returned status and message.
-- **Failure path** — force a step to fail and confirm it returns an `error`
+- **Failure path**: force a step to fail and confirm it returns an `error`
   result with a useful message.
-- **Payload** — for event automations, confirm `ctx.payload` carries the posted
+- **Payload**: for event automations, confirm `ctx.payload` carries the posted
   JSON and that a missing or malformed body is handled.
-- **LLM call** — when `ctx.ask` is used, confirm the agent returns text and that
+- **LLM call**: when `ctx.ask` is used, confirm the agent returns text and that
   a tool the automation relies on is available.
 
 ## Checks
@@ -184,6 +185,6 @@ Before shipping the automation, confirm:
   `error` dict.
 - The comment header states purpose, deliverable, and methodology.
 - The automation loads through the app's `AutomationManager`
-  (`src/automation/manager.py`) with no validation errors — this is what catches
+  (`src/automation/manager.py`) with no validation errors. This is what catches
   malformed frontmatter.
 - The work never blocks the event loop.
