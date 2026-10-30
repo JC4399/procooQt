@@ -3,7 +3,6 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 import "../components"
-import "../cards"
 
 Rectangle {
     id: panel
@@ -17,15 +16,6 @@ Rectangle {
 
     // Height of the tab bar region (used by the workspace to detect "move" drops).
     readonly property real tabBarHeight: 30
-
-    // Mirrors the active chat id so a genuine switch (not every panel-model
-    // update, whose notify signal is shared) can re-arm auto-scroll.
-    property string trackedChatId: panelModel ? panelModel.activeChatId : ""
-
-    onTrackedChatIdChanged: {
-        if (autoScrollToggle)
-            autoScrollToggle.activateWithFade()
-    }
 
     signal openEditorRequested()
     signal dragStarted(string chatId, string title, real sceneX, real sceneY)
@@ -96,7 +86,7 @@ Rectangle {
         }
 
         // ----------------------------------------------------------
-        //  Chat list
+        //  Chat transcript host (one cached transcript per chat)
         // ----------------------------------------------------------
         Rectangle {
             Layout.fillWidth: true
@@ -107,307 +97,27 @@ Rectangle {
             border.width: 1
             radius: Theme.metrics.chatContainerRadius
 
-            // Non-virtualized so contentHeight is exact; ListView's height
-            // estimation was unstable for these variable-height cards.
-            Flickable {
-                id: chatList
+            Item {
+                id: transcriptHost
                 anchors.fill: parent
-                anchors.margins: 8
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
-                contentWidth: width
-                contentHeight: chatColumn.implicitHeight
 
-                // Auto-scroll is the autoScrollToggle's checked state: reaching
-                // the bottom activates it (fades the toggle in), scrolling away
-                // deactivates it (fades the toggle out).
-                function atBottom() {
-                    return contentY >= Math.max(0, contentHeight - height)
-                }
+                Repeater {
+                    model: panel.panelModel ? panel.panelModel.transcriptModel : null
 
-                function scrollToBottom() {
-                    contentY = Math.max(0, contentHeight - height)
-                }
-
-                // Scroll so a card body caret at content y / h is on screen,
-                // nudging only when it would otherwise be clipped. Only used
-                // while auto-scroll is off; when it is on the caret is disabled
-                // instead so the view stays pinned to the newest card.
-                function ensureVisible(y, h) {
-                    const margin = 8
-                    const maxY = Math.max(0, contentHeight - height)
-                    if (y - margin < contentY)
-                        contentY = Math.min(maxY, y - margin)
-                    else if (y + h + margin > contentY + height)
-                        contentY = Math.min(maxY, y + h + margin - height)
-                }
-
-                function scheduleScroll() {
-                    if (autoScrollToggle.checked)
-                        scrollDebounce.restart()
-                }
-
-                onContentYChanged: {
-                    if (atBottom()) {
-                        if (!autoScrollToggle.checked)
-                            autoScrollToggle.activateWithFade()
-                    } else if (autoScrollToggle.checked) {
-                        autoScrollToggle.deactivateWithFade()
+                    delegate: ChatTranscript {
+                        anchors.fill: parent
+                        visible: model.chat_id === (panel.panelModel
+                                                    ? panel.panelModel.activeChatId : "")
+                        chatId: model.chat_id
+                        chatModel: panel.panelModel
+                                   ? panel.panelModel.chatModelFor(model.chat_id) : null
+                        busy: panel.panelModel
+                              && panel.panelModel.activeChatId === model.chat_id
+                              ? panel.panelModel.busy : false
+                        loading: panel.panelModel
+                                 && panel.panelModel.activeChatId === model.chat_id
+                                 ? panel.panelModel.loading : false
                     }
-                }
-
-                onContentHeightChanged: scheduleScroll()
-                onMovementEnded: scheduleScroll()
-
-                Timer {
-                    id: scrollDebounce
-                    interval: 30
-                    repeat: false
-                    onTriggered: {
-                        if (!chatList.moving && !chatList.flicking
-                                && autoScrollToggle.checked)
-                            chatList.scrollToBottom()
-                    }
-                }
-
-                ScrollBar.vertical: ScrollBar {
-                    id: chatScrollBar
-                    policy: ScrollBar.AsNeeded
-
-                    background: Rectangle {
-                        color: "transparent"
-                    }
-
-                    contentItem: Rectangle {
-                        implicitWidth: 6
-                        radius: 0
-                        color: Theme.colors.borderStrong
-                        opacity: chatScrollBar.size < 1.0 ? 1 : 0
-                    }
-                }
-
-                WheelHandler {
-                    onWheel: function (event) {
-                        const pixel = event.pixelDelta.y
-                        const step = pixel !== 0
-                                     ? pixel
-                                     : (event.angleDelta.y / 120) * Theme.metrics.wheelScrollStep
-                        // Qt exposes no wheel-step knob on Flickable; clamp the
-                        // manual move so it can never overshoot the true bounds.
-                        const maxY = Math.max(0, chatList.contentHeight - chatList.height)
-                        chatList.contentY = Math.max(0, Math.min(maxY, chatList.contentY - step))
-                        event.accepted = true
-                    }
-                }
-
-                Column {
-                    id: chatColumn
-                    width: chatList.width
-                    spacing: 6
-
-                    Repeater {
-                        model: panel.panelModel ? panel.panelModel.chatModel : null
-
-                        delegate: Item {
-                            width: chatColumn.width
-                            height: cardLoader.item
-                                    ? cardLoader.item.implicitHeight
-                                      + cardLoader.item.padTop
-                                      + cardLoader.item.padBottom
-                                    : 0
-
-                            Loader {
-                                id: cardLoader
-                                width: parent.width
-                                y: cardLoader.item ? cardLoader.item.padTop : 0
-
-                                sourceComponent: {
-                                    switch (model.kind) {
-                                    case "user":
-                                        return userCardComponent
-                                    case "thinking":
-                                        return thinkingCardComponent
-                                    case "response":
-                                        return responseCardComponent
-                                    case "tool_call":
-                                        return toolCallCardComponent
-                                    case "tool_result":
-                                        return toolResultCardComponent
-                                    case "context_banner":
-                                        return contextBannerComponent
-                                    case "waiting":
-                                        return waitingCardComponent
-                                    default:
-                                        return null
-                                    }
-                                }
-
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "bodyHtml"
-                                    value: model.body_html
-                                    when: cardLoader.item !== null
-                                }
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "bodyTailHtml"
-                                    value: model.body_tail_html
-                                    when: cardLoader.item !== null && model.kind !== "context_banner"
-                                }
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "tokenText"
-                                    value: model.token_text
-                                    when: cardLoader.item !== null
-                                }
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "mode"
-                                    value: model.mode
-                                    when: cardLoader.item !== null
-                                }
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "isPending"
-                                    value: model.is_pending
-                                    when: cardLoader.item !== null
-                                }
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "subtitle"
-                                    value: model.tool_name
-                                    when: cardLoader.item !== null
-                                }
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "title"
-                                    value: model.title
-                                    when: cardLoader.item !== null && model.kind === "context_banner"
-                                }
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "sectionsJson"
-                                    value: model.sections
-                                    when: cardLoader.item !== null && model.kind === "context_banner"
-                                }
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "isDelta"
-                                    value: model.is_delta
-                                    when: cardLoader.item !== null && model.kind === "context_banner"
-                                }
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "bodyCollapsed"
-                                    value: model.collapsed
-                                    when: cardLoader.item !== null
-                                }
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "msgIndex"
-                                    value: model.msg_index
-                                    when: cardLoader.item !== null && model.kind !== "context_banner"
-                                }
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "actionsEnabled"
-                                    value: !(panel.panelModel && panel.panelModel.busy)
-                                    when: cardLoader.item !== null && model.kind !== "context_banner"
-                                }
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "scrollTarget"
-                                    value: chatList
-                                    when: cardLoader.item !== null && model.kind !== "context_banner"
-                                }
-                                Binding {
-                                    target: cardLoader.item
-                                    property: "caretEnabled"
-                                    value: !autoScrollToggle.checked
-                                    when: cardLoader.item !== null && model.kind !== "context_banner"
-                                }
-                            }
-
-                            Connections {
-                                target: model.kind !== "context_banner" ? cardLoader.item : null
-
-                                function onDeleteRequested(msgIndex) {
-                                    chat._handle_delete_turn_for(panel.activeChatId(), msgIndex)
-                                }
-
-                                function onRegenerateRequested(msgIndex) {
-                                    chat._handle_regenerate_from_for(panel.activeChatId(), msgIndex)
-                                }
-
-                                function onCaretMoved(caretY, caretHeight) {
-                                    if (autoScrollToggle.checked)
-                                        panel.clearCaretFocus()
-                                    else
-                                        chatList.ensureVisible(caretY, caretHeight)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            AutoScrollToggle {
-                id: autoScrollToggle
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                anchors.margins: 12
-                z: 20
-                onToggled: {
-                    if (checked)
-                        chatList.scrollToBottom()
-                }
-                onCheckedChanged: {
-                    if (checked)
-                        panel.clearCaretFocus()
-                }
-            }
-
-            // Shown while a chat's transcript is being built. The opaque fill
-            // hides the partially-built list and the scanner keeps running until
-            // the build finishes; on hide the view is pinned to the newest card.
-            Rectangle {
-                id: loadingOverlay
-                anchors.fill: parent
-                color: Theme.colors.pageBg
-                z: 30
-
-                // Hold briefly after the build finishes so short chats show a
-                // clean scan instead of a one-frame flash.
-                property bool holdVisible: false
-                visible: (panel.panelModel ? panel.panelModel.loading : false) || holdVisible
-
-                onVisibleChanged: {
-                    if (visible) {
-                        holdVisible = true
-                        minShowTimer.restart()
-                    } else {
-                        // Pin to the newest card once the transcript is built.
-                        // Re-arm auto-scroll so the debounced contentHeight
-                        // handler keeps following any late delegate layout, and
-                        // defer the immediate scroll one frame so the Repeater
-                        // has realized the final batch.
-                        autoScrollToggle.activateWithFade()
-                        Qt.callLater(chatList.scrollToBottom)
-                    }
-                }
-
-                Timer {
-                    id: minShowTimer
-                    interval: 200
-                    repeat: false
-                    onTriggered: loadingOverlay.holdVisible = false
-                }
-
-                KnightRiderSpinner {
-                    anchors.centerIn: parent
-                    running: loadingOverlay.visible
-                    baseColor: Theme.colors.accentCyan
-                    cells: 10
                 }
             }
         }
@@ -584,9 +294,21 @@ Rectangle {
         return panel.panelModel ? panel.panelModel.activeChatId : ""
     }
 
+    // Return the transcript currently shown for this panel's active chat.
+    function activeTranscript() {
+        for (let i = 0; i < transcriptHost.children.length; i++) {
+            const child = transcriptHost.children[i]
+            if (child.chatId !== undefined && child.visible)
+                return child
+        }
+        return null
+    }
+
     // Auto-scroll owns the viewport while enabled, so any body caret must yield.
     function clearCaretFocus() {
-        chatList.forceActiveFocus(Qt.OtherFocusReason)
+        const transcript = panel.activeTranscript()
+        if (transcript)
+            transcript.clearCaretFocus()
     }
 
     function submit() {
@@ -594,44 +316,5 @@ Rectangle {
             return
         chat._handle_send_for(panel.activeChatId(), input.text)
         input.text = ""
-    }
-
-    // ------------------------------------------------------------------
-    //  Card components
-    // ------------------------------------------------------------------
-
-    Component {
-        id: userCardComponent
-        UserCard {}
-    }
-
-    Component {
-        id: thinkingCardComponent
-        ThinkingCard {}
-    }
-
-    Component {
-        id: responseCardComponent
-        ResponseCard {}
-    }
-
-    Component {
-        id: toolCallCardComponent
-        ToolCallCard {}
-    }
-
-    Component {
-        id: toolResultCardComponent
-        ToolResultCard {}
-    }
-
-    Component {
-        id: contextBannerComponent
-        ContextBanner {}
-    }
-
-    Component {
-        id: waitingCardComponent
-        WaitingCard {}
     }
 }

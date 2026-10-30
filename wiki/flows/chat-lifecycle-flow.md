@@ -44,6 +44,16 @@ every visible chat (`set_visible_chats`). Each panel's values reach QML through 
    panels whose chat did not change are not disturbed.
 6. `_open_session_panels()` opens each panel's active chat (`_open_chat`:
    `chat_switch_started` → off-thread load/hydrate → `active_chat_changed`).
+7. `_prewarm_transcripts()` background-renders the window's chats in priority
+   order: every panel's active chat first, then the remaining chats with messages
+   sorted by `updated_at` descending (max 10). The active chats are awaited via
+   `ChatController.wait_until_ready`; each remaining chat is added to the LRU and
+   rendered one at a time with `ChatController.prewarm_chat`, so views are not
+   instantiated in one burst. The render plan itself is built in the
+   [`qt-render-pool`](../modules/qt-render-pool.md) process pool, and the GUI
+   applies it in small batches with a `0.25 s` gap between chats. This runs at
+   window start and on every session activation (switch or new window). Each
+   window has its own cache, so 3 windows can hold 30 transcripts total.
 
 ## Create chat (`ChatTabBar` `+` → `session._handle_new_chat(slot)`)
 
@@ -63,20 +73,33 @@ every visible chat (`set_visible_chats`). Each panel's values reach QML through 
 ## Activate a tab (`ChatTabBar` click → `session._handle_panel_activate`)
 
 Sets the panel's active chat, saves the layout, `_sync_panels`, and `_open_chat`.
-`_open_chat` emits `chat_switch_started` (loading overlay), hydrates off-thread
-if the chat isn't live, then emits `active_chat_changed`, which
-`ChatController._handle_chat_activated` answers by attaching the chat's worker
-and requesting a rebuild; the resulting plan is applied in batches behind the
-opaque loading overlay (200 ms minimum).
+`_sync_panels` touches the chat in the transcript LRU and tells the panel model
+which chats keep a live `ChatTranscript.qml` view, so switching back to a chat
+that was already opened only toggles visibility instead of rebuilding delegates.
+`_open_chat` emits `chat_switch_started`, hydrates off-thread if the chat isn't
+live, then emits `active_chat_changed`, which
+`ChatController._handle_chat_activated` answers by attaching the chat's worker and
+calling `set_visible(True)` (which emits one plan). The plan is applied as:
+
+- **no-op** when the model already matches the plan keys;
+- **staged batches** behind the opaque loading overlay (200 ms minimum) only for
+  a cold (empty) model;
+- **`merge_items`** for a populated model, updating only the changed tail.
+
+The loading overlay is therefore shown only on a chat's first open, not on every
+switch back. Each window keeps at most 10 live transcripts; when the cache is
+over the limit, `_evict_transcripts` drops the non-active chat with the oldest
+`updated_at` (access order only breaks ties), so a newly cached chat replaces the
+stalest chat.
 
 Startup (`_open_session_panels`) opens **every** panel's active chat in one
 synchronous burst, and closing the active chat auto-opens another, so several
-`_rebuild_after_switch` coroutines can overlap. Staged builds are therefore
-tracked **per chat** (`ChatController._staged_builds`), and each switch clears the
-loading flag only when its own build completed (`_finish_switch_loading`); a
-superseded build never hides the overlay over a partial transcript. On the QML
-side the loading overlay re-arms auto-scroll and re-pins to the newest card when
-it hides, so the freshly built transcript always scrolls to the bottom.
+activation coroutines can overlap. Staged builds are therefore tracked **per
+chat** (`ChatController._staged_tokens`), and each switch clears the loading flag
+only when its own build completed (`_finish_switch_loading`); a superseded build
+never hides the overlay over a partial transcript. On the QML side the loading
+overlay re-arms auto-scroll and re-pins to the newest card when it hides, so the
+freshly built transcript always scrolls to the bottom.
 
 ## Split / move (`SplitWorkspace` drag)
 
@@ -94,11 +117,13 @@ rebuilt.
 - **Move** (`_handle_move_chat(chat_id, target_slot)`): the chat is removed from
   its panel and appended to the target's tabs; empty source panels collapse.
 - Both snapshot the slot→active map first, then call `_rebuild_changed_panels`:
-  only slots whose active chat actually changed have their model blanked
-  (`chat.rebuild_chat_display`) and re-rendered by the chat's worker in staged
-  batches behind the overlay, while the layout (and each panel's `x`) updates
-  immediately. They then queue the layout persist and `_open_chat`, which
-  activates the moved chat.
+  only slots whose active chat actually changed have their worker asked to
+  re-render (`chat.rebuild_chat_display`). A cold model is built in staged
+  batches behind the overlay; a populated model is merged in place. The layout
+  (and each panel's `x`) updates immediately. They then queue the layout persist
+  and `_open_chat`, which activates the moved chat. Moving a chat to another
+  panel is a transcript cache miss (the view is re-created in the target panel),
+  but its `ChatListModel` rows are preserved.
 
 `SplitWorkspace.qml` tracks the drag manually: at drag start it snapshots each
 panel's rectangle once (`capturePanelRects`) so per-move hit-testing does not
@@ -146,8 +171,8 @@ edited directly through `ChatStore`.
 
 ## Delete chat (`ChatTabBar` × → `session._handle_delete_chat`)
 
-1. `_forget_chat` — pop `ChatState`, stop the chat's worker (`remove_worker`),
-   drop the live agent (`chat_manager.remove_chat`).
+1. `_forget_chat` — pop `ChatState`, pop the transcript LRU entry, stop the
+   chat's worker (`remove_worker`), drop the live agent (`chat_manager.remove_chat`).
 2. `ChatStore.delete_chat`; remove the chat from every panel (`_remove_chat_from_panels`).
 3. Refresh; if the active chat was removed, open another panel's active chat.
 

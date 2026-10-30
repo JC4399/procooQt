@@ -16,12 +16,14 @@ rebuilds a panel delegate that only changed position.
 - `ChatPanelModel(QObject)` with:
   - `panelIndex` (constant) — the panel's fixed workspace slot id.
   - `activeChatId`, `chatModel`, `tabModel` — the panel's chat and tabs.
+  - `transcriptModel` — chat ids that keep a live `ChatTranscript.qml` view.
   - `busy`, `approvalVisible`, `approvalText`, `loading` — per-chat runtime.
   - `inputTokens`, `outputTokens` — live true token accounting (no estimate).
   - `activatedCount`, `allowCount`, `askCount`, `blockCount` — config summary.
   - `modelName` — LLM model selected for the active chat.
-- `set_panel(...)`, `set_runtime(...)`, `set_tokens(...)`, and `update_tab(...)`
-  mutators used by `SessionController`.
+- `set_panel(...)`, `set_runtime(...)`, `set_tokens(...)`, `update_tab(...)`,
+  `set_transcripts(...)`, `set_model_provider(...)`, and `chatModelFor(...)`
+  used by `SessionController` and QML.
 
 ## Signals
 
@@ -29,6 +31,7 @@ rebuilds a panel delegate that only changed position.
 |---|---|
 | `active_chat_changed` | The active chat id changed (notify for `activeChatId`) |
 | `chat_model_changed` | The active chat's `ChatListModel` pointer changed (notify for `chatModel`) |
+| `transcripts_changed` | The set of chats with a live transcript view changed (notify for `transcriptModel`) |
 | `runtime_changed` | Any runtime display value changed (notify for `busy`, `approval*`, tokens, `loading`, counts, `modelName`) |
 
 The three signals are split so a runtime-only update (e.g. a token tick) does not
@@ -43,6 +46,7 @@ not invalidated by another panel's refresh.
 | `activeChatId` | `str` | `active_chat_changed` | The panel's active chat id (or `""`) |
 | `chatModel` | `QObject \| None` | `chat_model_changed` | `ChatListModel` for the active chat |
 | `tabModel` | `ChatTabModel` | constant | The panel's chat tabs (never reassigned) |
+| `transcriptModel` | `TranscriptListModel` | constant | Chat ids that keep a live transcript view |
 | `busy` | `bool` | `runtime_changed` | Active chat generating |
 | `approvalVisible` / `approvalText` | `bool` / `str` | `runtime_changed` | Pending tool approval |
 | `inputTokens` / `outputTokens` | `int` | `runtime_changed` | Context / cumulative output tokens |
@@ -53,9 +57,14 @@ not invalidated by another panel's refresh.
 ## Steps / Flow
 
 - `SessionController._sync_panels` calls `set_panel(active_chat_id, chat_model,
-  tabs, tabs_active_id, states)` then `set_runtime(...)` for each panel. Both
-  setters are compare-and-emit: an unchanged panel emits nothing, so a refresh
-  driven by one chat does not disturb the other panels.
+  tabs, tabs_active_id, states)`, `set_transcripts(ids)`, then `set_runtime(...)`
+  for each panel. All setters are compare-and-emit: an unchanged panel emits
+  nothing, so a refresh driven by one chat does not disturb the other panels.
+- `set_transcripts` is fed the panel's chats that are inside the session's
+  10-entry transcript LRU. `ChatPanel.qml` instantiates one `ChatTranscript`
+  per id and toggles visibility, so switching tabs does not rebuild delegates.
+- `chatModelFor(chat_id)` resolves an id to its stable `ChatListModel` through
+  the provider installed by `SessionController.build` (`ChatController.model_for`).
 - `SessionController.refresh_chat_panels(chat_id)` (driven by
   `ChatController.chat_state_changed`) updates the tab dot's status/blink via
   `update_tab(...)` in every panel that owns the chat, and refreshes the runtime
@@ -79,3 +88,6 @@ not invalidated by another panel's refresh.
 | `def set_runtime(self, busy, approval_visible, approval_text, input_tokens, output_tokens, loading, activated_count, allow_count, ask_count, block_count, model_name) -> None` | 11 runtime values | `None` | compare all → store → emit `runtime_changed` | No-op when unchanged |
 | `def set_tokens(self, input_tokens: int, output_tokens: int) -> None` | input/output tokens | `None` | dedupe → store → emit `runtime_changed` | Token-bar-only refresh (no full runtime rebuild) |
 | `def update_tab(self, chat_id: str, status: str, blinking: bool) -> None` | chat, `ChatStatus`, blink flag | `None` | `tab_model.update_chat(...)` | Role-scoped `dataChanged` only; no panel rebuild |
+| `def set_model_provider(self, provider: Callable[[str], QObject]) -> None` | callable resolving a chat id to its `ChatListModel` | `None` | store provider | — |
+| `def set_transcripts(self, chat_ids: list[str]) -> None` | chat ids with a live transcript | `None` | `transcript_model.set_ids(...)` | Incremental; no reset when unchanged |
+| `@Slot(str, result=QObject)`<br>`def chatModelFor(self, chat_id: str) -> QObject \| None` | chat id | stable `ChatListModel` or `None` | delegate to the provider | Creates the model on demand via `ChatController.model_for` |

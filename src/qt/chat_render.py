@@ -406,6 +406,21 @@ class ChatRenderer:
         """Reset per-turn render state."""
         self.state.reset_turn()
 
+    def adopt_plan(self, plan: RenderPlan) -> None:
+        """Adopt a plan rendered in another process.
+
+        Seeds the local item cache with the plan's items and records its
+        streaming-card indices, so a later in-thread rebuild hits the cache
+        instead of re-rendering the whole transcript.
+
+        Args:
+            plan: The externally rendered plan.
+        """
+        self.state.rendered_keys = list(plan.keys)
+        self._apply_indices(plan.indices)
+        for key, item in zip(plan.keys, plan.items, strict=True):
+            self.state.item_cache[key] = item
+
     # ------------------------------------------------------------------
     #  Public: plan building
     # ------------------------------------------------------------------

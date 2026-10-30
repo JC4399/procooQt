@@ -7,11 +7,13 @@ binds to, so up to four panels can render and interact independently.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
-from PySide6.QtCore import Property, QObject, Signal
+from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from .models.chat_tab_model import ChatTabModel
+from .models.transcript_list_model import TranscriptListModel
 
 
 class ChatPanelModel(QObject):
@@ -20,6 +22,7 @@ class ChatPanelModel(QObject):
     active_chat_changed = Signal()
     chat_model_changed = Signal()
     runtime_changed = Signal()
+    transcripts_changed = Signal()
 
     def __init__(self, index: int, parent: QObject | None = None) -> None:
         """Initialise the panel model.
@@ -33,6 +36,8 @@ class ChatPanelModel(QObject):
         self._active_chat_id = ""
         self._chat_model: QObject | None = None
         self._tab_model = ChatTabModel(self)
+        self._transcript_model = TranscriptListModel(self)
+        self._model_provider: Callable[[str], QObject] | None = None
         self._busy = False
         self._approval_visible = False
         self._approval_text = ""
@@ -68,6 +73,11 @@ class ChatPanelModel(QObject):
     def tabModel(self) -> ChatTabModel:  # noqa: N802
         """Return the panel's chat tab model."""
         return self._tab_model
+
+    @Property(QObject, constant=True)
+    def transcriptModel(self) -> TranscriptListModel:  # noqa: N802
+        """Return the model of chat ids that own a live transcript view."""
+        return self._transcript_model
 
     @Property(bool, notify=runtime_changed)
     def busy(self) -> bool:
@@ -167,6 +177,37 @@ class ChatPanelModel(QObject):
             blinking: Whether the tab dot should pulse.
         """
         self._tab_model.update_chat(chat_id, status, blinking)
+
+    def set_model_provider(self, provider: Callable[[str], QObject]) -> None:
+        """Set the callable used to resolve a chat id to its list model.
+
+        Args:
+            provider: A callable returning the stable ``ChatListModel`` for a
+                chat id (creating it on demand).
+        """
+        self._model_provider = provider
+
+    def set_transcripts(self, chat_ids: list[str]) -> None:
+        """Update which chats keep a live transcript view.
+
+        Args:
+            chat_ids: Chat ids that should have a live transcript, in order.
+        """
+        self._transcript_model.set_ids(chat_ids)
+
+    @Slot(str, result=QObject)
+    def chatModelFor(self, chat_id: str) -> QObject | None:  # noqa: N802
+        """Return the stable chat list model for a chat id.
+
+        Args:
+            chat_id: The chat whose model to return.
+
+        Returns:
+            The chat's ``ChatListModel``, or ``None`` when no provider is set.
+        """
+        if self._model_provider is None:
+            return None
+        return self._model_provider(chat_id)
 
     def set_runtime(
         self,

@@ -20,17 +20,21 @@ Related: [`chat-worker`](chat-worker.md), [`chat-render`](chat-render.md), [`qt-
   [`ChatPanelModel`](qt-chat-panel-model.md).
 - `attach_worker(chat_id, agent)` — ensure a worker exists and wire its signals.
 - `set_visible_chats(ids)` / `add_visible_chat` / `remove_visible_chat`.
-- `prepare_rebuild(chat_id)` — sets the loading overlay and blanks the model
-  synchronously so the panel binds empty and paints the spinner immediately.
+- `prepare_rebuild(chat_id)` — for a **cold** model only, sets the loading
+  overlay and blanks it synchronously. A populated model is left intact.
 - `rebuild_chat_display(chat_id)` — `prepare_rebuild` + `worker.request_rebuild()`
   for a chat with an attached worker; used by the session controller's
   `_rebuild_changed_panels` when a split/move rebinds a panel to a different
-  chat. The plan is then staged in behind the overlay.
+  chat. A cold plan is staged behind the overlay; a populated model is merged.
 - Per-chat action slots (`_handle_send_for`, `_handle_stop_for`,
   `_handle_regenerate_for`, `_handle_delete_turn_for`, `_handle_regenerate_from_for`,
   `_handle_approve_for`, `_handle_deny_for`) plus focused-chat wrappers.
 - `chat_state_changed(chat_id)` / `chat_tokens_changed(chat_id)` /
   `config_updated(chat_id, result)` signals for panels, tokens, and config sync.
+- Transcript pre-warm: `prewarm_chat(chat_id)` renders a chat's transcript
+  without showing it, `wait_until_ready(chat_id)` waits for a chat's first plan,
+  `cancel_prewarms()` aborts in-flight pre-warms, and `forget_chat(chat_id)`
+  drops per-chat pre-warm bookkeeping.
 - `shutdown()` — stop every worker.
 
 ## Signals
@@ -66,7 +70,7 @@ Related: [`chat-worker`](chat-worker.md), [`chat-render`](chat-render.md), [`qt-
 
 | Slot | Handler |
 |---|---|
-| `_on_plan_ready` | `is_loading` → staged batched insert (`_apply_plan_staged`), else `diff_update`; refresh token bar |
+| `_on_plan_ready` | pre-warm chat → background batched insert (no overlay); else skip when `find_divergence == -1`; cold model → staged batched insert (`_apply_plan_staged`); populated model → `merge_items` (tail-only update); refresh token bar |
 | `_on_stream_updated` | skip while `is_loading` (staged rebuild owns the model), else merge each `(row, values)` via `update_item` |
 | `_on_result_swap` | `find_pending_result` → `replace_item`, else request a rebuild |
 | `_on_turn_started` | refresh sidebar/state (busy already set) |
@@ -91,25 +95,54 @@ Related: [`chat-worker`](chat-worker.md), [`chat-render`](chat-render.md), [`qt-
   edit when the chat has no live worker.
 - `rebuild_chat_display` → `prepare_rebuild` + `worker.request_rebuild()`.
 
+### Transcript pre-warm
+
+`prewarm_chat(chat_id)` hydrates a non-visible, non-busy chat with `silent=True`,
+attaches its worker, registers it in `_prewarm_chats`, and calls
+`worker.request_prewarm_plan()`. That worker path renders the plan in the
+[`qt-render-pool`](qt-render-pool.md) process pool, so the CPU-heavy
+Markdown/Pygments/LaTeX work does not contend for the main process GIL.
+`_on_plan_ready` sees the pre-warm flag and applies the plan through
+`_apply_plan_prewarm`, which inserts rows in **small batches**
+(`_PREWARM_INSERT_BATCH = 4`, `_PREWARM_TICK = 0.05 s`) with **no loading
+overlay**; a per-chat `_prewarm_tokens` counter lets a newer plan supersede an
+in-flight one. Completion adds the id to `_rendered_chats` and resolves the
+pre-warm future.
+
+`wait_until_ready(chat_id)` polls `_rendered_chats`, so the session controller can
+wait for the active chat's full build before pre-warming the others. Activating a
+chat that is still pre-warming calls `_cancel_prewarm`, which bumps the token,
+resolves the future, and clears the partial model so the normal loading-overlay
+staged build owns it. `cancel_prewarms()` is used on session switch.
+
 ### Activation / loading overlay
 
-`_handle_chat_activated` sets loading, bumps the switch generation, and spawns
-`_activate_async`: wait `_REBUILD_PAINT_DELAY`, hydrate, attach the worker, then
-`worker.set_visible(True)` + `worker.request_rebuild()`. The resulting
-`_on_plan_ready` applies the rows in batches (`_apply_plan_staged`) behind the
-overlay; a per-chat staged token makes a newer apply supersede an in-flight one.
+`_handle_chat_activated` sets loading **only when the chat's model is cold**
+(empty), bumps the switch generation, and spawns `_activate_async`: wait
+`_REBUILD_PAINT_DELAY`, hydrate, attach the worker, then `worker.set_visible(True)`.
+`set_visible` already emits a plan on `False → True`, so no second
+`request_rebuild()` is issued. The resulting `_on_plan_ready`:
+
+1. If `model.find_divergence(keys) == -1`, the model is already current → clear
+   loading and do nothing.
+2. Else if loading and the model is cold (or a staged apply is in flight), apply
+   the rows in batches (`_apply_plan_staged`) behind the overlay; a per-chat
+   staged token makes a newer apply supersede an in-flight one.
+3. Else merge the plan into the populated model with `merge_items`, preserving
+   existing delegates and updating only the changed tail.
+
 The staged-insert budget is tuned low for snappy switches (`_RENDER_INSERT_BATCH`
 = 16, tick target 0.25 s), and `_REBUILD_PAINT_DELAY` = 0.02 s. In QML the
 overlay holds for 200 ms minimum after the build finishes.
 
-`prepare_rebuild(chat_id)` sets loading and blanks the model **synchronously**
-(`set_items([], [])`). `rebuild_chat_display(chat_id)` builds on it: when a
-split/move rebinds a panel to a different chat (fixed slots keep every other
+`prepare_rebuild(chat_id)` sets loading and blanks the model **only when it is
+cold** (`set_items([], [])`). `rebuild_chat_display(chat_id)` builds on it: when
+a split/move rebinds a panel to a different chat (fixed slots keep every other
 panel's delegate intact), the session controller calls it for the changed slots
-only, so just those panels' non-virtualized card repeaters bind an empty model
-and paint the spinner, and the chat's worker re-renders in staged batches behind
-the overlay. Chats without an attached worker are skipped so no overlay is left
-showing.
+only. A cold chat's non-virtualized card repeater binds an empty model and paints
+the spinner while its worker re-renders in staged batches; a populated chat is
+merged in place. Chats without an attached worker are skipped so no overlay is
+left showing.
 
 ## Function Reference
 
@@ -122,16 +155,21 @@ showing.
 | `def _is_visible(self, chat_id)` | chat | bool | visible set check | — |
 | `def model_for(self, chat_id)` | chat | `ChatListModel` | create on demand | inserts into `_models` |
 | `def attach_worker(self, chat_id, agent)` | chat, agent | `ChatWorker` | ensure + connect signals + set visibility | starts a thread |
-| `def prepare_rebuild(self, chat_id)` | chat | `None` | show loading + blank model synchronously | Clears the model before the panel rebinds |
+| `def prepare_rebuild(self, chat_id)` | chat | `None` | cold model → show loading + blank synchronously | No-op for a populated model |
 | `def rebuild_chat_display(self, chat_id)` | chat | `None` | `prepare_rebuild` + worker rebuild request | Skips chats with no attached worker |
-| `def _handle_chat_activated(self, chat_id)` | chat | `None` | loading + spawn activation | — |
-| `async def _activate_async(self, chat_id, generation)` | chat, gen | `None` | hydrate + rebuild request | — |
+| `async def prewarm_chat(self, chat_id, timeout=15.0)` | chat, timeout | `None` | hydrate (silent) + attach worker + pool-rendered plan + await future | No overlay; keeps the worker alive |
+| `async def wait_until_ready(self, chat_id, timeout=15.0)` | chat, timeout | `None` | poll `_rendered_chats` | Returns on timeout |
+| `def cancel_prewarms(self)` / `def cancel_prewarm(self, chat_id)` / `def forget_chat(self, chat_id)` | — / chat / chat | `None` | abort in-flight pre-warms / drop bookkeeping | Clears partial models |
+| `async def _apply_plan_prewarm(self, chat_id, model, items, keys, token)` | chat, model, rows, token | `None` | small batched insert without overlay | Resolves the pre-warm future |
+| `def _model_needs_build(self, chat_id)` | chat | bool | `True` when the model is missing or empty | — |
+| `def _handle_chat_activated(self, chat_id)` | chat | `None` | loading (cold only) + spawn activation | — |
+| `async def _activate_async(self, chat_id, generation)` | chat, gen | `None` | hydrate + `set_visible(True)` (emits the plan) | — |
 | `def _launch_generation(self, chat_id, message)` | chat, text | `None` | busy + scanner + spawn | mutates state |
 | `async def _start_turn(self, chat_id, message, gen)` | chat, text, gen | `None` | hydrate + worker turn | — |
 | `async def _regenerate(self, chat_id)` | chat | `None` | worker regenerate | — |
 | `async def _regenerate_from(self, chat_id, msg_index)` | chat, index | `None` | worker regenerate_from | — |
 | `def _delete_stored_turn(self, chat_id, msg_index)` | chat, index | `None` | store edit for non-live chat | writes store |
-| `@Slot(str, object) def _on_plan_ready(self, chat_id, plan)` | chat, plan | `None` | staged or `diff_update` | mutates model |
+| `@Slot(str, object) def _on_plan_ready(self, chat_id, plan)` | chat, plan | `None` | no-op / staged / `merge_items` | mutates model |
 | `async def _apply_plan_staged(self, chat_id, model, items, keys, token)` | chat, model, rows | `None` | batched insert | clears loading |
 | `@Slot(str, object) def _on_stream_updated(self, chat_id, updates)` | chat, updates | `None` | skip while loading, else `update_item` per row | mutates model |
 | `@Slot(str, str, object, str) def _on_result_swap(self, chat_id, tool_id, item, key)` | chat, tool id, item, key | `None` | replace pending row | mutates model |

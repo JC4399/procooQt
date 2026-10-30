@@ -64,6 +64,7 @@ The tool is `subagent`. Its arguments are:
 | `tool_modes` | Per-tool overrides, e.g. `{"edit_file": "block"}` |
 | `system_prompt` | Optional extra instruction |
 | `timeout` | Run timeout in seconds; `0` uses the server default |
+| `images` | Optional list of data-URL images attached to the first user message (e.g. `["data:image/webp;base64,…"]`). The multimodal model sees each image on its very first reasoning step — no extra `read_file` round-trip needed. Ignored when the resolved model is not multimodal. |
 
 Tool modes are `allow` or `block`. `ask` is not available because no user is
 present to approve a headless tool call. Selected tools default to `allow`.

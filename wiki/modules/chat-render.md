@@ -17,6 +17,8 @@ Related: [`chat-worker`](chat-worker.md), [`qt-chat-items`](qt-chat-items.md), [
 - `RenderState` — per-chat render state (item cache, streaming card state, token
   counters, prefix tracking).
 - `ChatRenderer.build_plan(...) -> RenderPlan` — full rebuild plan.
+- `ChatRenderer.adopt_plan(plan)` — seed the local item cache and streaming
+  indices from a plan rendered in another process.
 - `ChatRenderer.build_stream_update(...) -> list[(row, values)]` — throttled
   in-place streaming body updates.
 - `build_context_snapshot(agent) -> dict` — the persisted context snapshot.
@@ -60,5 +62,6 @@ Related: [`chat-worker`](chat-worker.md), [`qt-chat-items`](qt-chat-items.md), [
 | `ChatRenderer.build_stream_update(thinking, content, streaming_tcs, t_changed, c_changed)` | stream inputs | `[(row, values)]` | accumulate → split bodies | mutates render state |
 | `ChatRenderer.build_result_replacement(name, content, msg_index)` | tool result | `(item, key)` | — | — |
 | `ChatRenderer.invalidate_cache()` / `reset_turn()` | — | `None` | clear cache / streaming state | mutates state |
+| `ChatRenderer.adopt_plan(plan)` | `RenderPlan` | `None` | store keys → apply indices → populate `item_cache` | lets a later in-thread rebuild hit the cache |
 
 `PlanBuilder` accumulates keys/items/indices with cache reuse by key.

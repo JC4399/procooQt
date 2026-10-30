@@ -6,6 +6,7 @@ Owns the session/chat list model and the per-chat :class:`ChatState` registry.
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from collections.abc import Coroutine
 import logging
 import time
@@ -41,6 +42,18 @@ _LAYOUT_SAVE_DEBOUNCE = 0.4
 
 #: Maximum number of simultaneously visible workspace panels.
 MAX_PANELS = 4
+
+#: Maximum number of chats that keep a live rendered transcript per window.
+_TRANSCRIPT_CACHE_LIMIT = 10
+
+#: Quiet period (seconds) between background transcript pre-renders.
+_PREWARM_GAP = 0.25
+
+#: Maximum seconds to wait for one chat's pre-render to finish.
+_PREWARM_TIMEOUT = 15.0
+
+#: Maximum seconds to wait for an active chat before pre-warming the others.
+_PREWARM_ACTIVE_TIMEOUT = 5.0
 
 
 class ChatStatus:
@@ -85,6 +98,8 @@ class SessionController(QObject):
         _enriched: dict[str, dict[str, Any]]
         _panels: list[dict[str, Any]]
         _panel_models: list[ChatPanelModel]
+        _transcript_lru: OrderedDict[str, None]
+        _prewarm_generation: int
         _tasks: set[asyncio.Task[Any]]
         _pending_layout: tuple[str, dict[str, Any]] | None
         _layout_task: asyncio.Task[Any] | None
@@ -124,6 +139,10 @@ class SessionController(QObject):
         self._enriched = {}
         self._panels = [self._new_panel(0)]
         self._panel_models = [ChatPanelModel(slot, self) for slot in range(MAX_PANELS)]
+        for panel_model in self._panel_models:
+            panel_model.set_model_provider(self.chat.model_for)
+        self._transcript_lru = OrderedDict()
+        self._prewarm_generation = 0
         self._tasks = set()
         self._pending_layout = None
         self._layout_task = None
@@ -266,6 +285,7 @@ class SessionController(QObject):
         self._reconcile_panels(self.active_session_name)
         self._sync_panels()
         self._open_session_panels()
+        self._prewarm_transcripts()
 
     # ------------------------------------------------------------------
     #  Slot: New chat
@@ -449,13 +469,138 @@ class SessionController(QObject):
         """
         return {panel["slot"]: panel["active_chat_id"] for panel in self._panels}
 
+    def _touch_transcript(self, chat_id: str) -> None:
+        """Mark a chat as recently shown so its transcript is kept alive.
+
+        Args:
+            chat_id: The chat whose transcript was shown.
+        """
+        if not chat_id:
+            return
+        self._transcript_lru.pop(chat_id, None)
+        self._transcript_lru[chat_id] = None
+
+    def _chat_updated_at(self, chat_id: str) -> str:
+        """Return a chat's stored ``updated_at`` timestamp.
+
+        Args:
+            chat_id: The chat id.
+
+        Returns:
+            The timestamp string (``""`` when unknown). Timestamps sort
+            lexicographically because they use ``YYYY-MM-DD HH:MM:SS``.
+        """
+        enriched = self._enriched.get(chat_id)
+        return str(enriched.get("updated_at", "")) if enriched else ""
+
+    def mark_chat_updated(self, chat_id: str) -> None:
+        """Record that a chat was just updated, for transcript eviction order.
+
+        Args:
+            chat_id: The chat whose turn just finished.
+        """
+        enriched = self._enriched.get(chat_id)
+        if enriched is not None:
+            enriched["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    def _evict_transcripts(self) -> None:
+        """Drop the least-recently-updated transcripts above the cache limit.
+
+        Chats active in a panel are never evicted, so a visible transcript can
+        not disappear. Among the remaining chats the one with the oldest
+        ``updated_at`` is dropped first, so a newly cached chat replaces the
+        stalest cached chat rather than merely the least recently viewed one.
+
+        The access-order LRU is used as a tie-breaker when timestamps match.
+        """
+        active = {panel["active_chat_id"] for panel in self._panels if panel["active_chat_id"]}
+        while len(self._transcript_lru) > _TRANSCRIPT_CACHE_LIMIT:
+            candidates = [cid for cid in self._transcript_lru if cid not in active]
+            if not candidates:
+                break
+            access_order = {cid: index for index, cid in enumerate(self._transcript_lru)}
+            victim = min(
+                candidates,
+                key=lambda cid: (self._chat_updated_at(cid), access_order[cid]),
+            )
+            self._transcript_lru.pop(victim, None)
+            self.chat.cancel_prewarm(victim)
+
+    def _sync_transcript_models(self) -> None:
+        """Push the current transcript ids to every panel model.
+
+        Lighter than :meth:`_sync_panels`: it only updates the per-panel
+        transcript list, so pre-warming can add one transcript at a time without
+        re-pushing tabs, runtime, or emitting layout signals.
+        """
+        for panel in self._panels:
+            self._panel_models[panel["slot"]].set_transcripts(
+                [cid for cid in panel["chat_ids"] if cid in self._transcript_lru]
+            )
+
+    def _prewarm_transcripts(self) -> None:
+        """Seed the transcript cache and background-render this window's chats.
+
+        Priority is the visible (active) chats first, then the remaining session
+        chats by most-recently-updated. At most ``_TRANSCRIPT_CACHE_LIMIT`` chats
+        are kept per window. The active chat is rendered by the normal activation
+        path; the others are hydrated and rendered here without being shown.
+
+        Transcripts are added one at a time by :meth:`_prewarm_sequence`, so a
+        session switch does not instantiate all cached views in one burst.
+        """
+        session_name = self.active_session_name or ""
+        session_chats = self._chats_by_session.get(session_name, [])
+        if not session_chats:
+            return
+        active = [panel["active_chat_id"] for panel in self._panels if panel["active_chat_id"]]
+        active_set = set(active)
+        others = sorted(
+            (
+                cid
+                for cid in session_chats
+                if cid not in active_set and self._enriched.get(cid, {}).get("message_count", 0)
+            ),
+            key=self._chat_updated_at,
+            reverse=True,
+        )
+        ordered = list(dict.fromkeys(active + others))[:_TRANSCRIPT_CACHE_LIMIT]
+        self._sync_transcript_models()
+        self._prewarm_generation += 1
+        self._spawn(self._prewarm_sequence(ordered, active_set, self._prewarm_generation))
+
+    async def _prewarm_sequence(
+        self, ordered: list[str], active: set[str], generation: int
+    ) -> None:
+        """Render pre-warmed chats one at a time in priority order.
+
+        Args:
+            ordered: Chat ids in priority order (active first, then newest).
+            active: Chat ids already being rendered by the activation path.
+            generation: The pre-warm generation; a newer session switch stops
+                this sequence.
+        """
+        for chat_id in ordered:
+            if generation != self._prewarm_generation:
+                return
+            if chat_id in active:
+                await self.chat.wait_until_ready(chat_id, _PREWARM_ACTIVE_TIMEOUT)
+                continue
+            self._touch_transcript(chat_id)
+            self._evict_transcripts()
+            if chat_id not in self._transcript_lru:
+                continue
+            self._sync_transcript_models()
+            await self.chat.prewarm_chat(chat_id, _PREWARM_TIMEOUT)
+            await asyncio.sleep(_PREWARM_GAP)
+
     def _rebuild_changed_panels(self, old_active: dict[int, str]) -> None:
         """Queue a background rebuild for panels whose active chat changed.
 
         A layout change moves panels between fixed slots, but each slot's QML
         delegate keeps its stable :class:`ChatPanelModel`. Only slots whose
-        active chat actually changed need to rebind, so their model is blanked
-        and their worker asked to re-render; untouched panels never re-render.
+        active chat actually changed need to rebind, so their worker is asked to
+        re-render; untouched panels never re-render.
 
         Args:
             old_active: Slot-to-active-chat mapping captured before the change.
@@ -580,10 +725,13 @@ class SessionController(QObject):
         self.active_session_name = name
         self.active_session_name_changed.emit()
         self.active_chat_id = None
+        self.chat.cancel_prewarms()
+        self._transcript_lru.clear()
         self._refresh_model()
         self._reconcile_panels(name)
         self._sync_panels()
         self._open_session_panels()
+        self._prewarm_transcripts()
 
     # ------------------------------------------------------------------
     #  Slot: Delete session
@@ -817,6 +965,9 @@ class SessionController(QObject):
         used: set[int] = set()
         visible: set[str] = set()
         for panel in self._panels:
+            self._touch_transcript(panel["active_chat_id"])
+        self._evict_transcripts()
+        for panel in self._panels:
             slot = panel["slot"]
             used.add(slot)
             active = panel["active_chat_id"]
@@ -826,12 +977,16 @@ class SessionController(QObject):
                 visible.add(active)
             panel_model = self._panel_models[slot]
             panel_model.set_panel(active, model, tabs, active, self._states)
+            panel_model.set_transcripts(
+                [cid for cid in panel["chat_ids"] if cid in self._transcript_lru]
+            )
             panel_model.set_runtime(*self._panel_runtime(active))
         for slot in range(MAX_PANELS):
             if slot in used:
                 continue
             panel_model = self._panel_models[slot]
             panel_model.set_panel("", None, [], None, self._states)
+            panel_model.set_transcripts([])
             panel_model.set_runtime(*self._panel_runtime(""))
         self.chat.set_visible_chats(visible)
         self.panels_changed.emit()
@@ -981,6 +1136,9 @@ class SessionController(QObject):
         if not chat_id:
             return
         self.active_chat_id = chat_id
+        self._touch_transcript(chat_id)
+        self._evict_transcripts()
+        self._sync_transcript_models()
         self.chat_switch_started.emit(chat_id)
         self._spawn(self._open_chat_async(chat_id))
 
@@ -1242,13 +1400,18 @@ class SessionController(QObject):
     #  Hydration
     # ------------------------------------------------------------------
 
-    async def _hydrate_chat(self, chat_id: str, stored: dict | None = None) -> Any:
+    async def _hydrate_chat(
+        self, chat_id: str, stored: dict | None = None, *, silent: bool = False
+    ) -> Any:
         """Restore a chat from persistent storage into the chat manager.
 
         Args:
             chat_id: The chat id to hydrate.
             stored: Optional pre-loaded stored chat data. Loaded from the
                 store when ``None``.
+            silent: When ``True``, log failures instead of emitting a toast.
+                Used by background transcript pre-warming so a broken chat does
+                not spam the user at window start.
 
         Returns:
             The hydrated chat object, or ``None`` on failure.
@@ -1259,7 +1422,8 @@ class SessionController(QObject):
         if stored is None:
             stored = await asyncio.to_thread(self.app.chat_store.load_chat, chat_id)
         if not stored:
-            self.toast_requested.emit(f"Chat '{chat_id}' not found.", TOAST_ERROR)
+            if not silent:
+                self.toast_requested.emit(f"Chat '{chat_id}' not found.", TOAST_ERROR)
             return None
 
         skills_cfg = stored.get("skills_config", {})
@@ -1272,7 +1436,8 @@ class SessionController(QObject):
                 detail=str(error),
             )
             logger.error("%s", chat_error.detail)
-            self.toast_requested.emit(chat_error.brief, TOAST_ERROR)
+            if not silent:
+                self.toast_requested.emit(chat_error.brief, TOAST_ERROR)
             return None
 
         await session.refresh_estimated()
@@ -1384,6 +1549,8 @@ class SessionController(QObject):
             chat_id: The chat id to forget.
         """
         self._states.pop(chat_id, None)
+        self._transcript_lru.pop(chat_id, None)
+        self.chat.forget_chat(chat_id)
         self._cancel_pending_operations(chat_id)
 
     # ------------------------------------------------------------------

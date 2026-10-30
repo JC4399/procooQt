@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QThread, Signal
 
+from . import render_pool
 from .chat_items import thinking_body
 from .chat_render import (
     ChatRenderer,
@@ -221,6 +222,14 @@ class ChatWorker(QThread):
     def request_rebuild(self) -> None:
         """Emit a fresh full render plan."""
         self._post(self._emit_plan)
+
+    def request_prewarm_plan(self) -> None:
+        """Emit a full plan rendered in the process pool.
+
+        Used by transcript pre-warming so the CPU-heavy Markdown/Pygments/LaTeX
+        work runs outside this process's GIL.
+        """
+        self._post(lambda: asyncio.ensure_future(self._emit_plan_via_pool()))
 
     def request_persist(self) -> None:
         """Persist the chat to disk."""
@@ -468,6 +477,28 @@ class ChatWorker(QThread):
         plan: RenderPlan = self.renderer.build_plan(
             self.agent.messages, snapshot, self._banners, self.is_busy
         )
+        self.plan_ready.emit(self.chat_id, plan)
+
+    async def _emit_plan_via_pool(self) -> None:
+        """Build and emit a full plan using the render process pool."""
+        if self._loop is None:
+            return
+        snapshot = build_context_snapshot(self.agent)
+        try:
+            plan = await render_pool.render_plan(
+                list(self.agent.messages),
+                snapshot.get("system_prompt", ""),
+                self._banners,
+                self.is_busy,
+            )
+        except Exception:
+            logger.exception(
+                "ChatWorker[%s] process-pool render failed; falling back to in-thread",
+                self.chat_id,
+            )
+            self._emit_plan()
+            return
+        self.renderer.adopt_plan(plan)
         self.plan_ready.emit(self.chat_id, plan)
 
     # ------------------------------------------------------------------

@@ -81,6 +81,7 @@ def _build_spec(
     tool_modes: dict | None,
     system_prompt: str,
     timeout: int,
+    images: list[str] | None,
 ) -> dict:
     """Assemble a sub-agent request, omitting empty optional fields.
 
@@ -92,6 +93,9 @@ def _build_spec(
         tool_modes: Optional per-tool mode overrides.
         system_prompt: Optional extra system instruction.
         timeout: Optional timeout in seconds.
+        images: Optional list of data-URL images attached to the first user
+            message. Each entry should be a complete data URL such as
+            ``"data:image/webp;base64,..."``.
 
     Returns:
         A request dict suitable for the HTTP API.
@@ -109,6 +113,8 @@ def _build_spec(
         spec["system_prompt"] = system_prompt
     if timeout:
         spec["timeout"] = timeout
+    if images:
+        spec["images"] = list(images)
     return spec
 
 
@@ -163,6 +169,7 @@ async def run(
     tool_modes: dict | None = None,
     system_prompt: str = "",
     timeout: int = 0,
+    images: list[str] | None = None,
 ) -> str:
     """Run one headless sub-agent and wait for its final answer.
 
@@ -181,6 +188,10 @@ async def run(
         tool_modes: Per-tool overrides, e.g. {"edit_file": "block"}.
         system_prompt: Optional extra instruction appended to the system prompt.
         timeout: Run timeout in seconds; 0 uses the server default.
+        images: Optional list of data-URL images (e.g.
+            ``"data:image/webp;base64,..."``) attached to the sub-agent's first
+            user message. The multimodal model sees the image on its first
+            reasoning step; no extra ``read_file`` round-trip is needed.
 
     Returns:
         The final answer followed by the transcript log path.
@@ -204,6 +215,7 @@ async def run(
         tool_modes,
         system_prompt,
         timeout or 540,
+        images,
     )
     try:
         return _format_result(await _post(spec))

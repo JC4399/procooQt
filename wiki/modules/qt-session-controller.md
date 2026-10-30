@@ -31,7 +31,9 @@ any window refreshes every window's title-bar list.
 - Chat slots: new chat in panel, activate tab, move, split, delete.
 - Model slots: `modelNameFor(chat_id)`, `_handle_model_changed(chat_id, name)`.
 - Layout engine: `_reconcile_panels`, `_sync_panels`, `_rebuild_changed_panels`,
-  and the debounced off-thread `_save_layout` (with `_flush_layout_loop` /
+  the transcript LRU (`_touch_transcript` / `_evict_transcripts`), background
+  transcript pre-warming (`_prewarm_transcripts` / `_prewarm_sequence`), and the
+  debounced off-thread `_save_layout` (with `_flush_layout_loop` /
   `flush_layout`).
 - Persistence (`_create_stored_chat`, `_build_context_snapshot`) and hydration
   (`_hydrate_chat`, `_create_manager_chat`). Live-chat persistence is owned by
@@ -91,7 +93,7 @@ maps a `ChatState` + message presence to `RUNNING`/`WAITING` (busy),
 2. `active_session_name = chat_store.ensure_default_session()` (creates
    `Default` when no sessions exist).
 3. `_refresh_model()` → `_reconcile_panels(session)` → `_sync_panels()` →
-   `_open_session_panels()`.
+   `_open_session_panels()` → `_prewarm_transcripts()`.
 
 ### Layout reconcile (`_reconcile_panels`)
 
@@ -103,13 +105,16 @@ maps a `ChatState` + message presence to `RUNNING`/`WAITING` (busy),
 ### Panel sync (`_sync_panels`)
 
 1. Ensure at least one panel exists.
-2. For each panel, set the model of its **fixed slot** active chat, `ChatModel`,
-   and tab rows (enriched chats in layout order), plus runtime values from
-   `_panel_runtime`. Slots not occupied by a panel are cleared. Because a slot
-   that keeps the same chat is a compare-and-emit no-op, panels that merely
-   shift position emit nothing and QML never rebuilds their delegate.
-   `ChatTabModel.set_chats` merges incrementally as well.
-3. `chat.set_visible_chats(...)` so the chat controller only paints visible
+2. Touch every panel's active chat in the transcript LRU and evict the oldest
+   non-active chats above the 10-entry limit. Active chats are never evicted.
+3. For each panel, set the model of its **fixed slot** active chat, `ChatModel`,
+   and tab rows (enriched chats in layout order), the transcript ids (the
+   panel's chats still in the LRU), plus runtime values from `_panel_runtime`.
+   Slots not occupied by a panel are cleared. Because a slot that keeps the same
+   chat is a compare-and-emit no-op, panels that merely shift position emit
+   nothing and QML never rebuilds their delegate. `ChatTabModel.set_chats` and
+   `TranscriptListModel.set_ids` merge incrementally as well.
+4. `chat.set_visible_chats(...)` so the chat controller only paints visible
    chats; emit `panels_changed` and `tabs_changed`.
 
 ### New chat (`_handle_new_chat(slot)`)
@@ -135,9 +140,42 @@ each delegate's `x`/`visibility`; a panel keeps its `ChatPanelModel` as it moves
 so untouched panels are never re-rendered. Both handlers snapshot the slot→active
 map before mutating and call `_rebuild_changed_panels(old_active)` before
 `_finalize_panel_change()`: only slots whose active chat actually changed have
-their model blanked (`chat.rebuild_chat_display`) and re-rendered by the chat's
-worker in staged batches behind the loading overlay. `_open_chat` then activates
-the moved chat.
+their worker asked to re-render (`chat.rebuild_chat_display`). A cold model is
+built in staged batches behind the loading overlay; a populated model is merged
+in place. `_open_chat` then activates the moved chat.
+
+### Transcript cache (`_touch_transcript` / `_evict_transcripts`)
+
+Each window keeps at most `_TRANSCRIPT_CACHE_LIMIT = 10` live
+`ChatTranscript.qml` views, so switching tabs only toggles visibility instead of
+rebuilding card delegates and rich-text layout. `_open_chat` and `_sync_panels`
+touch the active chats. When the cache is over the limit, `_evict_transcripts`
+drops the non-active chat with the oldest `updated_at` (the access-order LRU is
+only a tie-breaker), so a newly cached chat replaces the stalest chat rather than
+merely the least recently viewed one. `_forget_chat` removes a deleted chat, and
+`_activate_session` cancels in-flight pre-warms and clears the LRU so the previous
+session's views are released.
+
+### Transcript pre-warm (`_prewarm_transcripts` / `_prewarm_sequence`)
+
+Called at window start (`start`) and on every session activation
+(`_activate_session`, used by both `open_session` and `_handle_switch_session`).
+It builds the priority list:
+
+1. every panel's active chat (visible immediately), in panel order;
+2. the remaining session chats with messages, sorted by `updated_at` descending.
+
+The list is capped at `_TRANSCRIPT_CACHE_LIMIT = 10`. Active chats are already
+seeded by `_open_chat`; `_prewarm_sequence` adds each remaining chat to the LRU
+one at a time, evicts the oldest-updated non-active chat when over the limit,
+pushes the updated transcript ids to the panels via `_sync_transcript_models`, and
+renders the chat via `ChatController.prewarm_chat`. The render itself runs in the
+[`qt-render-pool`](qt-render-pool.md) process pool, and the sequence yields for
+`_PREWARM_GAP = 0.25 s` between chats so the GUI stays responsive. Adding
+transcripts one at a time avoids instantiating all cached views in a single burst
+on a session switch. A per-window `_prewarm_generation` stops an older sequence
+when the session changes again. Each window has its own LRU, so 3 windows can hold
+30 transcripts total.
 
 ### Delete chat (`_delete_chat_by_id`)
 
@@ -194,7 +232,7 @@ chats fall back to it.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `def build(self) -> None` | — | `None` | create menu model + panel lists → init `_states`/`_tasks` → `_refresh_model()` → connect `SessionBus.sessions_changed` → `refresh_sessions` | Emits `sessions_changed`; subscribes to the bus |
+| `def build(self) -> None` | — | `None` | create menu model + panel lists → install `ChatController.model_for` provider → init `_transcript_lru`/`_states`/`_tasks` → `_refresh_model()` → connect `SessionBus.sessions_changed` → `refresh_sessions` | Emits `sessions_changed`; subscribes to the bus |
 | `@Slot() def refresh_sessions(self) -> None` | — | `None` | off-thread `refresh_model_async` (`_spawn`) | Cross-window slot connected to `SessionBus.sessions_changed` |
 | `@Property(int, notify=panels_changed) def panelCount(self) -> int` | — | Panel count | `len(self._panels)` | — |
 | `@Property(int, constant=True) def maxPanels(self) -> int` | — | Slot count | `MAX_PANELS` | Fixed QML repeater size |
@@ -203,7 +241,7 @@ chats fall back to it.
 | `@Property(QObject, notify=sessions_changed) def sessionMenuModel(self)` | — | `SessionMenuModel` | returns `_session_menu_model` | — |
 | `@Property(str, notify=active_session_name_changed) def activeSessionName(self) -> str` | — | Active session name | `active_session_name or ""` | — |
 | `def state(self, chat_id: str) -> ChatState` | `chat_id` | The chat's state | create-on-demand into `_states` | Inserts a new `ChatState` |
-| `@Slot() def start(self) -> None` | — | `None` | ensure Default → refresh → reconcile → sync → open panels | Toasts; emits activation |
+| `@Slot() def start(self) -> None` | — | `None` | ensure Default → refresh → reconcile → sync → open panels → prewarm transcripts | Toasts; emits activation |
 | `@Slot(int) def _handle_new_chat(self, slot: int)` | panel slot | `None` | capture source chat → unique id → store (inheriting config/model) → append tab → refresh/save → open | Writes store; emits signals |
 | `@Slot(int, str) def _handle_panel_activate(self, slot, chat_id)` | panel slot, chat | `None` | set panel active → save → sync → open | Emits activation |
 | `@Slot(str, int) def _handle_move_chat(self, chat_id, target_slot)` | chat, panel slot | `None` | snapshot actives → remove chat → append to target → `_rebuild_changed_panels` → finalize → open | Mutates layout; saves |
@@ -214,7 +252,7 @@ chats fall back to it.
 | `@Slot(str) def _handle_switch_session(self, name)` | name | `None` | no-op if already active → `_activate_session` | Rebuilds all panels |
 | `@Slot(str) def open_session(self, name)` | name | `None` | `_activate_session` (no skip) | Used by new windows |
 | `@Slot(int) def ensure_chat(self, slot=0)` | panel slot | `None` | `_handle_new_chat` when the session has no chats | Seeds a fresh session with one chat |
-| `def _activate_session(self, name)` | name | `None` | set active → emit → refresh → reconcile → sync → open | Shared by switch/open |
+| `def _activate_session(self, name)` | name | `None` | set active → emit → cancel pre-warms → clear transcript LRU → refresh → reconcile → sync → open → prewarm | Shared by switch/open |
 | `@Slot(str) def _handle_delete_session(self, name)` | name | `None` | delete session + chats → forget → fallback Default → rebuild → emit bus | `ValueError` → toast; emits `SessionBus.sessions_changed` |
 | `@Slot(str, result=str) def statusColor(self, status)` | status | Hex color | `_STATUS_COLORS.get(status, COLOR_CHAT_EMPTY)` | — |
 | `@Slot(str, result=str) def modelNameFor(self, chat_id)` | chat | Model name | `state.model_name` or the config default (in-memory) | May create a `ChatState` |
@@ -224,23 +262,30 @@ chats fall back to it.
 | `def _chat_display_status(self, chat_id)` | chat | `ChatStatus` | live `ChatState.message_count` (fallback enriched summary) → `_status_from_state` | Disk-free; GUI thread only |
 | `@staticmethod def _status_from_state(state, has_messages)` | state; message presence | `ChatStatus` | busy → `WAITING`/`RUNNING`; error → `ERROR`; else `FINISHED`/`EMPTY` | Pure |
 | `def _reconcile_panels(self, name)` | session | `None` | stored layout vs session chats → slot-tagged `_panels` | Saves layout |
-| `def _sync_panels(self)` | — | `None` | push each panel's slot data + runtime into `ChatPanelModel`s; clear unused slots; set visible chats | Emits `panels_changed`/`tabs_changed` |
+| `def _sync_panels(self)` | — | `None` | touch active chats in the transcript LRU → evict above 10 → push each panel's slot data, transcript ids, and runtime into `ChatPanelModel`s; clear unused slots; set visible chats | Emits `panels_changed`/`tabs_changed` |
 | `@staticmethod def _new_panel(slot, chat_ids=None, active_chat_id="")` | slot, tabs, active | Panel dict | `{"slot", "chat_ids", "active_chat_id"}` | Pure |
 | `def _allocate_slot(self)` | — | `int` | lowest slot not currently in use | Returns `0` when full |
 | `def _panel_by_slot(self, slot)` | slot | Panel dict or `None` | linear search of `_panels` | — |
 | `def _active_by_slot(self)` | — | `dict[int, str]` | snapshot of slot → active chat | Used before layout mutation |
-| `def _rebuild_changed_panels(self, old_active)` | old slot→active map | `None` | blank + background rebuild only slots whose active chat changed | Calls `chat.rebuild_chat_display` |
+| `def _rebuild_changed_panels(self, old_active)` | old slot→active map | `None` | background rebuild only slots whose active chat changed | Calls `chat.rebuild_chat_display`; populated models are merged, cold ones staged |
+| `def _touch_transcript(self, chat_id)` | chat | `None` | move the chat to the MRU end of `_transcript_lru` | — |
+| `def _chat_updated_at(self, chat_id)` | chat | `updated_at` string | read from `_enriched` | `""` when unknown |
+| `def mark_chat_updated(self, chat_id)` | chat | `None` | stamp `_enriched[chat_id]["updated_at"]` with the current time | Keeps transcript eviction order current after a turn |
+| `def _evict_transcripts(self)` | — | `None` | drop the non-active chat with the oldest `updated_at` above `_TRANSCRIPT_CACHE_LIMIT = 10` | Active chats are never evicted; access order breaks ties |
+| `def _prewarm_transcripts(self)` | — | `None` | build active-first / newest-updated priority list, sync active transcripts, spawn sequence | Capped at 10 per window |
+| `def _sync_transcript_models(self)` | — | `None` | push each panel's LRU chat ids into its `ChatPanelModel` | Lighter than `_sync_panels`; no layout signals |
+| `async def _prewarm_sequence(self, ordered, active, generation)` | priority ids, active ids, generation | `None` | wait for active plans, then add + `ChatController.prewarm_chat` each remaining id | Stops when `_prewarm_generation` changes |
 | `def _panel_runtime(self, chat_id)` | chat | 11-tuple | busy/approval/tokens/loading + activated/allow/ask/block counts + model name | Reads `ChatState`; tokens are the true `token_usage` values (no estimate) |
 | `def _save_layout(self)` | — | `None` | snapshot `{splits:[{chat_ids, active_chat_id}]}` and queue a debounced off-thread persist | No synchronous disk I/O; collapses rapid calls |
 | `async def _flush_layout_loop(self)` | — | `None` | wait `_LAYOUT_SAVE_DEBOUNCE`, then `to_thread(chat_store.set_layout)` for the newest pending layout | Worker-thread disk write |
 | `def flush_layout(self)` | — | `None` | synchronously persist any pending layout (app shutdown) | GUI-thread disk write |
-| `def _open_chat(self, chat_id)` | chat | `None` | set active → emit `chat_switch_started` → spawn `_open_chat_async` | Emits signals |
+| `def _open_chat(self, chat_id)` | chat | `None` | set active → touch transcript LRU → evict → sync transcript models → emit `chat_switch_started` → spawn `_open_chat_async` | Emits signals; ensures a moved/activated chat gets its transcript |
 | `async def _open_chat_async(self, chat_id)` | chat | `None` | off-thread load → hydrate if needed → emit `active_chat_changed` | Hydration may toast |
 | `def _open_session_panels(self)` | — | `None` | `_open_chat` each panel's active chat | Emits signals |
 | `def open_chat_after(self, source_chat_id, new_chat_id)` | source chat, new chat | `None` | append new chat to source's panel → refresh/save/open | Used by compaction |
 | `def _remove_chat_from_panels(self, chat_id)` | chat | `None` | remove from every panel; drop empties | Caller ensures ≥1 panel |
 | `def _delete_chat_by_id(self, chat_id)` | chat | `None` | forget → store delete → remove from panels → `_rebuild_changed_panels` → refresh → reopen if active | Deletes store |
-| `def _forget_chat(self, chat_id)` | chat | `None` | pop state, cancel pending, remove live agent | Cancels task |
+| `def _forget_chat(self, chat_id)` | chat | `None` | pop state, pop transcript LRU, `chat.forget_chat`, cancel pending, remove live agent | Cancels task |
 | `def _refresh_model(self)` | — | `None` | `_collect_summaries()` → `_apply_summaries()` | Emits `sessions_changed` |
 | `async def refresh_model_async(self)` | — | `None` | snapshot `_states` → off-thread `load_all_chats`/`_enrich_chat`/`list_sessions` → `_apply_summaries` on GUI thread | Used by the chat controller's debounced streaming refresh |
 | `def _collect_summaries(self) -> tuple[list[dict], list[str]]` | — | `(enriched, sessions)` | snapshot `_states` → `load_all_chats()` (one parse/file) → `_enrich_chat` → `list_sessions()` | Thread-safe |

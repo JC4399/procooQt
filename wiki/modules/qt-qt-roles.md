@@ -12,7 +12,7 @@ enum into the `{role id: bytes}` mapping Qt expects.
 ## Deliverables
 
 - `ChatTabRole`, `SessionMenuRole`, `ChatRole`, `SkillRole`, `ToolRole`,
-  `FileRole`, `AutomationRole`, `NotificationRole` — role enums.
+  `FileRole`, `AutomationRole`, `NotificationRole`, `TranscriptRole` — role enums.
 - `role_names(enum_cls) -> dict[int, bytes]` — role-name builder.
 
 ## How roles are used
@@ -44,6 +44,12 @@ enum into the `{role id: bytes}` mapping Qt expects.
 | `NAME` | 1 | Session name (`+` for the add row) |
 | `IS_ADD` | 2 | `True` for the trailing add row |
 | `IS_ACTIVE` | 3 | `True` for the active session |
+
+### `TranscriptRole` — `TranscriptListModel`
+
+| Member | Value | Meaning |
+|---|---|---|
+| `CHAT_ID` | 1 | Chat id that owns a live transcript view |
 
 ### `ChatRole` — `ChatListModel`
 

@@ -319,6 +319,7 @@ class Agent:
     async def run(
         self,
         message_content: str,
+        images: list[str] | None = None,
     ) -> None:
         """Execute one user turn and stream events to the UI.
 
@@ -327,6 +328,11 @@ class Agent:
 
         Args:
             message_content: The user's text message.
+            images: Optional list of data-URL strings (e.g.
+                ``"data:image/webp;base64,..."``). When provided, the first
+                user message is built as a multimodal content list (text part
+                followed by ``image_url`` parts) so a multimodal model sees
+                the images on its very first reasoning step.
         """
         self._prev_api_input = 0
         self.api_input_latest = 0
@@ -341,7 +347,27 @@ class Agent:
                 )
                 self._committed_activated = set(self.activated_skills)
 
-            self.messages.append({"role": "user", "content": message_content or ""})
+            if images:
+                content_parts: list[dict] = []
+                text = message_content or ""
+                if text:
+                    content_parts.append({"type": "text", "text": text})
+                for url in images:
+                    if not url:
+                        continue
+                    content_parts.append(
+                        {"type": "image_url", "image_url": {"url": url}},
+                    )
+                if not content_parts:
+                    content_parts = [{"type": "text", "text": ""}]
+                self.messages.append({"role": "user", "content": content_parts})
+                logger.info(
+                    "Agent[%s] seeded user message with %d image(s)",
+                    self.chat_id,
+                    len(images),
+                )
+            else:
+                self.messages.append({"role": "user", "content": message_content or ""})
 
             await self._run_react_loop()
 

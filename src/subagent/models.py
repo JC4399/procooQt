@@ -30,6 +30,12 @@ class SubAgentSpec(BaseModel):
         timeout: Run timeout in seconds; ``0`` means the configured default.
         parent_id: Reserved for nesting; must be empty because nesting is
             disabled.
+        images: Optional list of data-URL images attached to the first user
+            message (e.g. ``"data:image/webp;base64,..."``). Each entry is sent
+            as an ``image_url`` content part alongside the prompt text, so a
+            multimodal model sees the image on its very first reasoning step
+            and no extra ``read_file`` round-trip is needed. Ignored when the
+            resolved model is not multimodal.
     """
 
     prompt: str
@@ -40,6 +46,7 @@ class SubAgentSpec(BaseModel):
     system_prompt: str = ""
     timeout: int = 0
     parent_id: str = ""
+    images: list[str] = []
 
 
 class SubAgentRecord(BaseModel):

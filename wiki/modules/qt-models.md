@@ -2,8 +2,9 @@
 
 Sources: `src/qt/models/base.py`, `src/qt/models/chat_tab_model.py`,
 `src/qt/models/session_menu_model.py`, `src/qt/models/chat_list_model.py`,
-`src/qt/models/skill_tree_model.py`, `src/qt/models/tool_mode_model.py`,
-`src/qt/models/file_tree_model.py`, `src/qt/models/automation_list_model.py`,
+`src/qt/models/transcript_list_model.py`, `src/qt/models/skill_tree_model.py`,
+`src/qt/models/tool_mode_model.py`, `src/qt/models/file_tree_model.py`,
+`src/qt/models/automation_list_model.py`,
 `src/qt/models/notification_list_model.py`
 
 ## Purpose
@@ -32,6 +33,7 @@ stream token.
 - `ChatTabModel` — chat tabs for one panel's `ChatTabBar.qml`.
 - `SessionMenuModel` — sessions + trailing `+` for `SessionSelector.qml`.
 - `ChatListModel` — rendered chat items for `ChatPanel.qml`.
+- `TranscriptListModel` — chat ids that keep a live `ChatTranscript.qml` view.
 - `SkillTreeModel` — flattened skill/folder tree with selection state.
 - `ToolModeModel` — per-tool permission rows grouped by skill.
 - `FileTreeModel` — flattened file/folder tree with fuzzy name search for `EditorPanel.qml`.
@@ -141,6 +143,21 @@ Incremental list of chat items for one chat.
 | `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `ChatRole` |
 | `def find_pending_result(self, tool_call_id: str) -> int` | tool-call id | row index or `-1` | scan rows where `IS_PENDING` and `TOOL_CALL_ID` matches |
 | `def replace_item(self, row: int, item: Item, key: str) -> None` | `row`, new `item`, new `key` | `None` | replace row + key, emit `dataChanged` for `item.keys()`; no-op out of range |
+
+### `TranscriptListModel`
+
+Incremental list of chat ids that currently own a live rendered transcript. The
+workspace keeps one `ChatTranscript.qml` per id (capped at 10 per window), so
+switching tabs only toggles visibility instead of rebuilding delegates. `set_ids`
+removes disappeared ids and inserts/moves new ids with row signals, so ids that
+stay keep their delegate (and rich-text layout). This matters when a chat moves
+between panels: the old panel loses one row and the new panel gains one without
+resetting either model.
+
+| Signature | Inputs | Output | Flow / Side effects |
+|---|---|---|---|
+| `def __init__(self, parent: Any = None) -> None` | `parent` | — | roles = `TranscriptRole` |
+| `def set_ids(self, chat_ids: list[str]) -> None` | live transcript chat ids, in order | `None` | remove missing ids → insert/move ids at target positions | Incremental row signals; no reset when unchanged |
 
 ### `SkillTreeModel`
 

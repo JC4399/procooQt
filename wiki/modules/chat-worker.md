@@ -17,6 +17,9 @@ Related: [`chat_render`](chat-render.md), [`chat-agent`](chat-agent.md), [`qt-ch
 
 - One `ChatWorker` per hydrated chat, created/started via the module registry.
 - `plan_ready` / `stream_updated` / `result_swap` row payloads for the GUI model.
+- `request_prewarm_plan()` — render a full plan in the process pool
+  ([`qt-render-pool`](qt-render-pool.md)) so pre-warming does not contend for the
+  main process GIL.
 - `turn_started` / `turn_finished`, `approval_needed` / `approval_cleared`,
   `token_usage`, `error`, `message_count`, `compaction_ready`, `config_updated`
   lifecycle signals.
@@ -83,10 +86,12 @@ response is guaranteed by finalization, not by the stream:
 | `def invalidate_cache(self)` | — | `None` | post `_do_invalidate` | rebuild |
 | `def set_visible(self, visible)` | flag | `None` | post `_do_set_visible` | rebuild on show |
 | `def request_rebuild(self)` | — | `None` | post `_emit_plan` | — |
+| `def request_prewarm_plan(self)` | — | `None` | post `_emit_plan_via_pool` | starts the render pool on first use |
 | `def request_persist(self)` | — | `None` | post `_do_persist` | writes store |
 | `def stop(self)` | — | `None` | `loop.stop` + `wait` | joins thread |
 | `def _handle_event(self, event)` | event | `None` | per-type dispatch + render | emits signals |
 | `def _emit_plan(self)` | — | `None` | build plan, emit `plan_ready` | — |
+| `async def _emit_plan_via_pool(self)` | — | `None` | `render_pool.render_plan` → `adopt_plan` → emit `plan_ready` | runs render in a child process; falls back to `_emit_plan` on pool failure |
 | `async def _run_turn(self, message, gen_id)` | text, generation | `None` | `agent.run` → `_finalize` | always emits `turn_finished` |
 | `def _flush_final_body(self)` | — | `None` | write full final text to pending card bodies | emits `stream_updated` |
 | `def _finalize(self)` | — | `None` | flush body → final plan → persist → reset → compact | emits signals; each step guarded |

@@ -28,6 +28,12 @@ class SessionMenuRole(IntEnum):
     IS_ACTIVE = 3
 
 
+class TranscriptRole(IntEnum):
+    """Roles for :class:`~src.qt.models.transcript_list_model.TranscriptListModel`."""
+
+    CHAT_ID = 1
+
+
 class ChatRole(IntEnum):
     """Roles for :class:`~src.qt.models.chat_list_model.ChatListModel`."""
 

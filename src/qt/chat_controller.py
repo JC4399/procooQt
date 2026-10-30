@@ -28,6 +28,7 @@ from .chat_worker import (
 )
 from .error_handler import TOAST_ERROR
 from .models.chat_list_model import ChatListModel
+from .render_pool import shutdown_render_pool
 
 if TYPE_CHECKING:
     from ..app import ProcooApp
@@ -48,6 +49,11 @@ _RENDER_INSERT_BATCH = 16
 _RENDER_TICK_MIN = 0.004
 _RENDER_TICK_MAX = 0.016
 _RENDER_TICK_TARGET = 0.25
+
+#: Gentler insert schedule for background pre-warm (no overlay, GUI must stay
+#: responsive while QML lays out the pre-built cards).
+_PREWARM_INSERT_BATCH = 4
+_PREWARM_TICK = 0.05
 
 
 def _content_hash(data: str | list) -> str:
@@ -87,6 +93,10 @@ class ChatController(QObject):
         _tasks: set[asyncio.Task[Any]]
         _visible_chat_ids: set[str]
         _extra_visible_chats: set[str]
+        _prewarm_chats: set[str]
+        _prewarm_tokens: dict[str, int]
+        _prewarm_futures: dict[str, asyncio.Future[None]]
+        _rendered_chats: set[str]
         active_chat_id: str | None
         _approval_visible: bool
         _approval_text: str
@@ -118,6 +128,10 @@ class ChatController(QObject):
         self._connected_workers: dict[str, ChatWorker] = {}
         self._switch_generations: dict[str, int] = {}
         self._staged_tokens: dict[str, int] = {}
+        self._prewarm_chats: set[str] = set()
+        self._prewarm_tokens: dict[str, int] = {}
+        self._prewarm_futures: dict[str, asyncio.Future[None]] = {}
+        self._rendered_chats: set[str] = set()
         self.active_chat_id = None
         self._approval_visible = False
         self._approval_text = ""
@@ -135,11 +149,16 @@ class ChatController(QObject):
         self._extra_visible_chats = set()
         self._connected_workers = {}
         self._switch_generations = {}
+        self._prewarm_chats = set()
+        self._prewarm_tokens = {}
+        self._prewarm_futures = {}
+        self._rendered_chats = set()
         self.active_chat_id = None
 
     def shutdown(self) -> None:
-        """Stop every chat worker (application shutdown)."""
+        """Stop every chat worker and the render pool (application shutdown)."""
         stop_all_workers()
+        shutdown_render_pool()
         self._connected_workers = {}
 
     # ------------------------------------------------------------------
@@ -466,28 +485,39 @@ class ChatController(QObject):
     def prepare_rebuild(self, chat_id: str) -> None:
         """Show a chat's loading overlay and blank its model before rebinding.
 
-        The model is blanked synchronously so that when the panel change emits
-        ``panels_changed`` and QML constructs the new panel, its non-virtualized
-        card repeater binds an empty model and shows only the spinner. The plan
-        for the moved chat is then applied in staged batches behind the overlay,
-        so the layout appears immediately without a synchronous delegate build.
+        Only a cold model (no rows yet) is blanked and given the overlay. A
+        populated model is left intact so switching back to a chat that was
+        already rendered does not destroy its delegates or flash a spinner.
 
         Args:
             chat_id: The chat whose panel is being recreated.
         """
         if not chat_id:
             return
+        if not self._model_needs_build(chat_id):
+            return
         self._set_loading(chat_id, True)
         self.model_for(chat_id).set_items([], [])
 
-    def rebuild_chat_display(self, chat_id: str) -> None:
-        """Blank a chat's model and queue a background rebuild.
+    def _model_needs_build(self, chat_id: str) -> bool:
+        """Return whether a chat has no rendered rows yet.
 
-        Used when a panel layout change rebinds a panel to a different chat: the
-        model is blanked synchronously so the recreated delegate paints only the
-        spinner, then the chat's worker re-renders in staged batches behind the
-        overlay. Chats with no attached worker have nothing rendered yet, so they
-        are skipped (and no overlay is left showing).
+        Args:
+            chat_id: The chat to test.
+
+        Returns:
+            ``True`` when the chat's model is missing or empty.
+        """
+        model = self._models.get(chat_id)
+        return model is None or model.count() == 0
+
+    def rebuild_chat_display(self, chat_id: str) -> None:
+        """Queue a background rebuild for a chat whose panel was rebound.
+
+        A cold model is blanked and covered by the loading overlay; a populated
+        model is left intact and the resulting plan is merged into it, so a
+        split/move does not destroy an already-rendered transcript. Chats with
+        no attached worker have nothing rendered yet, so they are skipped.
 
         Args:
             chat_id: The chat whose panel is being rebound.
@@ -499,6 +529,141 @@ class ChatController(QObject):
             return
         self.prepare_rebuild(chat_id)
         worker.request_rebuild()
+
+    # ------------------------------------------------------------------
+    #  Public: Transcript pre-warm
+    # ------------------------------------------------------------------
+
+    async def prewarm_chat(self, chat_id: str, timeout: float = 15.0) -> None:
+        """Render a chat's transcript without showing it.
+
+        Hydrates the chat, attaches its worker, and requests one plan. The plan
+        is applied in background batches (no loading overlay) so the chat's QML
+        transcript is fully built before the user switches to it.
+
+        Args:
+            chat_id: The chat to pre-render.
+            timeout: Maximum seconds to wait for the plan to be applied.
+        """
+        if not chat_id or self._is_visible(chat_id):
+            return
+        if self.session.state(chat_id).is_busy:
+            return
+        model = self.model_for(chat_id)
+        if model.count() > 0:
+            self._rendered_chats.add(chat_id)
+            return
+        if chat_id in self._prewarm_chats:
+            return
+        agent = await self.session._hydrate_chat(chat_id, silent=True)
+        if agent is None:
+            return
+        worker = self.attach_worker(chat_id, agent)
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[None] = loop.create_future()
+        self._prewarm_chats.add(chat_id)
+        self._prewarm_tokens[chat_id] = self._prewarm_tokens.get(chat_id, 0) + 1
+        self._prewarm_futures[chat_id] = future
+        worker.request_prewarm_plan()
+        try:
+            await asyncio.wait_for(future, timeout=timeout)
+        except TimeoutError:
+            logger.warning("Transcript prewarm timed out for chat '%s'", chat_id)
+        finally:
+            self._prewarm_chats.discard(chat_id)
+            self._prewarm_futures.pop(chat_id, None)
+            self._prewarm_tokens[chat_id] = self._prewarm_tokens.get(chat_id, 0) + 1
+
+    async def wait_until_ready(self, chat_id: str, timeout: float = 15.0) -> None:
+        """Wait until a chat's first plan has been applied.
+
+        Args:
+            chat_id: The chat to wait for.
+            timeout: Maximum seconds to wait.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while chat_id not in self._rendered_chats:
+            if loop.time() >= deadline:
+                return
+            await asyncio.sleep(0.05)
+
+    def forget_chat(self, chat_id: str) -> None:
+        """Drop pre-warm/render bookkeeping for a deleted chat.
+
+        Args:
+            chat_id: The chat being deleted.
+        """
+        self._cancel_prewarm(chat_id)
+        self._rendered_chats.discard(chat_id)
+        self._prewarm_tokens.pop(chat_id, None)
+
+    def cancel_prewarms(self) -> None:
+        """Abort every in-flight transcript pre-warm."""
+        for chat_id in list(self._prewarm_chats):
+            self._cancel_prewarm(chat_id)
+
+    def cancel_prewarm(self, chat_id: str) -> None:
+        """Abort one chat's in-flight transcript pre-warm.
+
+        Args:
+            chat_id: The chat whose pre-warm should stop.
+        """
+        self._cancel_prewarm(chat_id)
+
+    def _cancel_prewarm(self, chat_id: str) -> None:
+        """Abort an in-flight pre-warm and clear its partial model.
+
+        Args:
+            chat_id: The chat whose pre-warm should stop.
+        """
+        if chat_id not in self._prewarm_chats:
+            return
+        self._prewarm_tokens[chat_id] = self._prewarm_tokens.get(chat_id, 0) + 1
+        self._prewarm_chats.discard(chat_id)
+        future = self._prewarm_futures.pop(chat_id, None)
+        if future is not None and not future.done():
+            future.set_result(None)
+        model = self._models.get(chat_id)
+        if model is not None:
+            model.set_items([], [])
+
+    async def _apply_plan_prewarm(
+        self,
+        chat_id: str,
+        model: ChatListModel,
+        items: list[dict],
+        keys: list[str],
+        token: int,
+    ) -> None:
+        """Apply a pre-warm plan in background batches without an overlay.
+
+        Args:
+            chat_id: The chat being pre-rendered.
+            model: The model receiving rows.
+            items: Role-keyed rows.
+            keys: Per-row identity keys.
+            token: The pre-warm token; a newer plan supersedes this one.
+        """
+        if self._prewarm_tokens.get(chat_id) != token:
+            return
+        model.set_items([], [])
+        total = len(items)
+        index = 0
+        while index < total:
+            if self._prewarm_tokens.get(chat_id) != token:
+                return
+            end = min(index + _PREWARM_INSERT_BATCH, total)
+            model.append_items(items[index:end], keys[index:end])
+            index = end
+            if index < total:
+                await asyncio.sleep(_PREWARM_TICK)
+        if self._prewarm_tokens.get(chat_id) != token:
+            return
+        self._rendered_chats.add(chat_id)
+        future = self._prewarm_futures.get(chat_id)
+        if future is not None and not future.done():
+            future.set_result(None)
 
     # ------------------------------------------------------------------
     #  Slot: Chat activated / switch started
@@ -513,7 +678,9 @@ class ChatController(QObject):
         """
         if not chat_id:
             return
-        self._set_loading(chat_id, True)
+        self._cancel_prewarm(chat_id)
+        if self._model_needs_build(chat_id):
+            self._set_loading(chat_id, True)
 
     @Slot(str)
     def _handle_chat_activated(self, chat_id: str) -> None:
@@ -527,9 +694,11 @@ class ChatController(QObject):
             self._set_approval_visible(False)
             self.active_model_changed.emit()
             return
+        self._cancel_prewarm(chat_id)
         self.model_for(chat_id)
         self.active_model_changed.emit()
-        self._set_loading(chat_id, True)
+        if self._model_needs_build(chat_id):
+            self._set_loading(chat_id, True)
         generation = self._switch_generations.get(chat_id, 0) + 1
         self._switch_generations[chat_id] = generation
         self._spawn(self._activate_async(chat_id, generation))
@@ -550,7 +719,6 @@ class ChatController(QObject):
             return
         worker = self.attach_worker(chat_id, agent)
         worker.set_visible(True)
-        worker.request_rebuild()
         if self._is_visible(chat_id):
             self.chat_state_changed.emit(chat_id)
 
@@ -701,12 +869,25 @@ class ChatController(QObject):
         state = self.session.state(chat_id)
         items = getattr(plan, "items", [])
         keys = getattr(plan, "keys", [])
-        if state.is_loading:
+        if chat_id in self._prewarm_chats:
+            token = self._prewarm_tokens.get(chat_id, 0) + 1
+            self._prewarm_tokens[chat_id] = token
+            self._spawn(self._apply_plan_prewarm(chat_id, model, items, keys, token))
+            if self._is_visible(chat_id):
+                self._update_token_bar(chat_id, state)
+            return
+        divergence = model.find_divergence(keys)
+        if divergence < 0:
+            self._rendered_chats.add(chat_id)
+            self._set_loading(chat_id, False)
+        elif state.is_loading and (model.count() == 0 or chat_id in self._staged_tokens):
             token = self._staged_tokens.get(chat_id, 0) + 1
             self._staged_tokens[chat_id] = token
             self._spawn(self._apply_plan_staged(chat_id, model, items, keys, token))
         else:
-            model.diff_update(items, keys)
+            model.merge_items(items, keys)
+            self._rendered_chats.add(chat_id)
+            self._set_loading(chat_id, False)
         if self._is_visible(chat_id):
             self._update_token_bar(chat_id, state)
 
@@ -741,6 +922,8 @@ class ChatController(QObject):
             if index < total:
                 await asyncio.sleep(tick)
         if self._staged_tokens.get(chat_id) == token:
+            self._staged_tokens.pop(chat_id, None)
+            self._rendered_chats.add(chat_id)
             self._set_loading(chat_id, False)
 
     @Slot(str, object)
@@ -806,6 +989,7 @@ class ChatController(QObject):
         if state.generation_id == gen_id:
             state.is_busy = False
             state.reset_turn()
+        self.session.mark_chat_updated(chat_id)
         self._refresh_sidebar()
         self.chat_state_changed.emit(chat_id)
         if self._is_visible(chat_id):

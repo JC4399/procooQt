@@ -408,7 +408,7 @@ class SubAgentManager:
         Returns:
             The last error brief, or an empty string on success.
         """
-        task = asyncio.ensure_future(agent.run(record.spec.prompt))
+        task = asyncio.ensure_future(agent.run(record.spec.prompt, record.spec.images))
         error_message = ""
         try:
             while not task.done() or not agent.event_queue.empty():
