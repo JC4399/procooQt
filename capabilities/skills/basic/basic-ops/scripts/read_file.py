@@ -1778,8 +1778,49 @@ async def _read(
         )
 
 
+def _repair_mojibake(path: str) -> str:
+    """Undo a UTF-8 -> single-byte-codepage mojibake round-trip on a path.
+
+    A non-ASCII path can reach this process already mangled: its UTF-8 bytes
+    decoded as cp1252/cp932, so ``台本`` arrives as ``å\\udc8f°æœ¬`` and every
+    lookup fails with "File not found". Only substitute when the original path
+    does not exist and the repaired one does, so genuine paths are never touched.
+
+    Args:
+        path: Path string as received.
+
+    Returns:
+        The path to use — the original, or the repaired one if that exists.
+    """
+    try:
+        if Path(path).exists():
+            return path
+    except (OSError, ValueError):
+        pass
+    for enc in ("cp1252", "latin-1", "cp932"):
+        try:
+            cand = path.encode(enc, "surrogatepass").decode("utf-8")
+        except (UnicodeError, LookupError):
+            continue
+        if cand != path:
+            try:
+                if Path(cand).exists():
+                    return cand
+            except (OSError, ValueError):
+                pass
+    return path
+
+
 if __name__ == "__main__":
-    args = json.loads(sys.stdin.read())
+    raw = sys.stdin.buffer.read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("utf-8", "surrogateescape")
+    args = json.loads(text)
+    for key in ("file_path", "output_dir"):
+        if isinstance(args.get(key), str):
+            args[key] = _repair_mojibake(args[key])
     result = asyncio.run(run(**{k: v for k, v in args.items() if v is not None}))
-    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
     print(result)
