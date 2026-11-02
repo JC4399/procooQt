@@ -70,7 +70,7 @@ binds each delegate from the `ChatListModel` roles (`kind`, `title`,
 and signals with `model.kind !== "context_banner"`: the `bodyTailHtml` binding is
 skipped, and the `Connections` target is nulled for banners so the
 `deleteRequested` / `regenerateRequested` / `caretMoved` handlers are not
-attached. `EditorChatPanel.qml` mirrors the same guards.
+attached.
 
 `CardBase` carries two header actions driven by `msgIndex` (the source message
 index, `-1` for derived cards): a delete icon on every message card
@@ -143,7 +143,7 @@ prefix.
 (the hosting `Flickable`, bound by the panel) and re-emits
 `caretMoved(contentY, height)` from `onCursorRectangleChanged` while focused (the
 caret rectangle is mapped into the flickable's `contentItem`). `ChatPanel.qml`
-and `EditorChatPanel.qml` connect `caretMoved` to a `chatList.ensureVisible(y, h)`
+connects `caretMoved` to a `chatList.ensureVisible(y, h)`
 helper that nudges `contentY` only when the caret would be clipped, keeping the
 caret on screen — but only while auto-scroll is off. Auto-scroll has higher
 priority: while it is on, `CardBase.caretEnabled` is bound to

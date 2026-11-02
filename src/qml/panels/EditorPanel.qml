@@ -229,15 +229,6 @@ SplitView {
     }
 
     // --------------------------------------------------------------
-    //  Chat pane (right)
-    // --------------------------------------------------------------
-    EditorChatPanel {
-        id: editorChatPane
-        SplitView.preferredWidth: 360
-        SplitView.minimumWidth: 220
-    }
-
-    // --------------------------------------------------------------
     //  Conflict dialog (deleted / externally modified file)
     // --------------------------------------------------------------
     Dialog {

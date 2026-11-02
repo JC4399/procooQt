@@ -26,7 +26,6 @@
 │    ChatController     → ChatListModel per chat, streaming, approval          │
 │    SkillController    → SkillTreeModel, ToolModeModel, presets, watcher      │
 │    EditorController   → FileTreeModel, CodeHighlighter                       │
-│    EditorChatController → full chat beside the editor (via ChatController)   │
 │    AutomationController → AutomationListModel + scheduler + event server     │
 │    SubAgentController → local sub-agent HTTP server (backend only)           │
 │    NotificationController → notification model, badges, history              │
@@ -40,7 +39,7 @@
 │    components/ TitleBar · SessionSelector · ChatTabBar · SkillDock ·          │
 │                ConfigTokenBar · ApprovalBar · PresetBar · ToastHost ·         │
 │                CardBodyText · KnightRiderSpinner · …                          │
-│    panels/     SplitWorkspace · ChatPanel · EditorPanel · EditorChatPanel ·   │
+│    panels/     SplitWorkspace · ChatPanel · EditorPanel ·                     │
 │                AutomationPanel · NotificationPanel                            │
 │    cards/      User · Thinking · Response · ToolCall · ToolResult ·          │
 │                ContextBanner · CardBase · AutomationCard · NotificationCard   │

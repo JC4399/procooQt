@@ -19,7 +19,7 @@ Related: [`chat-worker`](chat-worker.md), [`chat-render`](chat-render.md), [`qt-
 - Per-chat `ChatListModel` cache; the active chat is exposed to a panel through
   [`ChatPanelModel`](qt-chat-panel-model.md).
 - `attach_worker(chat_id, agent)` — ensure a worker exists and wire its signals.
-- `set_visible_chats(ids)` / `add_visible_chat` / `remove_visible_chat`.
+- `set_visible_chats(ids)` — record which chats are shown in a panel.
 - `prepare_rebuild(chat_id)` — for a **cold** model only, sets the loading
   overlay and blanks it synchronously. A populated model is left intact.
 - `rebuild_chat_display(chat_id)` — `prepare_rebuild` + `worker.request_rebuild()`
@@ -151,7 +151,6 @@ left showing.
 | `def build(self)` | — | `None` | reset caches | — |
 | `def shutdown(self)` | — | `None` | `stop_all_workers()` | joins threads |
 | `def set_visible_chats(self, chat_ids)` | ids | `None` | push visibility to workers | — |
-| `def add_visible_chat(self, chat_id)` / `remove_visible_chat` | chat | `None` | always-visible set | — |
 | `def _is_visible(self, chat_id)` | chat | bool | visible set check | — |
 | `def model_for(self, chat_id)` | chat | `ChatListModel` | create on demand | inserts into `_models` |
 | `def attach_worker(self, chat_id, agent)` | chat, agent | `ChatWorker` | ensure + connect signals + set visibility | starts a thread |

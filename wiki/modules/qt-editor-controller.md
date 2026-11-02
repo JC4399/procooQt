@@ -8,10 +8,7 @@ Drives the separate code editor window (`src/qml/windows/EditorWindow.qml`, whic
 hosts `EditorPanel.qml`): a read-only code editor backed by a QML `TextArea`, a
 collapsible file tree rooted at the **capabilities directory** (left of the code
 pane) with a fuzzy search field above it, and Edit/Save/Cancel/Reload actions. It
-also attaches a `QSyntaxHighlighter` to the `TextArea`'s text document. The
-window's right side hosts the full [editor chat panel](qt-editor-chat-controller.md)
-(`EditorChatPanel.qml`), a real chat driven by
-[`ChatController`](qt-chat-controller.md).
+also attaches a `QSyntaxHighlighter` to the `TextArea`'s text document.
 
 While the window is showing, the skill watcher keeps the tree and the open file
 in sync with disk. A deleted or externally modified open file raises
@@ -153,11 +150,10 @@ instantiated by [`qt-window-manager`](qt-window-manager.md) via
 `windows.show_editor()` (the "Open Editor" button in `SkillDock.qml`, or when
 `editor_open_requested` fires); it reports visibility via
 `editor._handle_window_visibility(visible)`. `EditorPanel.qml` is a `SplitView`
-placing the file tree pane (fuzzy search field + tree) on the left, the code pane
-in the middle, and the [editor chat panel](qt-editor-chat-controller.md) on the
-right, and renders `file_conflict` as a themed modal `Dialog` (mono font,
-`fontSizeBase` = 12, square surfaces) whose buttons call `_handle_conflict_keep`
-/ `_handle_conflict_discard`.
+placing the file tree pane (fuzzy search field + tree) on the left and the code
+pane on the right, and renders `file_conflict` as a themed modal `Dialog` (mono
+font, `fontSizeBase` = 12, square surfaces) whose buttons call
+`_handle_conflict_keep` / `_handle_conflict_discard`.
 
 ### Highlighter bridge (`attachHighlighter`)
 

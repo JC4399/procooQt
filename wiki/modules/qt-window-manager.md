@@ -102,8 +102,8 @@ children and are collected with it).
    `_show_tool_window`.
 2. On first call the window does not exist: `_create_tool_window` instantiates it
    with `QQmlComponent(engine, path).create()` on the engine root context
-   (`editor`, `editorChat`, `toasts`, `Theme`, `notification` resolve from root
-   context properties), casts it to `QWindow`, and emits `windows_changed`.
+   (`editor`, `toasts`, `Theme`, `notification` resolve from root context
+   properties), casts it to `QWindow`, and emits `windows_changed`.
 3. `show()` + `requestActivate()` the window. Closing it only hides it (the QML
    `Window` stays cached), so a later request re-shows the same instance.
 

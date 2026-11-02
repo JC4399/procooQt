@@ -92,7 +92,6 @@ class ChatController(QObject):
         _models: dict[str, ChatListModel]
         _tasks: set[asyncio.Task[Any]]
         _visible_chat_ids: set[str]
-        _extra_visible_chats: set[str]
         _prewarm_chats: set[str]
         _prewarm_tokens: dict[str, int]
         _prewarm_futures: dict[str, asyncio.Future[None]]
@@ -124,7 +123,6 @@ class ChatController(QObject):
         self._models = {}
         self._tasks = set()
         self._visible_chat_ids = set()
-        self._extra_visible_chats = set()
         self._connected_workers: dict[str, ChatWorker] = {}
         self._switch_generations: dict[str, int] = {}
         self._staged_tokens: dict[str, int] = {}
@@ -146,7 +144,6 @@ class ChatController(QObject):
         """Reset the per-chat model cache."""
         self._models = {}
         self._visible_chat_ids = set()
-        self._extra_visible_chats = set()
         self._connected_workers = {}
         self._switch_generations = {}
         self._prewarm_chats = set()
@@ -175,26 +172,6 @@ class ChatController(QObject):
         for chat_id, worker in self._connected_workers.items():
             worker.set_visible(self._is_visible(chat_id))
 
-    def add_visible_chat(self, chat_id: str) -> None:
-        """Mark a chat as always visible outside the workspace panels.
-
-        Args:
-            chat_id: The chat id to keep visible.
-        """
-        if chat_id:
-            self._extra_visible_chats.add(chat_id)
-            worker = self._connected_workers.get(chat_id)
-            if worker:
-                worker.set_visible(True)
-
-    def remove_visible_chat(self, chat_id: str) -> None:
-        """Stop treating a chat as always visible.
-
-        Args:
-            chat_id: The chat id to drop.
-        """
-        self._extra_visible_chats.discard(chat_id)
-
     def _is_visible(self, chat_id: str) -> bool:
         """Return whether a chat is currently shown.
 
@@ -202,9 +179,9 @@ class ChatController(QObject):
             chat_id: The chat id to test.
 
         Returns:
-            ``True`` if the chat is in a visible panel or an always-visible chat.
+            ``True`` if the chat is in a visible panel.
         """
-        return chat_id in self._visible_chat_ids or chat_id in self._extra_visible_chats
+        return chat_id in self._visible_chat_ids
 
     # ------------------------------------------------------------------
     #  Properties
