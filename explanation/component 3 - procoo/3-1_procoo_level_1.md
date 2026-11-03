@@ -451,3 +451,29 @@ A local control server on port 12841 lets Obsidian open Procoo sessions. A marke
 Use it to link your notes to your agent work: write a note, mark the relevant span, and open the session that has been working on it.
 
 這個功能讓筆記與代理人的工作得以串接：撰寫一篇筆記、標記相關片段、然後開啟一直在處理該內容的工作階段，即可在筆記與對話之間自由切換。
+
+---
+
+## 5. The config file — 設定檔
+
+All settings live in `config/config.yaml` (copy the committed template `config/config_template.yaml` to get started; the real file is gitignored).
+
+所有設定集中在 `config/config.yaml`（複製版本庫中的範本 `config/config_template.yaml` 即可開始使用；實際檔案已列入 `.gitignore`）。
+
+| Section | What it sets |
+|---|---|
+| `llm` | model entries for the dropdown; one has `default: true` |
+| `paths` | where skills, automations, and chat data live |
+| `limits` | byte / token ceiling that triggers auto-summarisation |
+| `agent` | base system prompt + summary prompt |
+| `server` / `control_server` / `subagent` | local HTTP server ports and API keys |
+| `basic_ops` | service URLs called by `read_file` and `access_db` (OCR, semantic search) |
+
+| 區段 | 用途 |
+|---|---|
+| `llm` | 下拉選單中的模型清單；其中一個設為 `default: true` |
+| `paths` | 技能、自動化與對話資料的存放路徑 |
+| `limits` | 觸發自動摘要的位元組／token 上限 |
+| `agent` | 基礎系統提示詞與摘要提示詞 |
+| `server` / `control_server` / `subagent` | 本機 HTTP 伺服器端口與 API 金鑰 |
+| `basic_ops` | `read_file` 與 `access_db` 所呼叫的外部服務網址（文字辨識、語意檢索） |
