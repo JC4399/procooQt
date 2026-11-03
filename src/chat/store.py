@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+import shutil
 import threading
 import time
 import uuid
+
+from .media import safe_media_name
 
 logger = logging.getLogger("procoo_qt")
 
@@ -30,8 +33,12 @@ class ChatStore:
         self.storage_dir = Path(storage_dir)
         self.chats_dir = self.storage_dir / "chats"
         self.chats_dir.mkdir(parents=True, exist_ok=True)
+        self.media_dir = self.storage_dir / "media"
         self._sessions_path = self.storage_dir / "sessions.json"
         self._sessions_lock = threading.RLock()
+        self._index_path = self.storage_dir / "chat_index.json"
+        self._index_lock = threading.RLock()
+        self._index: dict[str, dict] | None = None
         self._ensure_session_ids()
 
     def save_chat(self, chat_id: str, data: dict) -> None:
@@ -50,6 +57,7 @@ class ChatStore:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, default=str)
         tmp.replace(path)
+        self._update_index_entry(chat_id, data)
 
     def load_chat(self, chat_id: str) -> dict | None:
         """Load a previously saved chat.
@@ -122,17 +130,157 @@ class ChatStore:
 
     def list_chats(self) -> list[dict]:
         """Return summary metadata for all saved chats, newest first."""
-        return [
-            {
-                "id": data.get("id", ""),
-                "session": data.get("session"),
-                "skills": data.get("skills", []),
-                "created_at": data.get("created_at", ""),
-                "updated_at": data.get("updated_at", ""),
-                "message_count": data.get("message_count", 0),
-            }
-            for data in self.load_all_chats()
-        ]
+        return self.load_summaries()
+
+    # ------------------------------------------------------------------
+    #  Chat summary index
+    # ------------------------------------------------------------------
+
+    def load_summaries(self) -> list[dict]:
+        """Return lightweight chat summaries without parsing every chat file.
+
+        The index is rebuilt from the chat files when missing and reconciled
+        against the directory when present, so externally added or removed chats
+        are still picked up.
+
+        Returns:
+            Summary dicts, newest first.
+        """
+        with self._index_lock:
+            index = self._ensure_index()
+            return sorted(index.values(), key=lambda row: str(row.get("id", "")), reverse=True)
+
+    def _ensure_index(self) -> dict[str, dict]:
+        """Return the in-memory index, loading or rebuilding it if needed."""
+        if self._index is None:
+            self._index = self._read_index()
+        if self._index is None:
+            self._index = self._rebuild_index()
+        else:
+            self._reconcile_index(self._index)
+        return self._index
+
+    def _read_index(self) -> dict[str, dict] | None:
+        """Read ``chat_index.json``, or return ``None`` when missing/corrupt."""
+        if not self._index_path.exists():
+            return None
+        try:
+            with open(self._index_path, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as error:
+            logger.error("Failed to read chat index: %s", error)
+            return None
+        rows = data.get("chats", []) if isinstance(data, dict) else []
+        if not isinstance(rows, list):
+            return None
+        return {str(row["id"]): row for row in rows if isinstance(row, dict) and row.get("id")}
+
+    def _rebuild_index(self) -> dict[str, dict]:
+        """Parse every chat file once and persist a fresh index."""
+        index: dict[str, dict] = {}
+        for data in self.load_all_chats():
+            chat_id = str(data.get("id", ""))
+            if chat_id:
+                index[chat_id] = self._summary_from_data(chat_id, data)
+        self._write_index(index)
+        return index
+
+    def _reconcile_index(self, index: dict[str, dict]) -> None:
+        """Add chats missing from the index and drop entries with no file."""
+        disk_ids = {path.stem for path in self.chats_dir.glob("*.json")}
+        changed = False
+        for chat_id in list(index):
+            if chat_id not in disk_ids:
+                del index[chat_id]
+                changed = True
+        for chat_id in disk_ids - set(index):
+            try:
+                data = self.load_chat(chat_id)
+            except Exception as error:
+                logger.error("Corrupt chat file %s: %s", chat_id, error)
+                continue
+            if data is not None:
+                index[chat_id] = self._summary_from_data(chat_id, data)
+                changed = True
+        if changed:
+            self._write_index(index)
+
+    def _update_index_entry(self, chat_id: str, data: dict) -> None:
+        """Insert or replace one chat's summary in the on-disk index."""
+        with self._index_lock:
+            if self._index is None:
+                self._index = self._read_index() or {}
+            self._index[chat_id] = self._summary_from_data(chat_id, data)
+            self._write_index(self._index)
+
+    def _remove_index_entries(self, chat_ids: list[str]) -> None:
+        """Remove several chats from the on-disk index."""
+        if not chat_ids:
+            return
+        with self._index_lock:
+            if self._index is None:
+                self._index = self._read_index() or {}
+            changed = False
+            for chat_id in chat_ids:
+                if self._index.pop(chat_id, None) is not None:
+                    changed = True
+            if changed:
+                self._write_index(self._index)
+
+    def _write_index(self, index: dict[str, dict]) -> None:
+        """Atomically persist the chat summary index."""
+        tmp = self._index_path.parent / (self._index_path.name + ".tmp")
+        rows = sorted(index.values(), key=lambda row: str(row.get("id", "")), reverse=True)
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"chats": rows}, f, indent=2, default=str)
+        tmp.replace(self._index_path)
+
+    @staticmethod
+    def _message_text(content: object) -> str:
+        """Extract display text from a string or multimodal content list."""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = [
+                str(part.get("text", ""))
+                for part in content
+                if isinstance(part, dict) and part.get("type") == "text"
+            ]
+            return "\n".join(parts)
+        return str(content)
+
+    @classmethod
+    def _summary_from_data(cls, chat_id: str, data: dict) -> dict:
+        """Build one index row from a full stored chat dict."""
+        skills_config = data.get("skills_config") or {}
+        tools = skills_config.get("tools") or {}
+        messages = data.get("messages") or []
+        title = ""
+        for message in messages:
+            if message.get("role") != "user":
+                continue
+            text = cls._message_text(message.get("content", "")).strip()
+            if text:
+                title = text.replace("\n", " ")
+                title = title[:30] + ("..." if len(title) > 30 else "")
+                break
+        return {
+            "id": chat_id,
+            "session": data.get("session"),
+            "skills": data.get("skills", []),
+            "created_at": data.get("created_at", ""),
+            "updated_at": data.get("updated_at", ""),
+            "message_count": int(data.get("message_count", len(messages)) or 0),
+            "model_name": data.get("model_name", ""),
+            "true_input_tokens": int(data.get("true_input_tokens", 0) or 0),
+            "true_output_cum": int(data.get("true_output_cum", 0) or 0),
+            "title": title or chat_id[:15],
+            "has_messages": bool(messages),
+            "activated_count": len(skills_config.get("activated", []) or []),
+            "allow_count": sum(1 for mode in tools.values() if mode == "allow"),
+            "ask_count": sum(1 for mode in tools.values() if mode == "ask"),
+            "block_count": sum(1 for mode in tools.values() if mode == "block"),
+        }
 
     def delete_chat(self, chat_id: str) -> None:
         """Remove a chat file from disk if it exists.
@@ -143,6 +291,18 @@ class ChatStore:
         path = self.chats_dir / f"{chat_id}.json"
         if path.exists():
             path.unlink()
+        self._delete_media(chat_id)
+        self._remove_index_entries([chat_id])
+
+    def _delete_media(self, chat_id: str) -> None:
+        """Remove a chat's disk-backed media folder if it exists.
+
+        Args:
+            chat_id: Chat identifier whose media should be removed.
+        """
+        folder = self.media_dir / safe_media_name(chat_id)
+        if folder.is_dir():
+            shutil.rmtree(folder, ignore_errors=True)
 
     # ------------------------------------------------------------------
     #  Session storage
@@ -330,6 +490,9 @@ class ChatStore:
             if data.get("session") == name:
                 fpath.unlink()
                 affected.append(fpath.stem)
+        for chat_id in affected:
+            self._delete_media(chat_id)
+        self._remove_index_entries(affected)
         return affected
 
     def set_chat_session(self, chat_id: str, session_name: str | None) -> None:
@@ -342,3 +505,4 @@ class ChatStore:
         data["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, default=str)
+        self._update_index_entry(chat_id, data)

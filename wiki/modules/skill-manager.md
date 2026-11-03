@@ -13,7 +13,8 @@ live changes.
 
 - `skills` (`list[SkillInfo]`), `skill_paths`, `all_tools` (`list[ToolInfo]`),
   `tool_names`.
-- `load_skill_content(s)` / `load_skill_contents(paths)` (full content).
+- `load_skill_content(s)` / `load_skill_contents(paths)` (full content, cached by
+  path + `SKILL.md` mtime).
 - `scan_tools` / `scan_all_tools` (cached tool discovery).
 - `load_tool_functions(selected_skills)` — OpenAI-compatible tool defs with
   inferred JSON Schema.
@@ -73,7 +74,7 @@ A directory with no `SKILL.md` is treated as a grouping folder.
 | Function | Signature | Purpose |
 |---|---|---|
 | `discover_skills` | `() -> list[SkillInfo]` | scan for `SKILL.md` |
-| `load_skill_content` | `(skill_path: str) -> SkillContent \| None` | full content of one skill |
+| `load_skill_content` | `(skill_path: str) -> SkillContent \| None` | full content of one skill; cached by path + mtime |
 | `load_skill_contents` | `(skill_paths: list[str]) -> list[dict]` | dump many skills |
 | `scan_tools` | `(skill_path: str) -> list[ToolInfo]` | cached tool scan |
 | `scan_all_tools` | `() -> list[ToolInfo]` | all tools across skills |

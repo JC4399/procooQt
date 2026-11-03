@@ -65,7 +65,8 @@ transient parent) and cached; any window requests them through
 3. Re-parent the controllers to the window so they are destroyed with it.
 4. Connect `QQuickWindow.closing` to `_on_window_closing`.
 5. `session.open_session(name)` and `skill.start()` (registers the window's skill
-   watcher callback).
+   watcher callback). Secondary windows have `prewarm_enabled = False`, so opening
+   a window does not duplicate transcript pre-warming.
 6. `native_frame.install(qt_app, window)`, store the record, `show()` + activate.
 
 ### `create_session(name, session_id)`
@@ -93,8 +94,11 @@ transient parent) and cached; any window requests them through
 
 ### `_on_window_closing(name)`
 
-Pops the record and calls `deleteLater()` on the window (the controllers are its
-children and are collected with it).
+Pops the record, calls `record.chat.shutdown_window()` to stop that window's
+workers and drop its agents/models, then calls `deleteLater()` on the window (the
+controllers are its children and are collected with it). `close_session` and
+`delete_session` call `shutdown_window()` directly before closing because they
+pop the record first.
 
 ### `show_editor()` / `show_history()`
 
@@ -125,7 +129,7 @@ children and are collected with it).
 | `def _show_tool_window(self, record, qml_path) -> ToolWindowRecord \| None` | cached record or `None`; QML path | shown record or `None` | create if missing → `show`/`requestActivate` | May create a window; emits `windows_changed` |
 | `def _create_tool_window(self, qml_path) -> ToolWindowRecord \| None` | QML path | new record or `None` | `QQmlComponent.create()` on root context | Creates a QObject tree |
 | `def _find_window(self, name) -> WindowRecord \| None` | session name | record or `None` | secondary registry then primary | — |
-| `def _on_window_closing(self, name) -> None` | session name | `None` | drop record + `deleteLater` | Emits `windows_changed` |
+| `def _on_window_closing(self, name) -> None` | session name | `None` | shutdown window chats → drop record + `deleteLater` | Emits `windows_changed` |
 | `@staticmethod def _focus(record) -> None` | record | `None` | `show` / `requestActivate` / `raise_` | — |
 | `def _unique_name(self, base) -> str` | base name | unique name | suffix while colliding | — |
 

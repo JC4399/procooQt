@@ -6,13 +6,21 @@ Source: `src/chat/store.py`
 
 JSON-backed CRUD store for chat files and session records. Each chat is a single
 JSON file under `storage/chats/`; sessions (names + split layout) live in
-`storage/sessions.json`. `DEFAULT_SESSION_NAME = "Default"` is created on first
+`storage/sessions.json`; a lightweight summary index lives in
+`storage/chat_index.json`; disk-backed multimodal media lives under
+`storage/media/<chat_id>/`. `DEFAULT_SESSION_NAME = "Default"` is created on first
 run.
+
+Related: [`chat-media`](chat-media.md), [`chat-worker`](chat-worker.md).
 
 ## Deliverables
 
 - Chat persistence: `save_chat`, `load_chat`, `load_all_chats`, `list_chats`,
   `list_chat_ids`, `delete_chat`.
+- Chat summary index: `load_summaries` plus the private rebuild/reconcile/update
+  helpers, so the sidebar does not parse every full chat file.
+- Media cleanup: `delete_chat` / `delete_session` remove the chat's
+  `storage/media/<chat_id>/` folder.
 - Session management: `list_sessions`, `list_session_records`, `get_session`,
   `get_session_by_id`, `session_id_for`, `get_layout`, `set_layout`,
   `create_session`, `ensure_default_session`, `delete_session`,
@@ -62,6 +70,37 @@ The `id` is a stable UUID used as the external identity of a session (e.g. by
 the control server and the Obsidian plugin). Records written before this field
 existed are backfilled in `ChatStore.__init__` via `_ensure_session_ids`.
 
+## `chat_index.json` shape
+
+```json
+{
+  "chats": [
+    {
+      "id": "20240101_120000",
+      "session": "Default",
+      "skills": [],
+      "created_at": "...",
+      "updated_at": "...",
+      "message_count": 12,
+      "model_name": "qwen3.8-27b",
+      "true_input_tokens": 1234,
+      "true_output_cum": 5678,
+      "title": "first user message...",
+      "has_messages": true,
+      "activated_count": 2,
+      "allow_count": 3,
+      "ask_count": 1,
+      "block_count": 0
+    }
+  ]
+}
+```
+
+`save_chat` updates the entry for its chat; `delete_chat` / `delete_session`
+remove entries. `load_summaries` rebuilds the index from the chat files when it
+is missing and reconciles it against the `chats/` directory when present, so
+externally added or removed chats are still picked up.
+
 ## Function Reference
 
 ### `ChatStore.__init__`
@@ -71,7 +110,7 @@ existed are backfilled in `ChatStore.__init__` via `_ensure_session_ids`.
 | Signature | `def __init__(self, storage_dir: str) -> None` |
 | Inputs | `storage_dir` — root storage path (`chats/` subdir used). |
 | Output | `None` |
-| Side effects | creates `chats/` dir; points `_sessions_path` at `sessions.json`; creates the session-write `threading.RLock`; backfills session ids via `_ensure_session_ids`. |
+| Side effects | creates `chats/` dir; points `_sessions_path` at `sessions.json`; points `_index_path` at `chat_index.json`; sets `media_dir` to `storage/media`; creates session/index locks; backfills session ids via `_ensure_session_ids`. |
 
 ### `save_chat`
 
@@ -79,7 +118,7 @@ existed are backfilled in `ChatStore.__init__` via `_ensure_session_ids`.
 |---|---|
 | Signature | `def save_chat(self, chat_id: str, data: dict) -> None` |
 | Output | `None` |
-| Side effects | sets `updated_at`, writes `<id>.json` (indent 2) **atomically** (`<id>.json.tmp` + `replace`), so a concurrent worker-thread reader never sees a partial file. |
+| Side effects | sets `updated_at`, writes `<id>.json` (indent 2) **atomically** (`<id>.json.tmp` + `replace`), so a concurrent worker-thread reader never sees a partial file; updates the chat's `chat_index.json` entry. |
 
 ### `load_chat`
 
@@ -101,7 +140,15 @@ existed are backfilled in `ChatStore.__init__` via `_ensure_session_ids`.
 | | |
 |---|---|
 | Signature | `def list_chats(self) -> list[dict]` |
-| Output | summary dicts (`id`, `session`, `skills`, `created_at`, `updated_at`, `message_count`), newest first. |
+| Output | summary dicts from `load_summaries()` (index rows), newest first. |
+
+### `load_summaries`
+
+| | |
+|---|---|
+| Signature | `def load_summaries(self) -> list[dict]` |
+| Output | lightweight summary rows (`id`, `session`, `skills`, timestamps, `message_count`, `model_name`, token counts, `title`, `has_messages`, skill/tool counts), newest first. |
+| Side effects | loads `chat_index.json`; rebuilds it from chat files when missing; reconciles it against `chats/*.json` when present. |
 
 ### `list_chat_ids`
 
@@ -116,6 +163,7 @@ existed are backfilled in `ChatStore.__init__` via `_ensure_session_ids`.
 |---|---|
 | Signature | `def delete_chat(self, chat_id: str) -> None` |
 | Output | `None` (safe if missing). |
+| Side effects | removes `<id>.json`, `storage/media/<id>/`, and the index entry. |
 
 ### Session methods
 

@@ -168,6 +168,7 @@ class ProcooQtUI(QObject):
         session = SessionController(self.app, self.session_bus, self)
         chat = ChatController(self.app, self)
         skill = SkillController(self.app, self)
+        session.prewarm_enabled = False
         self._wire_window(session, chat, skill)
         session.build()
         chat.build()

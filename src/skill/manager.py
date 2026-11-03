@@ -38,6 +38,7 @@ class SkillManager:
         self.skills_dir = Path(skills_dir)
         self._tool_cache: dict[str, list[ToolInfo]] = {}
         self._schema_cache: dict[str, dict] = {}
+        self._content_cache: dict[str, tuple[float, SkillContent]] = {}
         self._validation_issues: list[ValidationIssue] = []
         self._watcher_observer: Any | None = None
         self._watcher_thread: threading.Thread | None = None
@@ -182,6 +183,15 @@ class SkillManager:
         skill_md = entry / "SKILL.md"
 
         try:
+            mtime = skill_md.stat().st_mtime
+        except OSError as e:
+            logger.error("Failed to stat SKILL.md for skill '%s': %s", skill_path, e)
+            return None
+        cached = self._content_cache.get(skill_path)
+        if cached is not None and cached[0] == mtime:
+            return cached[1]
+
+        try:
             with open(skill_md, encoding="utf-8") as f:
                 post = frontmatter.load(f)
         except Exception as e:
@@ -195,13 +205,15 @@ class SkillManager:
         scripts_dir = entry / "scripts"
         scripts = sorted([p.name for p in scripts_dir.iterdir()]) if scripts_dir.is_dir() else []
 
-        return SkillContent(
+        content = SkillContent(
             name=name,
             path=skill_path,
             description=description,
             instructions=instructions,
             scripts=scripts,
         )
+        self._content_cache[skill_path] = (mtime, content)
+        return content
 
     def load_skill_contents(self, skill_paths: list[str]) -> list[dict]:
         """Load full content for a list of skill paths.
@@ -738,6 +750,7 @@ class SkillManager:
         """
         self._tool_cache.clear()
         self._schema_cache.clear()
+        self._content_cache.clear()
         self._validation_issues.clear()
 
         self.skills = self.discover_skills()

@@ -40,7 +40,8 @@ approval, cannot open a chat window, and cannot spawn further sub-agents.
 5. Validate each selected tool mode (`allow` or `block`; `ask` is unavailable).
 6. Create a queued record and call `_execute`, which runs behind the concurrency
    semaphore and builds the temporary `Agent` with
-   `tool_env={"PROCOO_SUBAGENT_DEPTH": "1", "PROCOO_SUBAGENT_ID": id}`.
+   `tool_env={"PROCOO_SUBAGENT_DEPTH": "1", "PROCOO_SUBAGENT_ID": id}` and the
+   app's storage media directory.
 
 ### Execute (`SubAgentManager._execute`)
 

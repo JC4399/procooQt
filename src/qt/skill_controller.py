@@ -3,7 +3,7 @@
 Owns the skill tree and tool-mode models: the right sidebar's activated checkboxes,
 per-tool allow/ask/block modes, preset load/save/delete, search filtering,
 the active-config chip bar, and the config-sync flow that pushes selections to the
-live chat and appends a delta context banner.
+live chat. The chat worker owns the skill-update banner lifecycle.
 
 The skill watcher runs on a ``watchdog`` background thread. Its callback only emits
 :attr:`skill_files_changed`; the connected slot runs queued on the GUI thread and
@@ -27,8 +27,7 @@ from ..util.log.formatter import (
     format_skill_change,
     format_tool_change,
 )
-from .chat_worker import ChatWorker, get_worker
-from .context_banner import build_delta_context_sections
+from .chat_worker import get_worker
 from .error_handler import TOAST_ERROR, TOAST_INFO, TOAST_WARNING
 from .models.skill_tree_model import SkillTreeModel
 from .models.tool_mode_model import ToolModeModel
@@ -84,6 +83,7 @@ class SkillController(QObject):
         _preset_name: str
         _loading_chat_config: bool
         _sidebar_chat_id: str
+        _sync_generation: int
         _tasks: set[asyncio.Task[Any]]
 
         # Attributes provided by other controllers (composition)
@@ -108,7 +108,7 @@ class SkillController(QObject):
         super().__init__(parent)
         self.app = app
         self._tasks: set[asyncio.Task[Any]] = set()
-        self._pending_config: dict[str, tuple] = {}
+        self._sync_generation = 0
 
     # ------------------------------------------------------------------
     #  Builder
@@ -455,7 +455,8 @@ class SkillController(QObject):
 
     def _schedule_sync(self) -> None:
         """Schedule the config-sync coroutine on the running event loop."""
-        self._spawn(self._sync_config_to_chat())
+        self._sync_generation += 1
+        self._spawn(self._sync_config_to_chat(self._sync_generation))
 
     def _spawn(self, coro: Coroutine[Any, Any, Any]) -> None:
         """Schedule a coroutine and keep a reference until it completes.
@@ -481,12 +482,18 @@ class SkillController(QObject):
         if error is not None:
             logger.error("Skill background task failed: %s", error)
 
-    async def _sync_config_to_chat(self) -> None:
+    async def _sync_config_to_chat(self, generation: int) -> None:
         """Synchronise sidebar selections to the active chat.
 
-        Persists the config, refreshes the chip bar, pushes the config to the live
-        chat, surfaces warnings, appends a delta context banner, and rebuilds the
-        active chat display.
+        Persists the config, refreshes the chip bar, and pushes the config to the
+        live chat. The worker owns the skill-update banner: it creates a pending
+        banner from the exact pending system message, removes it when the
+        selection is reversed, and commits it when the message is sent.
+
+        Args:
+            generation: The sync generation captured when the sync was scheduled.
+                A newer sync supersedes this one, so a stale config cannot be
+                applied after the user has already toggled again.
         """
         if self._loading_chat_config:
             return
@@ -494,83 +501,62 @@ class SkillController(QObject):
         if not chat_id:
             return
         config = self._collect_sidebar_config()
-        old_tool_config = self._persist_config(chat_id, config)
+        self._persist_config(chat_id, config)
         self._update_config_chips()
         self._publish_config_summary(chat_id, config)
-        await self._apply_live_config(chat_id, config, old_tool_config)
+        await self._apply_live_config(chat_id, config, generation)
 
-    def _persist_config(self, chat_id: str, config: dict[str, Any]) -> dict[str, str]:
+    def _persist_config(self, chat_id: str, config: dict[str, Any]) -> None:
         """Persist the sidebar config to the chat store.
 
         Args:
             chat_id: The active chat id.
             config: The collected ``{activated, tools}`` config.
-
-        Returns:
-            The previous tool-mode mapping, used to compute mode changes.
         """
         stored = self.app.chat_store.load_chat(chat_id)
         if not stored:
-            return {}
-        old_tool_config = stored.get("skills_config", {}).get("tools", {})
+            return
         stored["skills_config"] = config
         self.app.chat_store.save_chat(chat_id, stored)
-        return old_tool_config
 
     async def _apply_live_config(
         self,
         chat_id: str,
         config: dict[str, Any],
-        old_tool_config: dict[str, str],
+        generation: int,
     ) -> None:
-        """Push the config to the live chat and append a delta banner.
+        """Push the config to the live chat.
 
         Args:
             chat_id: The active chat id.
             config: The collected config dict.
-            old_tool_config: The previous tool-mode mapping.
+            generation: The sync generation captured when the sync was scheduled.
         """
         if chat_manager.get_chat(chat_id) is None:
             return
         activated, tool_defs, tool_config = await asyncio.to_thread(
             self._load_config_payloads, config
         )
+        if generation != self._sync_generation:
+            return
         worker = get_worker(chat_id)
         if worker is None:
             return
-        self._pending_config[chat_id] = (
-            config,
-            old_tool_config,
-            activated,
-            tool_defs,
-        )
         worker.update_config(activated, tool_defs, tool_config)
 
     @Slot(str, object)
     def _handle_worker_config_updated(self, chat_id: str, result: object) -> None:
-        """Append a delta context banner once a worker confirms a config change.
+        """Surface warnings from a worker's live-config update.
+
+        The worker itself owns the skill-update banner and rebuilds the chat, so
+        this slot only toasts any removal warnings.
 
         Args:
             chat_id: The chat whose config changed.
             result: The ``update_skill_config`` result dict.
         """
-        pending = self._pending_config.pop(chat_id, None)
-        worker = get_worker(chat_id)
         for warning in cast(dict, result).get("warnings", []):
             self.toast_requested.emit(warning, TOAST_WARNING)
-        if pending is not None and worker is not None:
-            config, old_tool_config, activated, tool_defs = pending
-            self._append_delta_banner(
-                chat_id,
-                config,
-                old_tool_config,
-                cast(dict, result),
-                activated,
-                tool_defs,
-                worker,
-            )
-        if worker is not None:
-            worker.request_rebuild()
 
     def _load_config_payloads(
         self, config: dict[str, Any]
@@ -589,50 +575,6 @@ class SkillController(QObject):
         tool_defs = manager.load_tool_functions(config["activated"])
         tool_config = manager.build_tool_config(config["tools"], config["activated"])
         return activated, tool_defs, tool_config
-
-    def _append_delta_banner(
-        self,
-        chat_id: str,
-        config: dict[str, Any],
-        old_tool_config: dict[str, str],
-        result: dict[str, Any],
-        activated: list[dict],
-        tool_defs: list[dict],
-        worker: ChatWorker,
-    ) -> None:
-        """Append the latest delta context banner to the chat's worker.
-
-        Args:
-            chat_id: The active chat id.
-            config: The collected config dict.
-            old_tool_config: The previous tool-mode mapping.
-            result: The ``update_chat_config`` result dict.
-            activated: Loaded activated skill contents.
-            tool_defs: Loaded tool definitions.
-            worker: The chat's worker (owns the banner list).
-        """
-        added_activated = result.get("added_activated", [])
-        added_tools = result.get("added_tools", [])
-        added_activated_contents = [s for s in activated if s.get("path", "") in added_activated]
-        added_tool_defs = [td for td in tool_defs if td.get("name", "") in added_tools]
-        mode_changes: dict[str, tuple[str, str]] = {}
-        for tool_name, new_mode in config["tools"].items():
-            old_mode = old_tool_config.get(tool_name, "")
-            if old_mode and old_mode != new_mode:
-                mode_changes[tool_name] = (old_mode, new_mode)
-
-        if added_activated or added_tools or mode_changes:
-            sections = build_delta_context_sections(
-                added_activated_contents, added_tool_defs, mode_changes
-            )
-            worker.append_banner(
-                {
-                    "type": "delta",
-                    "title": "Context Update",
-                    "sections": sections,
-                    "is_delta": True,
-                }
-            )
 
     # ------------------------------------------------------------------
     #  State: sidebar / models

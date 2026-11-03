@@ -406,21 +406,6 @@ class ChatRenderer:
         """Reset per-turn render state."""
         self.state.reset_turn()
 
-    def adopt_plan(self, plan: RenderPlan) -> None:
-        """Adopt a plan rendered in another process.
-
-        Seeds the local item cache with the plan's items and records its
-        streaming-card indices, so a later in-thread rebuild hits the cache
-        instead of re-rendering the whole transcript.
-
-        Args:
-            plan: The externally rendered plan.
-        """
-        self.state.rendered_keys = list(plan.keys)
-        self._apply_indices(plan.indices)
-        for key, item in zip(plan.keys, plan.items, strict=True):
-            self.state.item_cache[key] = item
-
     # ------------------------------------------------------------------
     #  Public: plan building
     # ------------------------------------------------------------------
@@ -437,7 +422,7 @@ class ChatRenderer:
         Args:
             messages: The chat message list.
             snapshot: The cached context snapshot, if any.
-            banners: Delta context banners to render.
+            banners: Skill-update banners, each anchored to a message index.
             is_busy: Whether the chat is currently generating.
 
         Returns:
@@ -453,18 +438,39 @@ class ChatRenderer:
                     is_delta=False,
                 ),
             )
+        message_count = len(messages)
+        banners_by_anchor: dict[int, list[dict]] = {}
         for banner in banners:
-            key = "b:d:" + content_hash(json.dumps(banner, sort_keys=True))
-            builder.emit(
-                key,
-                lambda banner=banner: build_context_banner_item(
-                    banner.get("title", "Context Update"),
-                    banner.get("sections", []),
-                    is_delta=banner.get("is_delta", True),
-                ),
-            )
+            anchor = int(banner.get("anchor", 0) or 0)
+            anchor = max(0, min(anchor, message_count))
+            banners_by_anchor.setdefault(anchor, []).append(banner)
+
+        emitted_anchors: set[int] = set()
+
+        def emit_banners(anchor: int) -> None:
+            if anchor in emitted_anchors:
+                return
+            emitted_anchors.add(anchor)
+            for banner in banners_by_anchor.get(anchor, []):
+                content = {
+                    "title": banner.get("title", "Skill Update"),
+                    "sections": banner.get("sections", []),
+                    "is_delta": banner.get("is_delta", True),
+                }
+                key = f"b:d:{anchor}:" + content_hash(json.dumps(content, sort_keys=True))
+                builder.emit(
+                    key,
+                    lambda banner=banner: build_context_banner_item(
+                        banner.get("title", "Skill Update"),
+                        banner.get("sections", []),
+                        is_delta=banner.get("is_delta", True),
+                    ),
+                )
+
+        emit_banners(0)
         recent_start = max(0, len(messages) - _COLLAPSE_OLDER_THAN)
         for i, msg in enumerate(messages):
+            emit_banners(i)
             role = msg.get("role", "")
             is_last_busy = is_busy and i == len(messages) - 1 and role == "assistant"
             collapsed = i < recent_start
@@ -496,6 +502,7 @@ class ChatRenderer:
                         )
                     ),
                 )
+        emit_banners(message_count)
         if is_waiting_for_assistant(messages, is_busy):
             builder.emit("w:pending", build_waiting_item, cacheable=False)
         self.state.rendered_keys = builder.keys

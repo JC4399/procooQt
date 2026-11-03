@@ -40,9 +40,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("procoo_qt")
 
 _WINDOW_QML = Path(__file__).resolve().parent.parent / "qml" / "windows" / "ChatWindow.qml"
-_EDITOR_WINDOW_QML = (
-    Path(__file__).resolve().parent.parent / "qml" / "windows" / "EditorWindow.qml"
-)
+_EDITOR_WINDOW_QML = Path(__file__).resolve().parent.parent / "qml" / "windows" / "EditorWindow.qml"
 _HISTORY_WINDOW_QML = (
     Path(__file__).resolve().parent.parent / "qml" / "windows" / "NotificationHistoryWindow.qml"
 )
@@ -240,6 +238,7 @@ class WindowManager(QObject):
         record = self._windows.pop(name, None)
         if record is None:
             return
+        record.chat.shutdown_window()
         record.window.close()
         self.windows_changed.emit()
         logger.info("Closed window for session '%s'", name)
@@ -273,9 +272,7 @@ class WindowManager(QObject):
     @Slot()
     def show_history(self) -> None:
         """Show the shared notification-history window, creating it on first use."""
-        self._history_window = self._show_tool_window(
-            self._history_window, _HISTORY_WINDOW_QML
-        )
+        self._history_window = self._show_tool_window(self._history_window, _HISTORY_WINDOW_QML)
 
     # ------------------------------------------------------------------
     #  Deletion
@@ -298,6 +295,7 @@ class WindowManager(QObject):
         record = self._windows.pop(name, None)
         if record is not None:
             record.session._handle_delete_session(name)
+            record.chat.shutdown_window()
             record.window.close()
         elif primary_shows and self._primary is not None:
             self._primary.session._handle_delete_session(name)
@@ -389,6 +387,7 @@ class WindowManager(QObject):
         """
         record = self._windows.pop(name, None)
         if record is not None:
+            record.chat.shutdown_window()
             record.window.deleteLater()
         self.windows_changed.emit()
 

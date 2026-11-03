@@ -35,6 +35,13 @@ Related: [`chat-worker`](chat-worker.md), [`chat-render`](chat-render.md), [`qt-
   without showing it, `wait_until_ready(chat_id)` waits for a chat's first plan,
   `cancel_prewarms()` aborts in-flight pre-warms, and `forget_chat(chat_id)`
   drops per-chat pre-warm bookkeeping.
+- `release_chat(chat_id)` — drop a non-visible chat's worker, agent, rendered
+  model, and render cache so the transcript cache bounds memory. The worker is
+  detached and stopped on a background thread so the GUI never waits for a
+  render to finish.
+- `release_all_chats(force=False)` — release every idle chat on session switch;
+  `force=True` also releases visible/busy chats on window close.
+- `shutdown_window()` — release every chat owned by a secondary window on close.
 - `shutdown()` — stop every worker.
 
 ## Signals
@@ -99,10 +106,9 @@ Related: [`chat-worker`](chat-worker.md), [`chat-render`](chat-render.md), [`qt-
 
 `prewarm_chat(chat_id)` hydrates a non-visible, non-busy chat with `silent=True`,
 attaches its worker, registers it in `_prewarm_chats`, and calls
-`worker.request_prewarm_plan()`. That worker path renders the plan in the
-[`qt-render-pool`](qt-render-pool.md) process pool, so the CPU-heavy
-Markdown/Pygments/LaTeX work does not contend for the main process GIL.
-`_on_plan_ready` sees the pre-warm flag and applies the plan through
+`worker.request_prewarm_plan()`. That worker path builds the plan on the chat's
+own worker thread, so the CPU-heavy Markdown/Pygments/LaTeX work never blocks the
+GUI loop. `_on_plan_ready` sees the pre-warm flag and applies the plan through
 `_apply_plan_prewarm`, which inserts rows in **small batches**
 (`_PREWARM_INSERT_BATCH = 4`, `_PREWARM_TICK = 0.05 s`) with **no loading
 overlay**; a per-chat `_prewarm_tokens` counter lets a newer plan supersede an
@@ -114,6 +120,14 @@ wait for the active chat's full build before pre-warming the others. Activating 
 chat that is still pre-warming calls `_cancel_prewarm`, which bumps the token,
 resolves the future, and clears the partial model so the normal loading-overlay
 staged build owns it. `cancel_prewarms()` is used on session switch.
+
+`release_chat(chat_id)` is called by the session controller's transcript LRU
+eviction. It drops the chat's `ChatListModel` reference, detaches its worker,
+removes the agent from `chat_manager`, and drops all per-chat bookkeeping. The
+worker is stopped on a background thread so a long prewarm render cannot freeze
+the GUI. The chat stays on disk and is re-hydrated on the next activation.
+`release_all_chats()` releases idle chats on a session switch; `shutdown_window()`
+forces the same release for every chat owned by a closing secondary window.
 
 ### Activation / loading overlay
 
@@ -156,9 +170,12 @@ left showing.
 | `def attach_worker(self, chat_id, agent)` | chat, agent | `ChatWorker` | ensure + connect signals + set visibility | starts a thread |
 | `def prepare_rebuild(self, chat_id)` | chat | `None` | cold model → show loading + blank synchronously | No-op for a populated model |
 | `def rebuild_chat_display(self, chat_id)` | chat | `None` | `prepare_rebuild` + worker rebuild request | Skips chats with no attached worker |
-| `async def prewarm_chat(self, chat_id, timeout=15.0)` | chat, timeout | `None` | hydrate (silent) + attach worker + pool-rendered plan + await future | No overlay; keeps the worker alive |
+| `async def prewarm_chat(self, chat_id, timeout=15.0)` | chat, timeout | `None` | hydrate (silent) + attach worker + worker-thread plan + await future | No overlay; keeps the worker alive |
 | `async def wait_until_ready(self, chat_id, timeout=15.0)` | chat, timeout | `None` | poll `_rendered_chats` | Returns on timeout |
 | `def cancel_prewarms(self)` / `def cancel_prewarm(self, chat_id)` / `def forget_chat(self, chat_id)` | — / chat / chat | `None` | abort in-flight pre-warms / drop bookkeeping | Clears partial models |
+| `def release_chat(self, chat_id, *, force=False)` | chat, force | `None` | drop model reference → detach worker (background stop) → drop agent/bookkeeping | Frees Python and QML memory without blocking the GUI |
+| `def release_all_chats(self, *, force=False)` | force | `None` | release every connected chat; force also clears all bookkeeping | Used on session switch and window close |
+| `def shutdown_window(self)` | — | `None` | force-release every owned chat, cancel tasks | Used on secondary window close |
 | `async def _apply_plan_prewarm(self, chat_id, model, items, keys, token)` | chat, model, rows, token | `None` | small batched insert without overlay | Resolves the pre-warm future |
 | `def _model_needs_build(self, chat_id)` | chat | bool | `True` when the model is missing or empty | — |
 | `def _handle_chat_activated(self, chat_id)` | chat | `None` | loading (cold only) + spawn activation | — |

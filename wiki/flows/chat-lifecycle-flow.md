@@ -46,14 +46,16 @@ every visible chat (`set_visible_chats`). Each panel's values reach QML through 
    `chat_switch_started` → off-thread load/hydrate → `active_chat_changed`).
 7. `_prewarm_transcripts()` background-renders the window's chats in priority
    order: every panel's active chat first, then the remaining chats with messages
-   sorted by `updated_at` descending (max 10). The active chats are awaited via
-   `ChatController.wait_until_ready`; each remaining chat is added to the LRU and
-   rendered one at a time with `ChatController.prewarm_chat`, so views are not
-   instantiated in one burst. The render plan itself is built in the
-   [`qt-render-pool`](../modules/qt-render-pool.md) process pool, and the GUI
-   applies it in small batches with a `0.25 s` gap between chats. This runs at
-   window start and on every session activation (switch or new window). Each
-   window has its own cache, so 3 windows can hold 30 transcripts total.
+   sorted by `updated_at` descending (capped at `len(active) + _PREWARM_AHEAD`).
+   The active chats are awaited via `ChatController.wait_until_ready`; each
+   remaining chat is added to the LRU and rendered one at a time with
+   `ChatController.prewarm_chat`, so views are not instantiated in one burst. The render plan is built on the
+   chat's own worker thread (no process pool), and the GUI applies it in small
+   batches with a `0.25 s` gap between chats. QML materializes each panel's active
+   chat plus one warm transcript and keeps both built; other cached chats keep
+   their Python model but no delegates. Pre-warming runs at primary-window start
+   and on every session activation; secondary windows disable it. Evicted chats
+   release their worker, agent, and rendered model so the cache bounds memory.
 
 ## Create chat (`ChatTabBar` `+` → `session._handle_new_chat(slot)`)
 

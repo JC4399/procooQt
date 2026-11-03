@@ -42,7 +42,7 @@ the runner compiles the code body directly.
    `compile`, and `exec` into a fresh namespace; fetch `run` (must be a
    coroutine function, else error).
 2. Build an `AutomationContext` with the app's config, skill manager, skills dir,
-   and the event `payload`.
+   the event `payload`, and the storage media directory.
 3. Redirect stdout/stderr into a buffer and `await asyncio.wait_for(run(ctx), 1800)`.
 4. On timeout/exception → `error` result with the buffer + traceback; else
    normalise the return value and attach the combined log.

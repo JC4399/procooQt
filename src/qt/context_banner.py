@@ -17,19 +17,6 @@ from .chat_items import KIND_CONTEXT_BANNER, make_item
 # ------------------------------------------------------------------
 
 
-def _shorten(text: str, limit: int) -> str:
-    """Truncate text to *limit* characters, appending an ellipsis.
-
-    Args:
-        text: The source text.
-        limit: Maximum length before truncation.
-
-    Returns:
-        The original text, or a truncated copy ending in ``"..."``.
-    """
-    return text if len(text) <= limit else text[:limit] + "..."
-
-
 def _normalize_sections(sections: list[dict]) -> list[dict]:
     """Normalise section content into a JSON-serializable list of strings.
 
@@ -52,6 +39,25 @@ def _normalize_sections(sections: list[dict]) -> list[dict]:
                 content.append("\n".join(str(line) for line in part))
         normalized.append({"header": section.get("header", ""), "content": content})
     return normalized
+
+
+def build_system_prompt_section(text: str) -> list[dict]:
+    """Build the fenced ``System Prompt`` section used by every context banner.
+
+    Both the initial system-context card and the skill-update card use this
+    helper, so their bodies render identically: the exact system-message text in
+    a fenced block.
+
+    Args:
+        text: The exact system-message text.
+
+    Returns:
+        A single-section list with the fenced text, or an empty list when the
+        text is empty.
+    """
+    if not text:
+        return []
+    return [{"header": "System Prompt", "content": [f"```\n{text}\n```"]}]
 
 
 # ------------------------------------------------------------------
@@ -104,58 +110,24 @@ def build_context_sections_from_snapshot(snapshot: dict) -> list[dict]:
     Returns:
         List of section dicts with ``header`` and ``content`` keys.
     """
-    sections: list[dict] = []
-
-    sys_prompt = snapshot.get("system_prompt", "")
-    if sys_prompt:
-        sections.append({"header": "System Prompt", "content": [f"```\n{sys_prompt}\n```"]})
-
-    return sections
+    return build_system_prompt_section(snapshot.get("system_prompt", ""))
 
 
 # ------------------------------------------------------------------
-#  Delta context sections
+#  Skill update sections
 # ------------------------------------------------------------------
 
 
-def build_delta_context_sections(
-    added_activated: list[dict],
-    added_tools: list[dict],
-    mode_changes: dict[str, tuple[str, str]],
-) -> list[dict]:
-    """Build section dicts showing what changed in a config delta.
+def build_skill_update_sections(pending_text: str) -> list[dict]:
+    """Build the section list for a skill-update context card.
+
+    The card body is the exact system-message text that will be injected before
+    the next user message, formatted identically to the initial prompt card.
 
     Args:
-        added_activated: Newly added activated skill content dicts.
-        added_tools: Newly added tool definition dicts.
-        mode_changes: Mapping of tool name to ``(old_mode, new_mode)``.
+        pending_text: The exact pending system-message text.
 
     Returns:
         List of section dicts with ``header`` and ``content`` keys.
     """
-    sections: list[dict] = []
-
-    if added_activated:
-        lines = []
-        for skill in added_activated:
-            name = skill.get("name", "")
-            instructions = _shorten(skill.get("instructions", ""), 200)
-            lines.append(f"- **{name}** (activated):\n  {instructions}")
-        sections.append({"header": "Added Activated Skills", "content": ["\n".join(lines)]})
-
-    if added_tools:
-        lines = []
-        for tool_def in added_tools:
-            name = tool_def.get("name", "")
-            desc = _shorten(tool_def.get("description", ""), 100)
-            lines.append(f"- `{name}` — {desc}")
-        sections.append({"header": "Added Tools", "content": ["\n".join(lines)]})
-
-    if mode_changes:
-        lines = [
-            f"- `{tool_name}`: {old} → {new}"
-            for tool_name, (old, new) in sorted(mode_changes.items())
-        ]
-        sections.append({"header": "Tool Mode Changes", "content": ["\n".join(lines)]})
-
-    return sections
+    return build_system_prompt_section(pending_text)

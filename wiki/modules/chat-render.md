@@ -17,8 +17,6 @@ Related: [`chat-worker`](chat-worker.md), [`qt-chat-items`](qt-chat-items.md), [
 - `RenderState` — per-chat render state (item cache, streaming card state, token
   counters, prefix tracking).
 - `ChatRenderer.build_plan(...) -> RenderPlan` — full rebuild plan.
-- `ChatRenderer.adopt_plan(plan)` — seed the local item cache and streaming
-  indices from a plan rendered in another process.
 - `ChatRenderer.build_stream_update(...) -> list[(row, values)]` — throttled
   in-place streaming body updates.
 - `build_context_snapshot(agent) -> dict` — the persisted context snapshot.
@@ -28,7 +26,9 @@ Related: [`chat-worker`](chat-worker.md), [`qt-chat-items`](qt-chat-items.md), [
 
 ### Build plan (`ChatRenderer.build_plan`)
 
-1. Emit the initial context banner (if a snapshot exists) and each delta banner.
+1. Emit the initial context banner (if a snapshot exists). Skill-update banners
+   are interleaved by their `anchor` message index (clamped to the message
+   count), so a card stays at the point in the conversation where it was added.
 2. Walk the messages; emit user / assistant (thinking, response, tool-call) /
    tool-result rows. Items are memoized by identity key in `RenderState.item_cache`
    so only changed messages re-render.
@@ -58,10 +58,9 @@ Related: [`chat-worker`](chat-worker.md), [`qt-chat-items`](qt-chat-items.md), [
 | `def delete_bounds(messages, msg_index)` | messages, index | `(start, end)` | — | — |
 | `def accumulate_tokens(text, previous, current)` | text, prefix, count | int | suffix count | — |
 | `def build_context_snapshot(agent)` | agent | snapshot dict | reads agent config | — |
-| `ChatRenderer.build_plan(messages, snapshot, banners, is_busy)` | inputs | `RenderPlan` | banners → rows → pending | populates `item_cache`, records indices |
+| `ChatRenderer.build_plan(messages, snapshot, banners, is_busy)` | inputs | `RenderPlan` | initial banner → anchored banners interleaved with rows → pending | populates `item_cache`, records indices |
 | `ChatRenderer.build_stream_update(thinking, content, streaming_tcs, t_changed, c_changed)` | stream inputs | `[(row, values)]` | accumulate → split bodies | mutates render state |
 | `ChatRenderer.build_result_replacement(name, content, msg_index)` | tool result | `(item, key)` | — | — |
 | `ChatRenderer.invalidate_cache()` / `reset_turn()` | — | `None` | clear cache / streaming state | mutates state |
-| `ChatRenderer.adopt_plan(plan)` | `RenderPlan` | `None` | store keys → apply indices → populate `item_cache` | lets a later in-thread rebuild hit the cache |
 
 `PlanBuilder` accumulates keys/items/indices with cache reuse by key.

@@ -304,7 +304,8 @@ Rectangle {
         return null
     }
 
-    // Auto-scroll owns the viewport while enabled, so any body caret must yield.
+    // While streaming with auto-scroll on, auto-scroll owns the viewport, so any
+    // body caret must yield.
     function clearCaretFocus() {
         const transcript = panel.activeTranscript()
         if (transcript)

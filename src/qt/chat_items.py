@@ -478,7 +478,7 @@ def _format_yaml_value(value: object, indent: int) -> list[str]:
         return lines
 
     if isinstance(value, str) and "\n" in value:
-        lines = [f"{prefix}|"]
+        lines: list[str] = [f"{prefix}|"]
         lines.extend(f"{prefix}{sub}" for sub in value.split("\n"))
         return lines
 

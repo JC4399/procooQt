@@ -119,7 +119,7 @@ async def _collect_files_rg(
     rg_path: Path,
     pattern: str,
     directory: Path,
-) -> list[tuple[str, float]]:
+) -> list[tuple[str, float]] | None:
     """Collect files matching *pattern* via ripgrep.
 
     Args:
@@ -128,9 +128,9 @@ async def _collect_files_rg(
         directory: Resolved directory to search in.
 
     Returns:
-        List of ``(path_string, mtime)`` tuples sorted by mtime descending.
-        Empty list signals a non-recoverable ripgrep error (caller falls
-        back to pure Python).
+        List of ``(path_string, mtime)`` tuples sorted by mtime descending,
+        or ``None`` if ripgrep failed (e.g. regex not supported by the
+        Rust engine) so the caller can fall back to pure Python.
     """
     cmd_files: list[str] = [
         str(rg_path), "--files", "--hidden", "--no-ignore", str(directory),
@@ -145,7 +145,7 @@ async def _collect_files_rg(
         stdout, _stderr = await proc.communicate()
 
         if proc.returncode is not None and proc.returncode >= 2:
-            return []
+            return None
 
         text = stdout.decode("utf-8", errors="replace").strip()
     else:
@@ -157,7 +157,7 @@ async def _collect_files_rg(
         stdout1, _stderr1 = await proc_files.communicate()
 
         if proc_files.returncode is not None and proc_files.returncode >= 2:
-            return []
+            return None
 
         file_list = stdout1.decode("utf-8", errors="replace")
         if not file_list.strip():
@@ -177,7 +177,7 @@ async def _collect_files_rg(
         )
 
         if proc_filter.returncode is not None and proc_filter.returncode >= 2:
-            return []
+            return None
 
         text = stdout2.decode("utf-8", errors="replace").strip()
 
@@ -253,7 +253,9 @@ async def _collect_files(
     rg_path = _get_rg_path()
     if rg_path is not None:
         try:
-            return await _collect_files_rg(rg_path, pattern, search_dir)
+            result = await _collect_files_rg(rg_path, pattern, search_dir)
+            if result is not None:
+                return result
         except Exception:
             pass
     return _collect_files_py(pattern, search_dir)
@@ -314,7 +316,7 @@ async def _grep_files_rg(
     rg_path: Path,
     content_pattern: str,
     file_paths: list[str],
-) -> list[tuple[str, int, str]]:
+) -> list[tuple[str, int, str]] | None:
     """Search *content_pattern* in *file_paths* via ripgrep.
 
     Args:
@@ -323,7 +325,9 @@ async def _grep_files_rg(
         file_paths: List of absolute file paths to search in.
 
     Returns:
-        List of ``(filepath, line_number, line_text)`` tuples.
+        List of ``(filepath, line_number, line_text)`` tuples, or
+        ``None`` if ripgrep failed (e.g. regex not supported by the
+        Rust engine) so the caller can fall back to pure Python.
     """
     if not content_pattern.strip() or not file_paths:
         return []
@@ -336,7 +340,7 @@ async def _grep_files_rg(
         "--line-number",
         "--no-heading",
         "--with-filename",
-        "--no-pcre2",
+        "--pcre2",
         content_pattern,
         *file_paths,
     ]
@@ -349,7 +353,7 @@ async def _grep_files_rg(
     stdout, _stderr = await proc.communicate()
 
     if proc.returncode is not None and proc.returncode >= 2:
-        return []
+        return None
 
     text = stdout.decode("utf-8", errors="replace").strip()
     if not text:
@@ -424,7 +428,9 @@ async def _grep_files(
     rg_path = _get_rg_path()
     if rg_path is not None:
         try:
-            return await _grep_files_rg(rg_path, content_pattern, file_paths)
+            result = await _grep_files_rg(rg_path, content_pattern, file_paths)
+            if result is not None:
+                return result
         except Exception:
             pass
     return _grep_files_py(content_pattern, file_paths)

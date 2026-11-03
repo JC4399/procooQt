@@ -38,8 +38,9 @@ Rectangle {
     // visible during keyboard navigation. Bound by the hosting panel; null when
     // the card is unhosted.
     property var scrollTarget: null
-    // False while the hosting panel's auto-scroll is active. The caret is then
-    // disabled so it cannot pull the viewport away from the newest card.
+    // False only while the chat is streaming and the hosting panel's auto-scroll
+    // is active. The caret is then disabled so it cannot pull the viewport away
+    // from the newest card; when idle it stays enabled even with auto-scroll on.
     property bool caretEnabled: true
 
     signal deleteRequested(int msgIndex)

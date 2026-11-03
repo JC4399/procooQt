@@ -19,6 +19,10 @@ Item {
     property bool busy: false
     // Whether this chat's cold-build overlay is showing.
     property bool loading: false
+    // True briefly after this transcript is created so the overlay paints
+    // before the card delegates are built. Warm transcripts are kept alive by
+    // the panel's transcript model, so they build once and stay built.
+    property bool materializing: true
 
     // Non-virtualized so contentHeight is exact; ListView's height estimation
     // was unstable for these variable-height cards.
@@ -43,9 +47,9 @@ Item {
         }
 
         // Scroll so a card body caret at content y / h is on screen, nudging
-        // only when it would otherwise be clipped. Only used while auto-scroll
-        // is off; when it is on the caret is disabled instead so the view stays
-        // pinned to the newest card.
+        // only when it would otherwise be clipped. Only used while the caret is
+        // enabled; while streaming with auto-scroll on the caret is disabled
+        // instead so the view stays pinned to the newest card.
         function ensureVisible(y, h) {
             const margin = 8
             const maxY = Math.max(0, contentHeight - height)
@@ -119,7 +123,7 @@ Item {
             spacing: 6
 
             Repeater {
-                model: root.chatModel
+                model: root.materializing ? null : root.chatModel
 
                 delegate: Item {
                     width: chatColumn.width
@@ -236,7 +240,7 @@ Item {
                         Binding {
                             target: cardLoader.item
                             property: "caretEnabled"
-                            value: !autoScrollToggle.checked
+                            value: !(root.busy && autoScrollToggle.checked)
                             when: cardLoader.item !== null && model.kind !== "context_banner"
                         }
                     }
@@ -253,7 +257,7 @@ Item {
                         }
 
                         function onCaretMoved(caretY, caretHeight) {
-                            if (autoScrollToggle.checked)
+                            if (root.busy && autoScrollToggle.checked)
                                 root.clearCaretFocus()
                             else
                                 chatList.ensureVisible(caretY, caretHeight)
@@ -275,7 +279,7 @@ Item {
                 chatList.scrollToBottom()
         }
         onCheckedChanged: {
-            if (checked)
+            if (checked && root.busy)
                 root.clearCaretFocus()
         }
     }
@@ -292,7 +296,7 @@ Item {
         // Hold briefly after the build finishes so short chats show a clean scan
         // instead of a one-frame flash.
         property bool holdVisible: false
-        visible: root.loading || holdVisible
+        visible: root.loading || root.materializing || holdVisible
 
         onVisibleChanged: {
             if (visible) {
@@ -323,11 +327,21 @@ Item {
         }
     }
 
+    // Give the overlay one painted frame before the card delegates are built.
+    Timer {
+        id: materializeTimer
+        interval: 50
+        repeat: false
+        running: root.materializing
+        onTriggered: root.materializing = false
+    }
+
     // ------------------------------------------------------------------
     //  Public helpers
     // ------------------------------------------------------------------
 
-    // Auto-scroll owns the viewport while enabled, so any body caret must yield.
+    // While streaming with auto-scroll on, auto-scroll owns the viewport, so any
+    // body caret must yield.
     function clearCaretFocus() {
         chatList.forceActiveFocus(Qt.OtherFocusReason)
     }

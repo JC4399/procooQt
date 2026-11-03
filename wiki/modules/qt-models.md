@@ -146,13 +146,14 @@ Incremental list of chat items for one chat.
 
 ### `TranscriptListModel`
 
-Incremental list of chat ids that currently own a live rendered transcript. The
-workspace keeps one `ChatTranscript.qml` per id (capped at 10 per window), so
-switching tabs only toggles visibility instead of rebuilding delegates. `set_ids`
-removes disappeared ids and inserts/moves new ids with row signals, so ids that
-stay keep their delegate (and rich-text layout). This matters when a chat moves
-between panels: the old panel loses one row and the new panel gains one without
-resetting either model.
+Incremental list of chat ids that currently own a live rendered transcript. Each
+panel keeps a `ChatTranscript.qml` for its active chat plus one warm transcript
+(`_panel_transcript_ids`); both stay materialized so switching between them does
+not rebuild delegates. Other cached chats keep their Python `ChatListModel` but
+have no `ChatTranscript`. `set_ids` removes disappeared ids and inserts/moves
+new ids with row signals, so ids that stay keep their delegate (and rich-text
+layout). This matters when a chat moves between panels: the old panel loses one
+row and the new panel gains one without resetting either model.
 
 | Signature | Inputs | Output | Flow / Side effects |
 |---|---|---|---|

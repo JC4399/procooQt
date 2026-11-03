@@ -80,6 +80,7 @@ class AutomationRunner:
             self._app.skill_manager,
             self._app.config.skills_dir,
             payload,
+            media_dir=str(self._app.chat_store.storage_dir / "media"),
         )
 
         try:

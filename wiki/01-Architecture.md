@@ -57,7 +57,8 @@
 ┌──────────────▼───────────────────────────────────────────────────────────────┐
 │  src/chat/      ChatManager ──creates──► Agent (ReAct loop)                  │
 │                 Agent ──► OpenAIModel (llm.py)                               │
-│                 ChatStore (chats/*.json + sessions.json)                     │
+│                 ChatStore (chats/*.json + chat_index.json + sessions.json)   │
+│                 MediaStore (storage/media/<chat_id>/)                        │
 ├──────────────────────────────────────────────────────────────────────────────┤
 │  src/skill/     SkillManager (discovery + AST schemas + watchdog)            │
 │                 PresetStore (JSON presets) · models (Pydantic)               │

@@ -298,6 +298,7 @@ class SubAgentManager:
                 "PROCOO_SUBAGENT_DEPTH": "1",
                 "PROCOO_SUBAGENT_ID": chat_id,
             },
+            media_dir=str(self._app.chat_store.storage_dir / "media"),
         )
 
     def _get_semaphore(self) -> asyncio.Semaphore:

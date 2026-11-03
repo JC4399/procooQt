@@ -60,9 +60,10 @@ not invalidated by another panel's refresh.
   tabs, tabs_active_id, states)`, `set_transcripts(ids)`, then `set_runtime(...)`
   for each panel. All setters are compare-and-emit: an unchanged panel emits
   nothing, so a refresh driven by one chat does not disturb the other panels.
-- `set_transcripts` is fed the panel's chats that are inside the session's
-  10-entry transcript LRU. `ChatPanel.qml` instantiates one `ChatTranscript`
-  per id and toggles visibility, so switching tabs does not rebuild delegates.
+- `set_transcripts` is fed the panel's active chat plus one warm chat
+  (`SessionController._panel_transcript_ids`). `ChatPanel.qml` instantiates one
+  `ChatTranscript` per id and keeps both materialized, so switching between them
+  does not rebuild delegates. Other cached chats keep their Python model only.
 - `chatModelFor(chat_id)` resolves an id to its stable `ChatListModel` through
   the provider installed by `SessionController.build` (`ChatController.model_for`).
 - `SessionController.refresh_chat_panels(chat_id)` (driven by

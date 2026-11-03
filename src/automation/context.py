@@ -42,6 +42,7 @@ class AutomationContext:
         skill_manager: SkillManager,
         skills_dir: str,
         payload: dict[str, Any] | None = None,
+        media_dir: str = "",
     ) -> None:
         """Initialise the context.
 
@@ -51,12 +52,14 @@ class AutomationContext:
             skill_manager: Loads skill contents/tools for the automation's agent.
             skills_dir: Path to the skills directory.
             payload: Optional event payload passed to event-driven automations.
+            media_dir: Optional root directory for disk-backed multimodal media.
         """
         self.automation = automation
         self.payload: dict[str, Any] = dict(payload or {})
         self._config = config
         self._skill_manager = skill_manager
         self._skills_dir = skills_dir
+        self._media_dir = media_dir
         self._log_lines: list[str] = []
 
     # ------------------------------------------------------------------
@@ -110,6 +113,7 @@ class AutomationContext:
             system_message=self._config.agent_system_prompt,
             summary_prompt=self._config.agent_summary_prompt,
             chat_limits={"max_bytes": 0, "max_tokens": 0},
+            media_dir=self._media_dir,
         )
         self.log(f"[agent] ask: {prompt}")
         try:

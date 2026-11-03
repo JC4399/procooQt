@@ -130,7 +130,8 @@ full runtime rebuild. `ErrorNotifier` fans every
 ### `_build_window_bundle`
 
 1. Create fresh `SessionController` (passing the shared `session_bus`) /
-   `ChatController` / `SkillController`.
+   `ChatController` / `SkillController`; set `session.prewarm_enabled = False` so
+   secondary windows do not duplicate transcript pre-warming.
 2. `_wire_window(...)` then `session.build()` / `chat.build()` / `skill.build()`.
 3. Create `QQmlContext(self.engine.rootContext())` and set `session`, `chat`,
    `skill` on it.

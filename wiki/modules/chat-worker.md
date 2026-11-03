@@ -17,25 +17,29 @@ Related: [`chat_render`](chat-render.md), [`chat-agent`](chat-agent.md), [`qt-ch
 
 - One `ChatWorker` per hydrated chat, created/started via the module registry.
 - `plan_ready` / `stream_updated` / `result_swap` row payloads for the GUI model.
-- `request_prewarm_plan()` — render a full plan in the process pool
-  ([`qt-render-pool`](qt-render-pool.md)) so pre-warming does not contend for the
-  main process GIL.
+- `request_prewarm_plan()` — build a full plan on the worker thread so
+  pre-warming never blocks the GUI loop.
 - `turn_started` / `turn_finished`, `approval_needed` / `approval_cleared`,
   `token_usage`, `error`, `message_count`, `compaction_ready`, `config_updated`
   lifecycle signals.
-- Persistence: the worker writes its own chat JSON (atomic, one writer per file).
+- Persistence: the worker writes its own chat JSON (atomic, one writer per file),
+  including committed skill-update banners under `context_banners`.
+- Skill-update banner lifecycle: `_sync_pending_banner` creates/removes the
+  pending card from the exact pending system-message text; `_commit_pending_banners`
+  marks it committed at turn start; delete/regenerate prune or shift anchors.
 
 ## Steps / Flow
 
 1. `ensure_worker(chat_id, agent, app)` returns an existing worker (if the agent
    matches) or stops the old one, constructs a new `ChatWorker` and starts the
    thread.
-2. `run()` creates a new asyncio loop, starts `_pump()`, and signals readiness
-   (`_ready`); then `loop.run_forever()`.
+2. `run()` loads persisted token counts and banners on the worker thread, creates
+   a new asyncio loop, starts `_pump()`, and signals readiness (`_ready`); then
+   `loop.run_forever()`.
 3. `_pump()` awaits `agent.event_queue` and calls `_handle_event` for each event
    on the worker thread.
 4. GUI commands (`start_turn`, `confirm_approval`, `deny_approval`, `cancel_turn`,
-   `set_model`, `update_config`, `append_banner`, `delete_turn`, `regenerate`,
+   `set_model`, `update_config`, `delete_turn`, `regenerate`,
    `regenerate_from`, `append_message`, `invalidate_cache`, `set_visible`,
    `request_rebuild`, `request_persist`, `stop`) are posted with `_post`, which
    waits for `_ready` then calls `loop.call_soon_threadsafe`.
@@ -63,12 +67,33 @@ response is guaranteed by finalization, not by the stream:
   and guards the flush, plan, and persist steps individually.
 - `_run_turn` emits `turn_finished` in a `finally` even if `_finalize` raises.
 
+### Skill-update banner lifecycle
+
+`_do_update_config` calls `_sync_pending_banner(result)` after
+`Agent.update_skill_config`:
+
+- The body is `result["pending_sys_message"]` (the exact text that `Agent.run`
+  will inject as a system message), formatted as a fenced `System Prompt`
+  section.
+- A pending banner is anchored at `len(agent.messages)` so it renders at the
+  bottom of the transcript.
+- Toggling the skill off recomputes the pending text to empty, so the pending
+  banner is removed. Tool-mode-only changes also produce empty text, so they
+  never create a banner.
+- `_do_start_turn` calls `_commit_pending_banners` just before `Agent.run`
+  injects the system message; committed banners keep their anchor as later
+  messages arrive.
+- `_do_persist` stores committed banners under `context_banners`; `__init__`
+  reloads them via `_load_banners`. `_prune_banners_after_delete` and
+  `_prune_banners_after_trim` keep anchors valid after message edits.
+
 ## Function Reference
 
 | Signature | Inputs | Output | Flow | Side effects |
 |---|---|---|---|---|
-| `def __init__(self, chat_id, agent, app)` | chat id, agent, app | `None` | load persisted true token counts | — |
-| `def run(self) -> None` | — | `None` | new loop → `_pump` → `run_forever` | thread body |
+| `def __init__(self, chat_id, agent, app)` | chat id, agent, app | `None` | store references; persisted state loads on the worker thread | — |
+| `def run(self) -> None` | — | `None` | `_load_stored_state` → new loop → `_pump` → `run_forever` | thread body |
+| `def _load_stored_state(self) -> None` | — | `None` | load true token counts and committed banners from the store | runs on the worker thread |
 | `def _shutdown_loop(self) -> None` | — | `None` | cancel tasks, close loop | — |
 | `async def _pump(self) -> None` | — | `None` | drain `event_queue`, `_handle_event` | — |
 | `def _post(self, callback)` | callback | `None` | `call_soon_threadsafe` | GUI→worker |
@@ -77,24 +102,27 @@ response is guaranteed by finalization, not by the stream:
 | `def deny_approval(self, tool_id, reason)` | id, reason | `None` | post `agent.deny_tool` | unblocks agent |
 | `def cancel_turn(self)` | — | `None` | post `_do_cancel` | cancels run task |
 | `def set_model(self, model)` | config | `None` | post `agent.set_model` | — |
-| `def update_config(self, activated, tools, tool_config)` | payloads | `None` | post `_do_update_config` | emits `config_updated` |
-| `def append_banner(self, banner)` | banner | `None` | post `_do_append_banner` | rebuild |
-| `def delete_turn(self, msg_index)` | index | `None` | post `_do_delete_turn` | mutates messages; persists |
+| `def update_config(self, activated, tools, tool_config)` | payloads | `None` | post `_do_update_config` | emits `config_updated`; syncs pending banner |
+| `def delete_turn(self, msg_index)` | index | `None` | post `_do_delete_turn` | mutates messages; prunes banner anchors; persists |
 | `def regenerate(self, gen_id)` | generation | `None` | post `_do_regenerate` | trims + restarts |
 | `def regenerate_from(self, msg_index, gen_id)` | index, generation | `None` | post `_do_regenerate_from` | trims + restarts |
 | `def append_message(self, message)` | message | `None` | post append | — |
 | `def invalidate_cache(self)` | — | `None` | post `_do_invalidate` | rebuild |
 | `def set_visible(self, visible)` | flag | `None` | post `_do_set_visible` | rebuild on show |
 | `def request_rebuild(self)` | — | `None` | post `_emit_plan` | — |
-| `def request_prewarm_plan(self)` | — | `None` | post `_emit_plan_via_pool` | starts the render pool on first use |
+| `def request_prewarm_plan(self)` | — | `None` | post `_emit_plan` | builds on the worker thread |
 | `def request_persist(self)` | — | `None` | post `_do_persist` | writes store |
 | `def stop(self)` | — | `None` | `loop.stop` + `wait` | joins thread |
 | `def _handle_event(self, event)` | event | `None` | per-type dispatch + render | emits signals |
 | `def _emit_plan(self)` | — | `None` | build plan, emit `plan_ready` | — |
-| `async def _emit_plan_via_pool(self)` | — | `None` | `render_pool.render_plan` → `adopt_plan` → emit `plan_ready` | runs render in a child process; falls back to `_emit_plan` on pool failure |
 | `async def _run_turn(self, message, gen_id)` | text, generation | `None` | `agent.run` → `_finalize` | always emits `turn_finished` |
 | `def _flush_final_body(self)` | — | `None` | write full final text to pending card bodies | emits `stream_updated` |
 | `def _finalize(self)` | — | `None` | flush body → final plan → persist → reset → compact | emits signals; each step guarded |
+| `def _load_banners(raw) static` | stored list | normalised banners | force `pending=False`, int anchors | — |
+| `def _sync_pending_banner(result)` | config result | `None` | replace/remove pending banner from `pending_sys_message` | rebuild if visible |
+| `def _commit_pending_banners(self)` | — | `None` | flip `pending=False` at turn start | — |
+| `def _prune_banners_after_delete(start, end)` | deleted range | `None` | drop inside range, shift later anchors | mutates banners |
+| `def _prune_banners_after_trim(keep_index)` | trim index | `None` | drop banners anchored after the trim point | mutates banners |
 
 ## Registry
 
@@ -102,5 +130,6 @@ response is guaranteed by finalization, not by the stream:
 |---|---|
 | `get_worker(chat_id)` | Return the running worker or `None` |
 | `ensure_worker(chat_id, agent, app)` | Get/create/start the worker |
-| `remove_worker(chat_id)` | Stop and drop the worker |
+| `remove_worker(chat_id)` | Stop and drop the worker (blocking) |
+| `remove_worker_async(chat_id)` | Detach and stop the worker on a background thread (non-blocking) |
 | `stop_all_workers()` | Stop every worker (shutdown) |

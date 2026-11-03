@@ -8,6 +8,8 @@ Unified agent class combining conversation memory, LLM reasoning, subprocess
 tool execution, tool-approval workflow, and UI event streaming — no wrapper
 layers.
 
+Related: [`chat-media`](chat-media.md), [`chat-llm`](chat-llm.md), [`chat-worker`](chat-worker.md).
+
 ## Deliverables
 
 - `self.messages` — OpenAI-compatible conversation history with `_`-prefixed
@@ -81,8 +83,8 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 
 | | |
 |---|---|
-| Signature | `def __init__(self, chat_id, model, activated_skill_contents, tool_functions, tool_config, skills_dir, system_message="You are a helpful assistant.", sampling_config=None, initial_messages=None, summary_prompt="", chat_limits=None, tool_env=None) -> None` |
-| Inputs | see docstring; `model` = `{model_name, api_key, api_base}`; `tool_config` = per-tool mode; `initial_messages` seeds history; `summary_prompt` = summarization instruction; `chat_limits` = `{"max_bytes": int, "max_tokens": int}` (0 or negative disables); `tool_env` = extra env vars for tool subprocesses (used by sub-agents for depth/id). |
+| Signature | `def __init__(self, chat_id, model, activated_skill_contents, tool_functions, tool_config, skills_dir, system_message="You are a helpful assistant.", sampling_config=None, initial_messages=None, summary_prompt="", chat_limits=None, tool_env=None, media_dir="") -> None` |
+| Inputs | see docstring; `model` = `{model_name, api_key, api_base}`; `tool_config` = per-tool mode; `initial_messages` seeds history; `summary_prompt` = summarization instruction; `chat_limits` = `{"max_bytes": int, "max_tokens": int}` (0 or negative disables); `tool_env` = extra env vars for tool subprocesses (used by sub-agents for depth/id); `media_dir` = optional root for disk-backed multimodal media. |
 | Output | `None` |
 | Flow | init queue/approvals → store `_base_system_message` → `_build_sys_prompt(activated)` → `ChatTokenTracker` → `_build_model(model)` (`OpenAIModel(stream=True)`) → register tools → log skills. |
 
@@ -99,8 +101,8 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 
 | | |
 |---|---|
-| Signature | `async def run(self, message_content: str) -> None` |
-| Inputs | `message_content` — user text. |
+| Signature | `async def run(self, message_content: str, images: list[str] \| None = None) -> None` |
+| Inputs | `message_content` — user text; `images` — optional data-URL images, persisted to `media_dir` and stored as compact references when configured. |
 | Output | `None` (streams events). |
 | Side effects | appends to `messages`, emits events. |
 
@@ -110,7 +112,7 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 |---|---|
 | Signature | `def update_skill_config(self, activated_skill_contents, tool_functions, tool_config) -> dict` |
 | Inputs | new skill contents, tool defs, tool config. |
-| Output | `{warnings, added_activated, added_tools}`. |
+| Output | `{warnings, added_activated, added_tools, pending_sys_message}`. |
 | Flow | If no `role: user` message exists yet → `_replace_skill_config`: rebuild `sys_prompt` via `_build_sys_prompt`, refresh `ChatTokenTracker`, clear `_pending_sys_message`, replace `_tools` exactly, reset committed sets, and return an empty delta result. Otherwise → `_apply_skill_delta`: compute removed → build warnings → accumulate additions into `_pending_sys_message` → add new tools → `set_tool_config`. |
 
 ### `_replace_skill_config` / `_apply_skill_delta`
@@ -119,7 +121,7 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 |---|---|
 | Signature | `def _replace_skill_config(activated_skill_contents, tool_functions, tool_config) -> dict` / `def _apply_skill_delta(...) -> dict` |
 | Inputs | Same payloads as `update_skill_config`. |
-| Output | Empty delta result for the pre-start replacement; `{warnings, added_activated, added_tools}` for the post-start delta. |
+| Output | Empty delta result for the pre-start replacement; `{warnings, added_activated, added_tools, pending_sys_message}` for the post-start delta. |
 | Flow | `_replace_skill_config` is used before the first user message so skills can be added **and removed** freely; `_apply_skill_delta` preserves the append-only, warning-based behaviour once the chat has started. |
 
 ### `run_tool`
@@ -156,10 +158,10 @@ Full turn detail: [`flows/agent-turn-flow`](../flows/agent-turn-flow.md).
 | `_resolve_tool_calls` | register/decide/execute tools |
 | `_process_blocks` | emit thinking/message events, write `_streaming_tool_calls` |
 | `_record_tool_result` | emit `tool_result`, append `role: tool` message |
-| `_build_prompt` | system prompt + history (+ suffix), internal `_` keys stripped |
+| `_build_prompt` | system prompt + history (+ suffix), internal `_` keys stripped, media refs expanded |
 | `_strip_internal_keys` | recursively drop `_`-prefixed keys from a message payload |
 | `_build_tool_schemas` | OpenAI tool schema from `_tools` |
 | `_parse_tool_media` | detect `_media` marker in tool output |
-| `_inject_media_user_message` | inject image content as user message |
+| `_inject_media_user_message` | inject image content as a user message; persists data URLs to `media_dir` when configured |
 | `_build_sys_prompt` | assemble base message + activated instructions |
 | `_strip_empty_optional_args` | drop empty optional params |

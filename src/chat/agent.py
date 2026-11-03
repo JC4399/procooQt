@@ -19,6 +19,7 @@ from .llm import (
     LLMResponse,
     OpenAIModel,
 )
+from .media import MediaStore
 
 logger = logging.getLogger("procoo_qt")
 
@@ -82,6 +83,7 @@ class Agent:
         summary_prompt: str = "",
         chat_limits: dict | None = None,
         tool_env: dict[str, str] | None = None,
+        media_dir: str = "",
     ) -> None:
         """Initialise the agent.
 
@@ -102,6 +104,8 @@ class Agent:
                 corresponding limit).
             tool_env: Optional environment variables added to every tool
                 subprocess (used by sub-agents to propagate depth/id).
+            media_dir: Optional root directory for disk-backed multimodal
+                media. When empty, images stay inline as data URLs.
         """
         from ..util.log.formatter import log_chat_skills
         from ..util.tokens.tracker import ChatTokenTracker
@@ -110,6 +114,7 @@ class Agent:
         self.event_queue: asyncio.Queue = asyncio.Queue()
         self._pending_approvals: dict[str, asyncio.Queue] = {}
         self.messages: list[dict] = list(initial_messages) if initial_messages else []
+        self._media_store = MediaStore(media_dir) if media_dir else None
         self._tool_config: dict[str, str] = dict(tool_config)
         self._tool_env: dict[str, str] = dict(tool_env or {})
         self._current_assistant_msg: dict | None = None
@@ -190,7 +195,7 @@ class Agent:
 
         Returns:
             dict with ``warnings`` (list[str]), ``added_activated`` (list[str]),
-            and ``added_tools`` (list[str]).
+            ``added_tools`` (list[str]), and ``pending_sys_message`` (str).
         """
         chat_started = any(m.get("role") == "user" for m in self.messages)
         if not chat_started:
@@ -240,6 +245,7 @@ class Agent:
             "warnings": [],
             "added_activated": [],
             "added_tools": [],
+            "pending_sys_message": "",
         }
 
     def _apply_skill_delta(
@@ -256,7 +262,8 @@ class Agent:
             tool_config: New per-tool mode mapping.
 
         Returns:
-            dict with ``warnings``, ``added_activated``, and ``added_tools``.
+            dict with ``warnings``, ``added_activated``, ``added_tools``, and
+            ``pending_sys_message``.
         """
         warnings: list[str] = []
         added_activated: list[str] = []
@@ -310,6 +317,7 @@ class Agent:
             "warnings": warnings,
             "added_activated": added_activated,
             "added_tools": added_tools,
+            "pending_sys_message": self._pending_sys_message,
         }
 
     # ------------------------------------------------------------------
@@ -355,6 +363,8 @@ class Agent:
                 for url in images:
                     if not url:
                         continue
+                    if self._media_store is not None:
+                        url = self._media_store.store_data_url(self.chat_id, url)
                     content_parts.append(
                         {"type": "image_url", "image_url": {"url": url}},
                     )
@@ -728,10 +738,13 @@ class Agent:
             if not b64_data:
                 continue
             content_parts.append({"type": "text", "text": f"[IMAGE: {desc}]"})
+            url = f"data:image/png;base64,{b64_data}"
+            if self._media_store is not None:
+                url = self._media_store.store_data_url(self.chat_id, url)
             content_parts.append(
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{b64_data}"},
+                    "image_url": {"url": url},
                 }
             )
         if not content_parts:
@@ -763,10 +776,14 @@ class Agent:
 
         Returns:
             List of role/content dicts ready for the model, with internal
-            ``_``-prefixed keys stripped.
+            ``_``-prefixed keys stripped and media references expanded.
         """
         prompt = [{"role": "system", "content": self.sys_prompt}]
-        prompt.extend(_strip_internal_keys(m) for m in messages)
+        for message in messages:
+            clean = _strip_internal_keys(message)
+            if self._media_store is not None:
+                self._media_store.expand_message(clean)
+            prompt.append(clean)
         if suffix:
             prompt.append({"role": "user", "content": suffix})
         return prompt

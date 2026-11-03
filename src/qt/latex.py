@@ -51,8 +51,9 @@ _PAD_DISPLAY = 0.06
 _BOX_LINEWIDTH = 0.8
 
 #: Upper bound on the in-memory memo. The memo only avoids re-rasterising a
-#: repeated expression within one process; it is never persisted.
-_MEMO_MAX = 512
+#: repeated expression within one process; it is never persisted. Keep it small
+#: because each entry holds a base64 data URI.
+_MEMO_MAX = 64
 
 
 # ------------------------------------------------------------------

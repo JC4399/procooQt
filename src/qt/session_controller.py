@@ -43,11 +43,16 @@ _LAYOUT_SAVE_DEBOUNCE = 0.4
 #: Maximum number of simultaneously visible workspace panels.
 MAX_PANELS = 4
 
-#: Maximum number of chats that keep a live rendered transcript per window.
-_TRANSCRIPT_CACHE_LIMIT = 10
+#: Maximum number of chats that keep a live Python render model per window.
+#: QML only materializes the active chat plus one warm transcript per panel.
+_TRANSCRIPT_CACHE_LIMIT = MAX_PANELS * 2
 
 #: Quiet period (seconds) between background transcript pre-renders.
 _PREWARM_GAP = 0.25
+
+#: Extra non-active chats to pre-warm beyond the visible panels. Keeping this
+#: small avoids a burst of hydration/rendering work on session switches.
+_PREWARM_AHEAD = 2
 
 #: Maximum seconds to wait for one chat's pre-render to finish.
 _PREWARM_TIMEOUT = 15.0
@@ -100,6 +105,7 @@ class SessionController(QObject):
         _panel_models: list[ChatPanelModel]
         _transcript_lru: OrderedDict[str, None]
         _prewarm_generation: int
+        _switching_session: bool
         _tasks: set[asyncio.Task[Any]]
         _pending_layout: tuple[str, dict[str, Any]] | None
         _layout_task: asyncio.Task[Any] | None
@@ -126,6 +132,7 @@ class SessionController(QObject):
         super().__init__(parent)
         self.app = app
         self._bus = bus
+        self.prewarm_enabled = True
 
     # ------------------------------------------------------------------
     #  Builder
@@ -143,6 +150,7 @@ class SessionController(QObject):
             panel_model.set_model_provider(self.chat.model_for)
         self._transcript_lru = OrderedDict()
         self._prewarm_generation = 0
+        self._switching_session = False
         self._tasks = set()
         self._pending_layout = None
         self._layout_task = None
@@ -512,6 +520,8 @@ class SessionController(QObject):
         stalest cached chat rather than merely the least recently viewed one.
 
         The access-order LRU is used as a tie-breaker when timestamps match.
+        Evicted chats also release their worker, agent, and rendered model so the
+        cache limit bounds memory rather than only QML delegates.
         """
         active = {panel["active_chat_id"] for panel in self._panels if panel["active_chat_id"]}
         while len(self._transcript_lru) > _TRANSCRIPT_CACHE_LIMIT:
@@ -524,7 +534,30 @@ class SessionController(QObject):
                 key=lambda cid: (self._chat_updated_at(cid), access_order[cid]),
             )
             self._transcript_lru.pop(victim, None)
-            self.chat.cancel_prewarm(victim)
+            self.chat.release_chat(victim)
+
+    def _panel_transcript_ids(self, panel: dict[str, Any]) -> list[str]:
+        """Return the chat ids a panel should keep materialized in QML.
+
+        Only the active chat and one recently touched warm chat are kept. The
+        Python render model for other cached chats stays available, so switching
+        rebuilds delegates from already-rendered data instead of re-rendering.
+
+        Args:
+            panel: The panel record.
+
+        Returns:
+            The chat ids to materialize, active first.
+        """
+        active = panel["active_chat_id"]
+        if not active:
+            return []
+        ids = [active]
+        for chat_id in reversed(self._transcript_lru):
+            if chat_id != active and chat_id in panel["chat_ids"]:
+                ids.append(chat_id)
+                break
+        return ids
 
     def _sync_transcript_models(self) -> None:
         """Push the current transcript ids to every panel model.
@@ -534,21 +567,22 @@ class SessionController(QObject):
         re-pushing tabs, runtime, or emitting layout signals.
         """
         for panel in self._panels:
-            self._panel_models[panel["slot"]].set_transcripts(
-                [cid for cid in panel["chat_ids"] if cid in self._transcript_lru]
-            )
+            self._panel_models[panel["slot"]].set_transcripts(self._panel_transcript_ids(panel))
 
     def _prewarm_transcripts(self) -> None:
         """Seed the transcript cache and background-render this window's chats.
 
         Priority is the visible (active) chats first, then the remaining session
-        chats by most-recently-updated. At most ``_TRANSCRIPT_CACHE_LIMIT`` chats
-        are kept per window. The active chat is rendered by the normal activation
-        path; the others are hydrated and rendered here without being shown.
+        chats by most-recently-updated. At most ``len(active) + _PREWARM_AHEAD``
+        chats are pre-warmed, bounded by ``_TRANSCRIPT_CACHE_LIMIT``. The active
+        chat is rendered by the normal activation path; the others are hydrated
+        and rendered here without being shown.
 
         Transcripts are added one at a time by :meth:`_prewarm_sequence`, so a
         session switch does not instantiate all cached views in one burst.
         """
+        if not self.prewarm_enabled:
+            return
         session_name = self.active_session_name or ""
         session_chats = self._chats_by_session.get(session_name, [])
         if not session_chats:
@@ -564,7 +598,8 @@ class SessionController(QObject):
             key=self._chat_updated_at,
             reverse=True,
         )
-        ordered = list(dict.fromkeys(active + others))[:_TRANSCRIPT_CACHE_LIMIT]
+        limit = min(_TRANSCRIPT_CACHE_LIMIT, len(active) + _PREWARM_AHEAD)
+        ordered = list(dict.fromkeys(active + others))[:limit]
         self._sync_transcript_models()
         self._prewarm_generation += 1
         self._spawn(self._prewarm_sequence(ordered, active_set, self._prewarm_generation))
@@ -726,8 +761,13 @@ class SessionController(QObject):
         self.active_session_name_changed.emit()
         self.active_chat_id = None
         self.chat.cancel_prewarms()
+        self.chat.release_all_chats()
         self._transcript_lru.clear()
-        self._refresh_model()
+        self._switching_session = True
+        try:
+            self._refresh_model()
+        finally:
+            self._switching_session = False
         self._reconcile_panels(name)
         self._sync_panels()
         self._open_session_panels()
@@ -852,7 +892,7 @@ class SessionController(QObject):
         states = dict(self._states)
 
         def _collect() -> tuple[list[dict[str, Any]], list[str]]:
-            stored = self.app.chat_store.load_all_chats()
+            stored = self.app.chat_store.load_summaries()
             enriched = [self._enrich_chat(data, states) for data in stored]
             sessions = self.app.chat_store.list_sessions()
             return enriched, sessions
@@ -861,17 +901,17 @@ class SessionController(QObject):
         self._apply_summaries(enriched, sessions)
 
     def _collect_summaries(self) -> tuple[list[dict[str, Any]], list[str]]:
-        """Read and enrich every chat summary in a single disk pass.
+        """Read and enrich every chat summary from the on-disk index.
 
-        Parses each chat file once (via ``load_all_chats``) and derives the
-        display title and status from that same data. Touches no Qt objects, so it
-        is safe to run on a worker thread through ``asyncio.to_thread``.
+        The index avoids parsing every full chat file; only its lightweight rows
+        are read. Touches no Qt objects, so it is safe to run on a worker thread
+        through ``asyncio.to_thread``.
 
         Returns:
             ``(enriched, sessions)`` — the enriched summary list and session names.
         """
         states = dict(self._states)
-        stored = self.app.chat_store.load_all_chats()
+        stored = self.app.chat_store.load_summaries()
         enriched = [self._enrich_chat(data, states) for data in stored]
         sessions = self.app.chat_store.list_sessions()
         return enriched, sessions
@@ -914,7 +954,8 @@ class SessionController(QObject):
         self._chats_by_session = grouped
         self._session_menu_model.set_sessions(sessions, self.active_session_name)
         self.sessions_changed.emit()
-        self._sync_panels()
+        if not self._switching_session:
+            self._sync_panels()
 
     # ------------------------------------------------------------------
     #  Workspace panels
@@ -977,9 +1018,7 @@ class SessionController(QObject):
                 visible.add(active)
             panel_model = self._panel_models[slot]
             panel_model.set_panel(active, model, tabs, active, self._states)
-            panel_model.set_transcripts(
-                [cid for cid in panel["chat_ids"] if cid in self._transcript_lru]
-            )
+            panel_model.set_transcripts(self._panel_transcript_ids(panel))
             panel_model.set_runtime(*self._panel_runtime(active))
         for slot in range(MAX_PANELS):
             if slot in used:
@@ -1148,9 +1187,10 @@ class SessionController(QObject):
         Args:
             chat_id: The chat to open.
         """
-        stored = await asyncio.to_thread(self.app.chat_store.load_chat, chat_id)
-        if chat_manager.get_chat(chat_id) is None and stored and stored.get("messages"):
-            await self._hydrate_chat(chat_id, stored)
+        if chat_manager.get_chat(chat_id) is None:
+            stored = await asyncio.to_thread(self.app.chat_store.load_chat, chat_id)
+            if stored and stored.get("messages"):
+                await self._hydrate_chat(chat_id, stored)
         self.active_chat_changed.emit(chat_id)
 
     def _open_session_panels(self) -> None:
@@ -1161,10 +1201,11 @@ class SessionController(QObject):
                 self._open_chat(chat_id)
 
     def _enrich_chat(self, stored: dict[str, Any], states: dict[str, ChatState]) -> dict[str, Any]:
-        """Attach a derived title and status to a stored chat dict.
+        """Attach a derived title and status to a chat summary.
 
         Args:
-            stored: A full chat dict from ``ChatStore.load_all_chats``.
+            stored: A summary dict from ``ChatStore.load_summaries`` (or a full
+                stored chat dict when the index is unavailable).
             states: Snapshot of the per-chat UI states.
 
         Returns:
@@ -1173,12 +1214,20 @@ class SessionController(QObject):
         chat_id = str(stored.get("id", ""))
         skills = stored.get("skills_config", {}) or {}
         tools = skills.get("tools", {}) or {}
-        counts = {
-            "activated_count": len(skills.get("activated", []) or []),
-            "allow_count": sum(1 for mode in tools.values() if mode == "allow"),
-            "ask_count": sum(1 for mode in tools.values() if mode == "ask"),
-            "block_count": sum(1 for mode in tools.values() if mode == "block"),
-        }
+        if "activated_count" in stored:
+            counts = {
+                "activated_count": int(stored.get("activated_count", 0) or 0),
+                "allow_count": int(stored.get("allow_count", 0) or 0),
+                "ask_count": int(stored.get("ask_count", 0) or 0),
+                "block_count": int(stored.get("block_count", 0) or 0),
+            }
+        else:
+            counts = {
+                "activated_count": len(skills.get("activated", []) or []),
+                "allow_count": sum(1 for mode in tools.values() if mode == "allow"),
+                "ask_count": sum(1 for mode in tools.values() if mode == "ask"),
+                "block_count": sum(1 for mode in tools.values() if mode == "block"),
+            }
         return {
             "id": chat_id,
             "session": stored.get("session"),
@@ -1187,7 +1236,7 @@ class SessionController(QObject):
             "updated_at": stored.get("updated_at", ""),
             "message_count": stored.get("message_count", 0),
             "model_name": stored.get("model_name") or self.app.config.llm_model_name,
-            "title": self._derive_chat_title(stored),
+            "title": stored.get("title") or self._derive_chat_title(stored),
             "status": self._derive_chat_status(chat_id, stored, states),
             "true_input_tokens": int(stored.get("true_input_tokens", 0) or 0),
             "true_output_cum": int(stored.get("true_output_cum", 0) or 0),
@@ -1212,8 +1261,15 @@ class SessionController(QObject):
             A displayable title string.
         """
         for msg in sess.get("messages", []):
-            if msg.get("role") == "user" and msg.get("content", "").strip():
-                title = msg["content"].strip().replace("\n", " ")
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                content = "\n".join(
+                    str(part.get("text", ""))
+                    for part in content
+                    if isinstance(part, dict) and part.get("type") == "text"
+                )
+            if msg.get("role") == "user" and isinstance(content, str) and content.strip():
+                title = content.strip().replace("\n", " ")
                 return title[:30] + ("..." if len(title) > 30 else "")
         return sess.get("id", "")[:15]
 
@@ -1230,7 +1286,10 @@ class SessionController(QObject):
         Returns:
             One of the :class:`ChatStatus` values.
         """
-        has_messages = bool(stored and stored.get("messages"))
+        if stored is not None and "has_messages" in stored:
+            has_messages = bool(stored.get("has_messages"))
+        else:
+            has_messages = bool(stored and stored.get("messages"))
         return self._status_from_state(states.get(cid), has_messages)
 
     def _chat_display_status(self, chat_id: str) -> str:
@@ -1486,6 +1545,7 @@ class SessionController(QObject):
                 "max_bytes": self.app.config.chat_max_bytes,
                 "max_tokens": self.app.config.chat_max_tokens,
             },
+            media_dir=str(self.app.chat_store.storage_dir / "media"),
         )
 
     # ------------------------------------------------------------------

@@ -13,13 +13,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from threading import Event as ThreadEvent, Lock
+from threading import Event as ThreadEvent, Lock, Thread
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import QThread, Signal
 
-from . import render_pool
 from .chat_items import thinking_body
 from .chat_render import (
     ChatRenderer,
@@ -29,6 +28,7 @@ from .chat_render import (
     delete_bounds,
     normalize_content,
 )
+from .context_banner import build_skill_update_sections
 from .markdown import render_markdown
 from .qt_roles import ChatRole
 
@@ -101,17 +101,13 @@ class ChatWorker(QThread):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._ready = ThreadEvent()
 
-        stored = app.chat_store.load_chat(chat_id) if app else None
-        if stored:
-            self.true_input_tokens = int(stored.get("true_input_tokens", 0) or 0)
-            self.true_output_cum = int(stored.get("true_output_cum", 0) or 0)
-
     # ------------------------------------------------------------------
     #  Thread body
     # ------------------------------------------------------------------
 
     def run(self) -> None:
         """Thread entry point: run the chat's asyncio loop forever."""
+        self._load_stored_state()
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         self._loop = loop
@@ -121,6 +117,15 @@ class ChatWorker(QThread):
             loop.run_forever()
         finally:
             self._shutdown_loop()
+
+    def _load_stored_state(self) -> None:
+        """Load persisted token counts and banners on the worker thread."""
+        stored = self._app.chat_store.load_chat(self.chat_id) if self._app else None
+        if not stored:
+            return
+        self.true_input_tokens = int(stored.get("true_input_tokens", 0) or 0)
+        self.true_output_cum = int(stored.get("true_output_cum", 0) or 0)
+        self._banners = self._load_banners(stored.get("context_banners", []))
 
     def _shutdown_loop(self) -> None:
         """Cancel remaining tasks and close the loop."""
@@ -191,10 +196,6 @@ class ChatWorker(QThread):
         """Push new skill/tool configuration and emit the result."""
         self._post(lambda: self._do_update_config(activated, tools, tool_config))
 
-    def append_banner(self, banner: dict[str, Any]) -> None:
-        """Append a delta context banner and rebuild."""
-        self._post(lambda: self._do_append_banner(banner))
-
     def delete_turn(self, msg_index: int) -> None:
         """Delete the message object behind a card."""
         self._post(lambda: self._do_delete_turn(msg_index))
@@ -224,12 +225,12 @@ class ChatWorker(QThread):
         self._post(self._emit_plan)
 
     def request_prewarm_plan(self) -> None:
-        """Emit a full plan rendered in the process pool.
+        """Emit a full plan for pre-warming.
 
-        Used by transcript pre-warming so the CPU-heavy Markdown/Pygments/LaTeX
-        work runs outside this process's GIL.
+        The plan is built on this chat's worker thread, so it never blocks the
+        GUI loop.
         """
-        self._post(lambda: asyncio.ensure_future(self._emit_plan_via_pool()))
+        self._post(self._emit_plan)
 
     def request_persist(self) -> None:
         """Persist the chat to disk."""
@@ -249,6 +250,7 @@ class ChatWorker(QThread):
     # ------------------------------------------------------------------
 
     def _do_start_turn(self, message: str, gen_id: int) -> None:
+        self._commit_pending_banners()
         self.is_busy = True
         self.has_error = False
         self._last_count = 0
@@ -284,14 +286,8 @@ class ChatWorker(QThread):
         except Exception:
             logger.exception("ChatWorker[%s] config update failed", self.chat_id)
             return
+        self._sync_pending_banner(result)
         self.config_updated.emit(self.chat_id, result)
-
-    def _do_append_banner(self, banner: dict[str, Any]) -> None:
-        if self._banners and self._banners[-1].get("is_delta"):
-            self._banners.pop()
-        self._banners.append(banner)
-        if self.visible:
-            self._emit_plan()
 
     def _do_delete_turn(self, msg_index: int) -> None:
         messages = self.agent.messages
@@ -299,6 +295,7 @@ class ChatWorker(QThread):
             return
         start, end = delete_bounds(messages, msg_index)
         del messages[start:end]
+        self._prune_banners_after_delete(start, end)
         self.agent._current_assistant_msg = None
         self.renderer.invalidate_cache()
         self._do_persist()
@@ -326,6 +323,7 @@ class ChatWorker(QThread):
 
     def _trim_and_restart(self, keep_index: int, text: str, gen_id: int) -> None:
         del self.agent.messages[keep_index:]
+        self._prune_banners_after_trim(keep_index)
         self.agent._current_assistant_msg = None
         self.renderer.invalidate_cache()
         self._do_persist()
@@ -346,6 +344,93 @@ class ChatWorker(QThread):
         if visible:
             self._last_rendered = 0
             self._emit_plan()
+
+    # ------------------------------------------------------------------
+    #  Banner lifecycle (worker thread)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _load_banners(raw: object) -> list[dict[str, Any]]:
+        """Normalise persisted banners loaded from the chat store.
+
+        Args:
+            raw: The stored ``context_banners`` value.
+
+        Returns:
+            A list of banner dicts with integer anchors and ``pending=False``.
+        """
+        if not isinstance(raw, list):
+            return []
+        banners: list[dict[str, Any]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            banner = cast(dict[str, Any], item)
+            banner["anchor"] = int(banner.get("anchor", 0) or 0)
+            banner["pending"] = False
+            banners.append(banner)
+        return banners
+
+    def _sync_pending_banner(self, result: dict[str, Any]) -> None:
+        """Create, update, or remove the not-yet-sent skill-update banner.
+
+        The banner body is the exact system-message text that ``Agent.run`` will
+        inject before the next user message. Tool-only or mode-only changes
+        produce no text, so no banner is created for them.
+
+        Args:
+            result: The ``update_skill_config`` result dict.
+        """
+        text = str(result.get("pending_sys_message", "") or "").strip()
+        previous = [banner for banner in self._banners if banner.get("pending")]
+        self._banners = [banner for banner in self._banners if not banner.get("pending")]
+        if text:
+            self._banners.append(
+                {
+                    "type": "delta",
+                    "title": "Skill Update",
+                    "sections": build_skill_update_sections(text),
+                    "is_delta": True,
+                    "anchor": len(self.agent.messages),
+                    "pending": True,
+                }
+            )
+        if (previous or text) and self.visible:
+            self._emit_plan()
+
+    def _commit_pending_banners(self) -> None:
+        """Mark pending banners as committed when their system message is sent."""
+        for banner in self._banners:
+            if banner.get("pending"):
+                banner["pending"] = False
+
+    def _prune_banners_after_delete(self, start: int, end: int) -> None:
+        """Drop or shift banners after a ``[start, end)`` message deletion.
+
+        Args:
+            start: First deleted message index.
+            end: One past the last deleted message index.
+        """
+        removed = end - start
+        kept: list[dict[str, Any]] = []
+        for banner in self._banners:
+            anchor = int(banner.get("anchor", 0) or 0)
+            if start <= anchor < end:
+                continue
+            if anchor >= end:
+                banner["anchor"] = anchor - removed
+            kept.append(banner)
+        self._banners = kept
+
+    def _prune_banners_after_trim(self, keep_index: int) -> None:
+        """Drop banners anchored after a message-list trim point.
+
+        Args:
+            keep_index: First removed message index.
+        """
+        self._banners = [
+            banner for banner in self._banners if int(banner.get("anchor", 0) or 0) <= keep_index
+        ]
 
     # ------------------------------------------------------------------
     #  Event handling (worker thread)
@@ -479,28 +564,6 @@ class ChatWorker(QThread):
         )
         self.plan_ready.emit(self.chat_id, plan)
 
-    async def _emit_plan_via_pool(self) -> None:
-        """Build and emit a full plan using the render process pool."""
-        if self._loop is None:
-            return
-        snapshot = build_context_snapshot(self.agent)
-        try:
-            plan = await render_pool.render_plan(
-                list(self.agent.messages),
-                snapshot.get("system_prompt", ""),
-                self._banners,
-                self.is_busy,
-            )
-        except Exception:
-            logger.exception(
-                "ChatWorker[%s] process-pool render failed; falling back to in-thread",
-                self.chat_id,
-            )
-            self._emit_plan()
-            return
-        self.renderer.adopt_plan(plan)
-        self.plan_ready.emit(self.chat_id, plan)
-
     # ------------------------------------------------------------------
     #  Finalize / persistence
     # ------------------------------------------------------------------
@@ -587,6 +650,9 @@ class ChatWorker(QThread):
         stored["messages"] = list(self.agent.messages)
         stored["message_count"] = len(self.agent.messages)
         stored["context_snapshot"] = build_context_snapshot(self.agent)
+        stored["context_banners"] = [
+            banner for banner in self._banners if not banner.get("pending")
+        ]
         stored["true_input_tokens"] = self.true_input_tokens
         stored["true_output_cum"] = self.true_output_cum
         self._app.chat_store.save_chat(self.chat_id, stored)
@@ -646,6 +712,21 @@ def remove_worker(chat_id: str) -> None:
         worker = _workers.pop(chat_id, None)
     if worker is not None:
         worker.stop()
+
+
+def remove_worker_async(chat_id: str) -> None:
+    """Detach a worker and stop its thread without blocking the caller.
+
+    Used when reclaiming an evicted chat on the GUI thread. The worker may still
+    be finishing a render, so waiting for its thread here would freeze the UI.
+
+    Args:
+        chat_id: The chat id.
+    """
+    with _workers_lock:
+        worker = _workers.pop(chat_id, None)
+    if worker is not None:
+        Thread(target=worker.stop, daemon=True).start()
 
 
 def stop_all_workers() -> None:

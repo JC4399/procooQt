@@ -18,17 +18,18 @@ from typing import TYPE_CHECKING, Any, cast
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
+from ..chat.manager import chat_manager
 from .chat_items import build_user_item, build_waiting_item
 from .chat_render import delete_bounds
 from .chat_worker import (
     ChatWorker,
     ensure_worker,
     get_worker,
+    remove_worker_async,
     stop_all_workers,
 )
 from .error_handler import TOAST_ERROR
 from .models.chat_list_model import ChatListModel
-from .render_pool import shutdown_render_pool
 
 if TYPE_CHECKING:
     from ..app import ProcooApp
@@ -153,9 +154,8 @@ class ChatController(QObject):
         self.active_chat_id = None
 
     def shutdown(self) -> None:
-        """Stop every chat worker and the render pool (application shutdown)."""
+        """Stop every chat worker (application shutdown)."""
         stop_all_workers()
-        shutdown_render_pool()
         self._connected_workers = {}
 
     # ------------------------------------------------------------------
@@ -575,6 +575,62 @@ class ChatController(QObject):
         self._rendered_chats.discard(chat_id)
         self._prewarm_tokens.pop(chat_id, None)
 
+    def release_chat(self, chat_id: str, *, force: bool = False) -> None:
+        """Drop a non-visible chat's live runtime to reclaim memory.
+
+        The chat stays on disk. Its worker thread, agent, rendered model, and
+        render cache are released; a later activation hydrates it again from the
+        store. Visible or busy chats are never released unless ``force`` is set
+        (used when a window closes).
+
+        Args:
+            chat_id: The chat to release.
+            force: Release even when the chat is visible or busy.
+        """
+        if not chat_id:
+            return
+        if not force and self._is_visible(chat_id):
+            return
+        worker = self._connected_workers.get(chat_id) or get_worker(chat_id)
+        if not force and worker is not None and worker.is_busy:
+            return
+        self._cancel_prewarm(chat_id, clear_model=False)
+        self._models.pop(chat_id, None)
+        self._connected_workers.pop(chat_id, None)
+        self._rendered_chats.discard(chat_id)
+        self._switch_generations.pop(chat_id, None)
+        self._staged_tokens.pop(chat_id, None)
+        self._prewarm_tokens.pop(chat_id, None)
+        remove_worker_async(chat_id)
+        chat_manager.remove_chat(chat_id)
+
+    def release_all_chats(self, *, force: bool = False) -> None:
+        """Release every idle chat's runtime (session switch or window close).
+
+        Args:
+            force: Also release visible or busy chats (window close).
+        """
+        self._visible_chat_ids.clear()
+        for chat_id in list(self._connected_workers):
+            self.release_chat(chat_id, force=force)
+        if not force:
+            return
+        self._models.clear()
+        self._connected_workers.clear()
+        self._rendered_chats.clear()
+        self._prewarm_chats.clear()
+        self._prewarm_tokens.clear()
+        self._prewarm_futures.clear()
+        self._switch_generations.clear()
+        self._staged_tokens.clear()
+
+    def shutdown_window(self) -> None:
+        """Release every chat owned by this window (secondary window close)."""
+        self.release_all_chats(force=True)
+        for task in list(self._tasks):
+            task.cancel()
+        self._tasks.clear()
+
     def cancel_prewarms(self) -> None:
         """Abort every in-flight transcript pre-warm."""
         for chat_id in list(self._prewarm_chats):
@@ -588,11 +644,13 @@ class ChatController(QObject):
         """
         self._cancel_prewarm(chat_id)
 
-    def _cancel_prewarm(self, chat_id: str) -> None:
-        """Abort an in-flight pre-warm and clear its partial model.
+    def _cancel_prewarm(self, chat_id: str, *, clear_model: bool = True) -> None:
+        """Abort an in-flight pre-warm and optionally clear its partial model.
 
         Args:
             chat_id: The chat whose pre-warm should stop.
+            clear_model: Whether to clear the partial model rows. Callers that
+                are about to drop the model anyway can skip the reset.
         """
         if chat_id not in self._prewarm_chats:
             return
@@ -601,9 +659,10 @@ class ChatController(QObject):
         future = self._prewarm_futures.pop(chat_id, None)
         if future is not None and not future.done():
             future.set_result(None)
-        model = self._models.get(chat_id)
-        if model is not None:
-            model.set_items([], [])
+        if clear_model:
+            model = self._models.get(chat_id)
+            if model is not None:
+                model.set_items([], [])
 
     async def _apply_plan_prewarm(
         self,
@@ -842,6 +901,11 @@ class ChatController(QObject):
             chat_id: The chat whose plan is ready.
             plan: The :class:`~src.qt.chat_render.RenderPlan`.
         """
+        if chat_id not in self._connected_workers:
+            return
+        sender = self.sender()
+        if sender is not None and sender is not self._connected_workers.get(chat_id):
+            return
         model = self.model_for(chat_id)
         state = self.session.state(chat_id)
         items = getattr(plan, "items", [])
@@ -911,6 +975,11 @@ class ChatController(QObject):
             chat_id: The chat being updated.
             updates: A list of ``(row, role_values)`` pairs.
         """
+        if chat_id not in self._connected_workers:
+            return
+        sender = self.sender()
+        if sender is not None and sender is not self._connected_workers.get(chat_id):
+            return
         state = self.session.state(chat_id)
         if state.is_loading:
             # A staged rebuild owns the model; index-based merges would corrupt
@@ -930,6 +999,11 @@ class ChatController(QObject):
             item: The real tool-result row.
             key: The row's new identity key.
         """
+        if chat_id not in self._connected_workers:
+            return
+        sender = self.sender()
+        if sender is not None and sender is not self._connected_workers.get(chat_id):
+            return
         model = self.model_for(chat_id)
         row = model.find_pending_result(tool_id)
         if row < 0:

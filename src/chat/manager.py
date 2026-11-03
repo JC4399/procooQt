@@ -33,6 +33,7 @@ class ChatManager:
         summary_prompt: str = "",
         chat_limits: dict | None = None,
         tool_env: dict[str, str] | None = None,
+        media_dir: str = "",
     ) -> Agent:
         """Create (or replace) an ``Agent`` and register it.
 
@@ -51,6 +52,7 @@ class ChatManager:
             chat_limits: Optional ``{"max_bytes": int, "max_tokens": int}``
                 compaction limits.
             tool_env: Optional environment variables added to tool subprocesses.
+            media_dir: Optional root directory for disk-backed multimodal media.
 
         Returns:
             The newly created ``Agent``.
@@ -71,6 +73,7 @@ class ChatManager:
             summary_prompt=summary_prompt,
             chat_limits=chat_limits,
             tool_env=tool_env,
+            media_dir=media_dir,
         )
         self.chats[chat_id] = chat
         return chat

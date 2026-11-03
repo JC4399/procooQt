@@ -61,6 +61,16 @@ path collection and content search use ripgrep when the binary is available, wit
 a transparent pure-Python fallback when it isn't. The interface and output format
 are identical either way.
 
+### Regex engine
+
+ripgrep is invoked with `--pcre2`, enabling the full Perl-compatible regex
+feature set (lookaround, backreferences, etc.) at native speed. All patterns
+supported by Python's `re` module are also valid here.
+
+The Python fallback (used only when the rg binary is missing or crashes) uses
+the `re` module with `re.IGNORECASE`, which is a superset of PCRE2 for
+practical purposes.
+
 ## Examples
 
 ```json

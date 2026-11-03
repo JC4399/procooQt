@@ -17,8 +17,9 @@ TextEdit {
     // False for the frozen prefix when a live tail follows, so only one editor
     // takes keyboard focus / tab.
     property bool caretActive: true
-    // False while the hosting panel's auto-scroll is active, so the caret can
-    // never compete with the view being pinned to the newest card.
+    // False only while the chat is streaming and the hosting panel's auto-scroll
+    // is active, so the caret can never compete with the view being pinned to
+    // the newest card. When idle it stays enabled even with auto-scroll on.
     property bool caretEnabled: true
 
     // Emitted when the caret moves while this editor is focused; the hosting
@@ -34,7 +35,9 @@ TextEdit {
     Layout.preferredHeight: contentHeight
     readOnly: true
     textFormat: TextEdit.RichText
-    text: root.bodyHtml
+    // Only materialize rich text while the body is actually shown. Collapsed
+    // cards and hidden transcripts then hold no QTextDocument content.
+    text: root.visible ? root.bodyHtml : ""
     color: root.textColor
     font.family: Theme.fontMono
     font.pointSize: Theme.metrics.fontSizeMarkdown

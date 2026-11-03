@@ -6,10 +6,10 @@ Source: `src/qt/skill_controller.py`
 
 Owns the skill dock's data: the flattened skill tree, per-tool permission
 modes, saved presets, the search filter, and the config-sync flow that pushes
-dock selections to the active chat and appends a delta context banner. It also
-publishes per-chat config counts to the split panels and bridges the `watchdog`
-skill-directory watcher onto the Qt GUI thread. QML stays view-only and calls
-these slots.
+dock selections to the active chat. The chat worker owns the skill-update
+banner lifecycle. It also publishes per-chat config counts to the split panels
+and bridges the `watchdog` skill-directory watcher onto the Qt GUI thread. QML
+stays view-only and calls these slots.
 
 ## Deliverables
 
@@ -20,7 +20,8 @@ these slots.
 - DRY collectors `_collect_selected_skills`, `_collect_tool_modes`,
   `_collect_sidebar_config`.
 - Sync pipeline `_collect_*` → `_persist_config` → `_apply_live_config` →
-  `_handle_worker_config_updated` → `worker.append_banner` → `worker.request_rebuild`.
+  `worker.update_config` → `_handle_worker_config_updated` (warnings only). The
+  worker creates/removes/commits the skill-update banner.
 - `_load_config_into_sidebar`, `_rebuild_skill_sidebar`, `_refresh_skills`.
 - Per-chat summary publisher `_publish_config_summary` (activated/allow/ask/block
   counts on the chat's `ChatState`).
@@ -76,19 +77,19 @@ these slots.
 ### Sync (`_sync_config_to_chat`)
 
 1. `_collect_sidebar_config` → `{activated, tools}` (DRY collectors).
-2. `_persist_config` loads the stored chat, saves the new `skills_config`, and
-   returns the previous tool-mode map.
+2. `_persist_config` loads the stored chat and saves the new `skills_config`.
 3. `_update_config_chips` (legacy chips) and `_publish_config_summary(chat_id,
    config)` — the latter writes activated/allow/ask/block counts to the chat's
    `ChatState` and refreshes its panel.
 4. `_apply_live_config`:
    - `await asyncio.to_thread(_load_config_payloads)` loads skill contents and
      tool definitions off the event loop.
-   - `worker.update_config(...)` pushes the config to the chat's worker thread;
-     the worker emits `config_updated`, handled by `_handle_worker_config_updated`
+   - A stale sync generation is skipped so a rapid on/off toggle cannot apply an
+     older config after a newer one.
+   - `worker.update_config(...)` pushes the config to the chat's worker thread.
+     The worker creates/removes/commits the skill-update banner and rebuilds;
+     it emits `config_updated`, handled by `_handle_worker_config_updated`
      (each warning emits `toast_requested`).
-   - `_append_delta_banner` builds the delta banner and `worker.append_banner(...)`.
-   - `worker.request_rebuild()`.
 
 ### QML dock interaction (`SkillDock.qml`)
 
@@ -149,15 +150,14 @@ expanding leftward over the panel body.
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `_schedule_sync() -> None` | — | `None` | `_spawn(self._sync_config_to_chat())` | Schedules a task |
+| `_schedule_sync() -> None` | — | `None` | Increment `_sync_generation`; `_spawn(self._sync_config_to_chat(gen))` | Schedules a task |
 | `_spawn(coro) -> None` | `coro` | `None` | `asyncio.ensure_future`; tracked in `_tasks`; done callbacks discard + log | Schedules on the running loop |
 | `_log_task_failure(task) static -> None` | `task` | `None` | Ignore cancelled; log non-`None` exception | Logs error |
-| `_sync_config_to_chat() async -> None` | — | `None` | Bails while loading or when `_sidebar_chat_id` is empty; collect → persist → chips + summary → live apply | Persists, emits `config_changed`, updates the panel |
-| `_persist_config(chat_id, config) -> dict[str, str]` | `chat_id`; `config` | previous tool-mode map | Load stored chat, replace `skills_config`, save | Writes chat file; `{}` if missing |
-| `_apply_live_config(chat_id, config, old_tool_config) async -> None` | ids/config | `None` | Bails if no live chat; load payloads off-loop; `worker.update_config`; pending payloads stored for the result callback | Queues a worker command |
+| `_sync_config_to_chat(generation) async -> None` | sync generation | `None` | Bails while loading or when `_sidebar_chat_id` is empty; collect → persist → chips + summary → live apply | Persists, emits `config_changed`, updates the panel |
+| `_persist_config(chat_id, config) -> None` | `chat_id`; `config` | `None` | Load stored chat, replace `skills_config`, save | Writes chat file; no-op if missing |
+| `_apply_live_config(chat_id, config, generation) async -> None` | ids/config/generation | `None` | Bails if no live chat; load payloads off-loop; skip stale generation; `worker.update_config` | Queues a worker command |
 | `_load_config_payloads(config) -> tuple[list, list, dict]` | `config` | activated content, tool defs, tool config | Blocking `SkillManager` loads (run under `to_thread`) | None |
-| `_handle_worker_config_updated(chat_id, result) -> None` | chat, result dict | `None` | Pops pending payloads; toasts warnings; `_append_delta_banner`; `worker.request_rebuild` | Queues worker commands |
-| `_append_delta_banner(chat_id, config, old_tool_config, result, activated, tool_defs, worker) -> None` | sync inputs + result + worker | `None` | If changes exist, `worker.append_banner(...)` | Queues a worker command |
+| `_handle_worker_config_updated(chat_id, result) -> None` | chat, result dict | `None` | Toast each warning; worker owns the banner and rebuild | Emits `toast_requested` |
 
 ### Sidebar and model state
 
@@ -183,6 +183,7 @@ expanding leftward over the panel body.
 
 ## Related
 
-- [`qt-context-banner`](qt-context-banner.md) — delta section builder.
+- [`qt-context-banner`](qt-context-banner.md) — shared system-prompt section builder.
+- [`chat-worker`](chat-worker.md) — owns the skill-update banner lifecycle.
 - [`qt-chat-items`](qt-chat-items.md) — chat item builders the rebuilt display consumes.
 - [`qt-editor-controller`](qt-editor-controller.md) — the same watcher signal drives editor reconciliation.

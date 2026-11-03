@@ -113,8 +113,9 @@ longer blocks the GUI thread.
 
 ### Body caret navigation
 
-The body `CardBodyText` editors are keyboard-selectable whenever auto-scroll is
-off — there is no separate caret mode. Because they are `readOnly`, Qt would
+The body `CardBodyText` editors are keyboard-selectable except while the chat is
+streaming with auto-scroll on — there is no separate caret mode. Because they are
+`readOnly`, Qt would
 default `selectByKeyboard` to `false`, so `CardBodyText.qml` forces
 `selectByKeyboard: true`, giving caret movement and selection with arrows,
 `Shift`+arrows, `Ctrl`+arrows, `Home`/`End` and `Ctrl+A` (the browser-style
@@ -145,14 +146,18 @@ prefix.
 caret rectangle is mapped into the flickable's `contentItem`). `ChatPanel.qml`
 connects `caretMoved` to a `chatList.ensureVisible(y, h)`
 helper that nudges `contentY` only when the caret would be clipped, keeping the
-caret on screen — but only while auto-scroll is off. Auto-scroll has higher
-priority: while it is on, `CardBase.caretEnabled` is bound to
-`!autoScrollToggle.checked`, which disables click/tab focus and mouse selection
-in both body editors, and `caretMoved` clears focus instead of scrolling. Every
-auto-scroll activation (button click, reaching the bottom, loading overlay, chat
-switch) also calls `clearCaretFocus()` so an existing caret yields immediately.
-Once the user scrolls away (auto-scroll off), clicking a body re-enables the
-caret and `ensureVisible` keeps it on screen again.
+caret on screen — but only while the caret is enabled. Auto-scroll has higher
+priority **only while streaming**: `CardBase.caretEnabled` is bound to
+`!(root.busy && autoScrollToggle.checked)`, so click/tab focus and mouse
+selection in both body editors are disabled only when the chat is generating and
+auto-scroll is on. In that state `caretMoved` clears focus instead of scrolling.
+When the chat is idle the caret stays enabled even with auto-scroll on, and
+`caretMoved` scrolls via `ensureVisible` (which can in turn deactivate
+auto-scroll). Auto-scroll activation while streaming (button click, reaching the
+bottom, loading overlay, chat switch) also calls `clearCaretFocus()` so an
+existing caret yields immediately; when idle, toggling auto-scroll does not steal
+focus. Once the user scrolls away (auto-scroll off) the caret is enabled in all
+cases and `ensureVisible` keeps it on screen.
 
 The chat list in `ChatPanel.qml` (and the editor panel) is a **non-virtualized**
 `Flickable` + `Column` + `Repeater`: every card is instantiated so
@@ -168,8 +173,10 @@ flick, so it was reverted too. Auto-scroll sets
 `onContentYChanged` compares `contentY` against `Math.max(0, contentHeight -
 height)` and, on reaching the bottom, calls `activateWithFade()` (button fades
 in over 500 ms); scrolling away calls `deactivateWithFade()` (fades out over
-500 ms). Whenever `checked` becomes true the panel also clears any body caret,
-so auto-scroll always wins over caret navigation. The toggle starts `checked`
+500 ms). Whenever `checked` becomes true while the chat is streaming, the panel
+also clears any body caret, so auto-scroll wins over caret navigation during
+generation; when idle, toggling auto-scroll leaves the caret alone. The toggle
+starts `checked`
 so the first streamed card follows, and clicking it pauses/resumes follow
 manually (a paused toggle stays visible while hovered and fades out otherwise).
 `boundsBehavior: Flickable.StopAtBounds` prevents dragging past the last card.
@@ -276,4 +283,4 @@ carry `tool_name` and `tool_call_id`. Pending result cards set `tool_call_id` so
 ## Related
 
 - [`qt-context-banner`](qt-context-banner.md) — banner items built on `make_item`.
-- [`qt-skill-controller`](qt-skill-controller.md) — appends the delta context banner and rebuilds the chat display.
+- [`qt-skill-controller`](qt-skill-controller.md) — pushes config changes to the worker, which owns the skill-update banner.

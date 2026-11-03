@@ -4,7 +4,7 @@ Source: `src/qt/context_banner.py`
 
 ## Purpose
 
-Build context banner items (initial system context and config deltas) for
+Build context banner items (initial system context and skill updates) for
 `ChatListModel`, rendered by `src/qml/cards/ContextBanner.qml`. Banners are derived UI
 items only — `chat.messages` remains canonical. Builders return plain
 `ChatRole`-keyed dictionaries and never touch QML objects.
@@ -12,9 +12,11 @@ items only — `chat.messages` remains canonical. Builders return plain
 ## Deliverables
 
 - `build_context_banner_item` — `KIND_CONTEXT_BANNER` item carrying JSON sections.
+- `build_system_prompt_section` — the shared fenced `System Prompt` section used
+  by both the initial context card and the skill-update card.
 - `build_context_sections_from_snapshot` — the full system prompt section only.
-- `build_delta_context_sections` — added skills/tools and tool-mode changes.
-- Shared section helpers: `_shorten`, `_normalize_sections`.
+- `build_skill_update_sections` — the exact pending system-message text.
+- Shared section helper: `_normalize_sections`.
 
 ## Steps / Flow
 
@@ -37,12 +39,13 @@ items only — `chat.messages` remains canonical. Builders return plain
 `build_context_sections_from_snapshot` emits the System Prompt section only, in
 full (untruncated, fenced); no other snapshot fields are rendered.
 
-### Config delta
+### Skill update
 
-`build_delta_context_sections` emits Added Activated Skills, Added Tools, and
-Tool Mode Changes — each only when non-empty. The
-`SkillController` appends the resulting banner and pops any previous trailing
-delta so at most one delta is shown.
+`build_skill_update_sections` emits the exact pending system-message text using
+the same fenced `System Prompt` section as the initial card. The
+`ChatWorker` creates the banner when a skill is added, removes it when the
+selection is reversed, and commits it when the message is sent. Tool-mode
+changes produce no text, so they never create a banner.
 
 ## Function Reference
 
@@ -51,17 +54,18 @@ delta so at most one delta is shown.
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
 | `build_context_banner_item(title: str, sections: list[dict], *, is_delta=False) -> dict[int, object]` | `title` — headline; `sections` — `{header, content}` dicts (content = list of str or list of lists); `is_delta` — orange scheme | role-keyed dict with kind `context_banner` | `_normalize_sections` → `json.dumps` into `sections` role → `make_item` with `collapsed=not is_delta` | None |
-| `build_context_sections_from_snapshot(snapshot: dict) -> list[dict]` | `snapshot` — stored context snapshot | list of `{header, content}` dicts | Reads `system_prompt` only; emits the full (untruncated) fenced System Prompt section when non-empty | None |
-| `build_delta_context_sections(added_activated: list[dict], added_tools: list[dict], mode_changes: dict[str, tuple[str, str]]) -> list[dict]` | Added skill/tool content dicts; `mode_changes` — tool → `(old, new)` | list of `{header, content}` dicts | Builds "Added Activated Skills", "Added Tools", "Tool Mode Changes" sections, only when non-empty; sorts mode changes | None |
+| `build_system_prompt_section(text: str) -> list[dict]` | `text` — exact system-message text | list with one fenced `System Prompt` section, or `[]` when empty | Wraps the text in a fenced block | None |
+| `build_context_sections_from_snapshot(snapshot: dict) -> list[dict]` | `snapshot` — stored context snapshot | list of `{header, content}` dicts | Reads `system_prompt` only; delegates to `build_system_prompt_section` | None |
+| `build_skill_update_sections(pending_text: str) -> list[dict]` | `pending_text` — exact pending system-message text | list of `{header, content}` dicts | Delegates to `build_system_prompt_section` | None |
 
 ### Shared helpers
 
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
-| `_shorten(text: str, limit: int) -> str` | `text`; `limit` | original or `text[:limit] + "..."` | Length check | None |
 | `_normalize_sections(sections: list[dict]) -> list[dict]` | raw `{header, content}` dicts | `{header: str, content: list[str]}` | Joins list-of-line parts with `"\n"` so QML renders a flat list | None |
 
 ## Related
 
 - [`qt-chat-items`](qt-chat-items.md) — provides `make_item`, `KIND_CONTEXT_BANNER`, and `ChatRole`.
-- [`qt-skill-controller`](qt-skill-controller.md) — appends the delta banner during config sync.
+- [`chat-worker`](chat-worker.md) — owns the pending/committed skill-update banner lifecycle.
+- [`qt-skill-controller`](qt-skill-controller.md) — pushes config changes to the worker.

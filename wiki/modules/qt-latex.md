@@ -118,7 +118,7 @@ drawn in the wrong place. Commands mathtext lacks entirely (`\begin`, `\ce`,
 | `_PAD_INLINE` / `_PAD_DISPLAY` | `0.03` / `0.06` | Transparent margin (inches) |
 | `_BOX_LINEWIDTH` | `0.8` | Emulated `\boxed` border width (points) |
 | `_BOXED_CMD` / `_MAX_BOX_DEPTH` | `\boxed` / `16` | `\boxed` wrapper token and recursion cap |
-| `_MEMO_MAX` | `512` | In-memory memo bound |
+| `_MEMO_MAX` | `64` | In-memory memo bound |
 | `_MEMO` | `OrderedDict` | LRU of `(latex, display) → MathImage \| None` |
 | `_MEMO_LOCK` / `_RENDER_LOCK` | `threading.Lock` | Memo vs matplotlib serialisation |
 | `_MATPLOTLIB_READY` | `bool` | Lazy one-time matplotlib configuration flag |
