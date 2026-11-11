@@ -1,0 +1,1846 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Procoo, Level 1 — 初級指南</title>
+<style>
+.markdown-body {
+  --base-size-16: 1rem;
+  --base-size-24: 1.5rem;
+  --base-size-4: 0.25rem;
+  --base-size-40: 2.5rem;
+  --base-size-8: 0.5rem;
+  --base-text-weight-medium: 500;
+  --base-text-weight-normal: 400;
+  --base-text-weight-semibold: 600;
+  --fontStack-monospace: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+  --fontStack-sansSerif: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --fgColor-accent: Highlight;
+}
+@media (prefers-color-scheme: dark) {
+  .markdown-body, [data-theme="dark"] {
+    /*dark */
+    color-scheme: dark;
+    --fgColor-accent: #4493f8;
+    --bgColor-attention-muted: #bb800926;
+    --bgColor-default: #0d1117;
+    --bgColor-muted: #151b23;
+    --bgColor-neutral-muted: #656c7633;
+    --borderColor-accent-emphasis: #1f6feb;
+    --borderColor-attention-emphasis: #9e6a03;
+    --borderColor-danger-emphasis: #da3633;
+    --borderColor-default: #3d444d;
+    --borderColor-done-emphasis: #8957e5;
+    --borderColor-success-emphasis: #238636;
+    --color-prettylights-syntax-brackethighlighter-angle: #9198a1;
+    --color-prettylights-syntax-brackethighlighter-unmatched: #f85149;
+    --color-prettylights-syntax-carriage-return-bg: #b62324;
+    --color-prettylights-syntax-carriage-return-text: #f0f6fc;
+    --color-prettylights-syntax-comment: #9198a1;
+    --color-prettylights-syntax-constant: #79c0ff;
+    --color-prettylights-syntax-constant-other-reference-link: #a5d6ff;
+    --color-prettylights-syntax-entity: #d2a8ff;
+    --color-prettylights-syntax-entity-tag: #7ee787;
+    --color-prettylights-syntax-keyword: #ff7b72;
+    --color-prettylights-syntax-markup-bold: #f0f6fc;
+    --color-prettylights-syntax-markup-changed-bg: #5a1e02;
+    --color-prettylights-syntax-markup-changed-text: #ffdfb6;
+    --color-prettylights-syntax-markup-deleted-bg: #67060c;
+    --color-prettylights-syntax-markup-deleted-text: #ffdcd7;
+    --color-prettylights-syntax-markup-heading: #1f6feb;
+    --color-prettylights-syntax-markup-ignored-bg: #1158c7;
+    --color-prettylights-syntax-markup-ignored-text: #f0f6fc;
+    --color-prettylights-syntax-markup-inserted-bg: #033a16;
+    --color-prettylights-syntax-markup-inserted-text: #aff5b4;
+    --color-prettylights-syntax-markup-italic: #f0f6fc;
+    --color-prettylights-syntax-markup-list: #f2cc60;
+    --color-prettylights-syntax-meta-diff-range: #d2a8ff;
+    --color-prettylights-syntax-storage-modifier-import: #f0f6fc;
+    --color-prettylights-syntax-string: #a5d6ff;
+    --color-prettylights-syntax-string-regexp: #7ee787;
+    --color-prettylights-syntax-sublimelinter-gutter-mark: #3d444d;
+    --color-prettylights-syntax-variable: #ffa657;
+    --fgColor-attention: #d29922;
+    --fgColor-danger: #f85149;
+    --fgColor-default: #f0f6fc;
+    --fgColor-done: #ab7df8;
+    --fgColor-muted: #9198a1;
+    --fgColor-success: #3fb950;
+    --borderColor-muted: #3d444db3;
+    --color-prettylights-syntax-invalid-illegal-bg: var(--bgColor-danger-muted);
+    --color-prettylights-syntax-invalid-illegal-text: var(--fgColor-danger);
+    --focus-outlineColor: var(--borderColor-accent-emphasis);
+    --borderColor-neutral-muted: var(--borderColor-muted);
+  }
+}
+@media (prefers-color-scheme: light) {
+  .markdown-body, [data-theme="light"] {
+    /*light */
+    color-scheme: light;
+    --fgColor-danger: #d1242f;
+    --bgColor-attention-muted: #fff8c5;
+    --bgColor-muted: #f6f8fa;
+    --bgColor-neutral-muted: #818b981f;
+    --borderColor-accent-emphasis: #0969da;
+    --borderColor-attention-emphasis: #9a6700;
+    --borderColor-danger-emphasis: #cf222e;
+    --borderColor-default: #d1d9e0;
+    --borderColor-done-emphasis: #8250df;
+    --borderColor-success-emphasis: #1a7f37;
+    --color-prettylights-syntax-brackethighlighter-angle: #59636e;
+    --color-prettylights-syntax-brackethighlighter-unmatched: #82071e;
+    --color-prettylights-syntax-carriage-return-bg: #cf222e;
+    --color-prettylights-syntax-carriage-return-text: #f6f8fa;
+    --color-prettylights-syntax-comment: #59636e;
+    --color-prettylights-syntax-constant: #0550ae;
+    --color-prettylights-syntax-constant-other-reference-link: #0a3069;
+    --color-prettylights-syntax-entity: #6639ba;
+    --color-prettylights-syntax-entity-tag: #0550ae;
+    --color-prettylights-syntax-invalid-illegal-text: var(--fgColor-danger);
+    --color-prettylights-syntax-keyword: #cf222e;
+    --color-prettylights-syntax-markup-changed-bg: #ffd8b5;
+    --color-prettylights-syntax-markup-changed-text: #953800;
+    --color-prettylights-syntax-markup-deleted-bg: #ffebe9;
+    --color-prettylights-syntax-markup-deleted-text: #82071e;
+    --color-prettylights-syntax-markup-heading: #0550ae;
+    --color-prettylights-syntax-markup-ignored-bg: #0550ae;
+    --color-prettylights-syntax-markup-ignored-text: #d1d9e0;
+    --color-prettylights-syntax-markup-inserted-bg: #dafbe1;
+    --color-prettylights-syntax-markup-inserted-text: #116329;
+    --color-prettylights-syntax-markup-list: #3b2300;
+    --color-prettylights-syntax-meta-diff-range: #8250df;
+    --color-prettylights-syntax-string: #0a3069;
+    --color-prettylights-syntax-string-regexp: #116329;
+    --color-prettylights-syntax-sublimelinter-gutter-mark: #818b98;
+    --color-prettylights-syntax-variable: #953800;
+    --fgColor-accent: #0969da;
+    --fgColor-attention: #9a6700;
+    --fgColor-done: #8250df;
+    --fgColor-muted: #59636e;
+    --fgColor-success: #1a7f37;
+    --bgColor-default: #ffffff;
+    --borderColor-muted: #d1d9e0b3;
+    --color-prettylights-syntax-invalid-illegal-bg: var(--bgColor-danger-muted);
+    --color-prettylights-syntax-markup-bold: #1f2328;
+    --color-prettylights-syntax-markup-italic: #1f2328;
+    --color-prettylights-syntax-storage-modifier-import: #1f2328;
+    --fgColor-default: #1f2328;
+    --focus-outlineColor: var(--borderColor-accent-emphasis);
+    --borderColor-neutral-muted: var(--borderColor-muted);
+  }
+}
+
+.markdown-body {
+  /** CSS default easing. Use for hover state changes and micro-interactions. */
+  /** Accelerating motion. Use for elements exiting the viewport (moving off-screen). */
+  /** Smooth acceleration and deceleration. Use for elements moving or morphing within the viewport. */
+  /** Decelerating motion. Use for elements entering the viewport or appearing on screen. */
+  /** Constant motion with no acceleration. Use for continuous animations like progress bars or loaders. */
+  -ms-text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+  margin: 0;
+  font-weight: var(--base-text-weight-normal, 400);
+  color: var(--fgColor-default);
+  background-color: var(--bgColor-default);
+  font-family: var(--fontStack-sansSerif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji");
+  font-size: 16px;
+  line-height: 1.5;
+  word-wrap: break-word;
+}
+
+.markdown-body a {
+  text-decoration: underline;
+  text-underline-offset: .2rem;
+}
+
+.markdown-body .octicon {
+  display: inline-block;
+  fill: currentColor;
+  vertical-align: text-bottom;
+}
+
+.markdown-body h1:hover .anchor .octicon-link:before,
+.markdown-body h2:hover .anchor .octicon-link:before,
+.markdown-body h3:hover .anchor .octicon-link:before,
+.markdown-body h4:hover .anchor .octicon-link:before,
+.markdown-body h5:hover .anchor .octicon-link:before,
+.markdown-body h6:hover .anchor .octicon-link:before {
+  width: 16px;
+  height: 16px;
+  content: ' ';
+  display: inline-block;
+  background-color: currentColor;
+  -webkit-mask-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' version='1.1' aria-hidden='true'><path fill-rule='evenodd' d='M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z'></path></svg>");
+  mask-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' version='1.1' aria-hidden='true'><path fill-rule='evenodd' d='M7.775 3.275a.75.75 0 001.06 1.06l1.25-1.25a2 2 0 112.83 2.83l-2.5 2.5a2 2 0 01-2.83 0 .75.75 0 00-1.06 1.06 3.5 3.5 0 004.95 0l2.5-2.5a3.5 3.5 0 00-4.95-4.95l-1.25 1.25zm-4.69 9.64a2 2 0 010-2.83l2.5-2.5a2 2 0 012.83 0 .75.75 0 001.06-1.06 3.5 3.5 0 00-4.95 0l-2.5 2.5a3.5 3.5 0 004.95 4.95l1.25-1.25a.75.75 0 00-1.06-1.06l-1.25 1.25a2 2 0 01-2.83 0z'></path></svg>");
+}
+
+.markdown-body details,
+.markdown-body figcaption,
+.markdown-body figure {
+  display: block;
+}
+
+.markdown-body summary {
+  display: list-item;
+}
+
+.markdown-body [hidden] {
+  display: none !important;
+}
+
+.markdown-body a {
+  background-color: rgba(0,0,0,0);
+  color: var(--fgColor-accent);
+  text-decoration: none;
+}
+
+.markdown-body abbr[title] {
+  border-bottom: none;
+  -webkit-text-decoration: underline dotted;
+  text-decoration: underline dotted;
+}
+
+.markdown-body b,
+.markdown-body strong {
+  font-weight: var(--base-text-weight-semibold, 600);
+}
+
+.markdown-body dfn {
+  font-style: italic;
+}
+
+.markdown-body h1 {
+  margin: .67em 0;
+  font-weight: var(--base-text-weight-semibold, 600);
+  padding-bottom: .3em;
+  font-size: 2em;
+  border-bottom: 1px solid var(--borderColor-muted);
+}
+
+.markdown-body mark {
+  background-color: var(--bgColor-attention-muted);
+  color: var(--fgColor-default);
+}
+
+.markdown-body small {
+  font-size: 90%;
+}
+
+.markdown-body sub,
+.markdown-body sup {
+  font-size: 75%;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+
+.markdown-body sub {
+  bottom: -0.25em;
+}
+
+.markdown-body sup {
+  top: -0.5em;
+}
+
+.markdown-body img {
+  border-style: none;
+  max-width: 100%;
+  box-sizing: content-box;
+}
+
+.markdown-body code,
+.markdown-body kbd,
+.markdown-body pre,
+.markdown-body samp {
+  font-family: monospace;
+  font-size: 1em;
+}
+
+.markdown-body figure {
+  margin: 1em var(--base-size-40);
+}
+
+.markdown-body hr {
+  box-sizing: content-box;
+  overflow: hidden;
+  background: rgba(0,0,0,0);
+  border-bottom: 1px solid var(--borderColor-muted);
+  height: .25em;
+  padding: 0;
+  margin: var(--base-size-24) 0;
+  background-color: var(--borderColor-default);
+  border: 0;
+}
+
+.markdown-body input {
+  font: inherit;
+  margin: 0;
+  overflow: visible;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.markdown-body [type=button],
+.markdown-body [type=reset],
+.markdown-body [type=submit] {
+  -webkit-appearance: button;
+  appearance: button;
+}
+
+.markdown-body [type=checkbox],
+.markdown-body [type=radio] {
+  box-sizing: border-box;
+  padding: 0;
+}
+
+.markdown-body [type=number]::-webkit-inner-spin-button,
+.markdown-body [type=number]::-webkit-outer-spin-button {
+  height: auto;
+}
+
+.markdown-body [type=search]::-webkit-search-cancel-button,
+.markdown-body [type=search]::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.markdown-body ::-webkit-input-placeholder {
+  color: inherit;
+  opacity: .54;
+}
+
+.markdown-body ::-webkit-file-upload-button {
+  -webkit-appearance: button;
+  appearance: button;
+  font: inherit;
+}
+
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+
+.markdown-body ::placeholder {
+  color: var(--fgColor-muted);
+  opacity: 1;
+}
+
+.markdown-body hr::before {
+  display: table;
+  content: "";
+}
+
+.markdown-body hr::after {
+  display: table;
+  clear: both;
+  content: "";
+}
+
+.markdown-body table {
+  border-spacing: 0;
+  border-collapse: collapse;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow: auto;
+  font-variant: tabular-nums;
+}
+
+.markdown-body td,
+.markdown-body th {
+  padding: 0;
+}
+
+.markdown-body details summary {
+  cursor: pointer;
+}
+
+.markdown-body a:focus,
+.markdown-body [role=button]:focus,
+.markdown-body input[type=radio]:focus,
+.markdown-body input[type=checkbox]:focus {
+  outline: 2px solid var(--focus-outlineColor);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+.markdown-body a:focus:not(:focus-visible),
+.markdown-body [role=button]:focus:not(:focus-visible),
+.markdown-body input[type=radio]:focus:not(:focus-visible),
+.markdown-body input[type=checkbox]:focus:not(:focus-visible) {
+  outline: solid 1px rgba(0,0,0,0);
+}
+
+.markdown-body a:focus-visible,
+.markdown-body [role=button]:focus-visible,
+.markdown-body input[type=radio]:focus-visible,
+.markdown-body input[type=checkbox]:focus-visible {
+  outline: 2px solid var(--focus-outlineColor);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+
+.markdown-body a:not([class]):focus,
+.markdown-body a:not([class]):focus-visible,
+.markdown-body input[type=radio]:focus,
+.markdown-body input[type=radio]:focus-visible,
+.markdown-body input[type=checkbox]:focus,
+.markdown-body input[type=checkbox]:focus-visible {
+  outline-offset: 0;
+}
+
+.markdown-body kbd {
+  display: inline-block;
+  padding: var(--base-size-4);
+  font: 11px var(--fontStack-monospace, ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace);
+  line-height: 10px;
+  color: var(--fgColor-default);
+  vertical-align: middle;
+  background-color: var(--bgColor-muted);
+  border: solid 1px var(--borderColor-neutral-muted);
+  border-bottom-color: var(--borderColor-neutral-muted);
+  border-radius: 6px;
+  box-shadow: inset 0 -1px 0 var(--borderColor-neutral-muted);
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin-top: var(--base-size-24);
+  margin-bottom: var(--base-size-16);
+  font-weight: var(--base-text-weight-semibold, 600);
+  line-height: 1.25;
+}
+
+.markdown-body h2 {
+  font-weight: var(--base-text-weight-semibold, 600);
+  padding-bottom: .3em;
+  font-size: 1.5em;
+  border-bottom: 1px solid var(--borderColor-muted);
+}
+
+.markdown-body h3 {
+  font-weight: var(--base-text-weight-semibold, 600);
+  font-size: 1.25em;
+}
+
+.markdown-body h4 {
+  font-weight: var(--base-text-weight-semibold, 600);
+  font-size: 1em;
+}
+
+.markdown-body h5 {
+  font-weight: var(--base-text-weight-semibold, 600);
+  font-size: .875em;
+}
+
+.markdown-body h6 {
+  font-weight: var(--base-text-weight-semibold, 600);
+  font-size: .85em;
+  color: var(--fgColor-muted);
+}
+
+.markdown-body p {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+.markdown-body blockquote {
+  margin: 0;
+  padding: 0 1em;
+  color: var(--fgColor-muted);
+  border-left: .25em solid var(--borderColor-default);
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-left: 2em;
+}
+
+.markdown-body ol ol,
+.markdown-body ul ol {
+  list-style-type: lower-roman;
+}
+
+.markdown-body ul ul ol,
+.markdown-body ul ol ol,
+.markdown-body ol ul ol,
+.markdown-body ol ol ol {
+  list-style-type: lower-alpha;
+}
+
+.markdown-body dd {
+  margin-left: 0;
+}
+
+.markdown-body tt,
+.markdown-body code,
+.markdown-body samp {
+  font-family: var(--fontStack-monospace, ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace);
+  font-size: 12px;
+}
+
+.markdown-body pre {
+  margin-top: 0;
+  margin-bottom: 0;
+  font-family: var(--fontStack-monospace, ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace);
+  font-size: 12px;
+  word-wrap: normal;
+}
+
+.markdown-body .octicon {
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-body input::-webkit-outer-spin-button,
+.markdown-body input::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.markdown-body .mr-2 {
+  margin-right: var(--base-size-8, 8px) !important;
+}
+
+.markdown-body::before {
+  display: table;
+  content: "";
+}
+
+.markdown-body::after {
+  display: table;
+  clear: both;
+  content: "";
+}
+
+.markdown-body>*:first-child {
+  margin-top: 0 !important;
+}
+
+.markdown-body>*:last-child {
+  margin-bottom: 0 !important;
+}
+
+.markdown-body a:not([href]) {
+  color: inherit;
+  text-decoration: none;
+}
+
+.markdown-body .absent {
+  color: var(--fgColor-danger);
+}
+
+.markdown-body .anchor {
+  float: left;
+  padding-right: var(--base-size-4);
+  margin-left: -20px;
+  line-height: 1;
+}
+
+.markdown-body .anchor:focus {
+  outline: none;
+}
+
+.markdown-body p,
+.markdown-body blockquote,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body dl,
+.markdown-body table,
+.markdown-body pre,
+.markdown-body details {
+  margin-top: 0;
+  margin-bottom: var(--base-size-16);
+}
+
+.markdown-body blockquote>:first-child {
+  margin-top: 0;
+}
+
+.markdown-body blockquote>:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body h1 .octicon-link,
+.markdown-body h2 .octicon-link,
+.markdown-body h3 .octicon-link,
+.markdown-body h4 .octicon-link,
+.markdown-body h5 .octicon-link,
+.markdown-body h6 .octicon-link {
+  color: var(--fgColor-default);
+  vertical-align: middle;
+  visibility: hidden;
+}
+
+.markdown-body h1:hover .anchor,
+.markdown-body h2:hover .anchor,
+.markdown-body h3:hover .anchor,
+.markdown-body h4:hover .anchor,
+.markdown-body h5:hover .anchor,
+.markdown-body h6:hover .anchor {
+  text-decoration: none;
+}
+
+.markdown-body h1:hover .anchor .octicon-link,
+.markdown-body h2:hover .anchor .octicon-link,
+.markdown-body h3:hover .anchor .octicon-link,
+.markdown-body h4:hover .anchor .octicon-link,
+.markdown-body h5:hover .anchor .octicon-link,
+.markdown-body h6:hover .anchor .octicon-link {
+  visibility: visible;
+}
+
+.markdown-body h1 tt,
+.markdown-body h1 code,
+.markdown-body h2 tt,
+.markdown-body h2 code,
+.markdown-body h3 tt,
+.markdown-body h3 code,
+.markdown-body h4 tt,
+.markdown-body h4 code,
+.markdown-body h5 tt,
+.markdown-body h5 code,
+.markdown-body h6 tt,
+.markdown-body h6 code {
+  padding: 0 .2em;
+  font-size: inherit;
+}
+
+.markdown-body summary h1,
+.markdown-body summary h2,
+.markdown-body summary h3,
+.markdown-body summary h4,
+.markdown-body summary h5,
+.markdown-body summary h6 {
+  display: inline-block;
+}
+
+.markdown-body summary h1 .anchor,
+.markdown-body summary h2 .anchor,
+.markdown-body summary h3 .anchor,
+.markdown-body summary h4 .anchor,
+.markdown-body summary h5 .anchor,
+.markdown-body summary h6 .anchor {
+  margin-left: -40px;
+}
+
+.markdown-body summary h1,
+.markdown-body summary h2 {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.markdown-body ul.no-list,
+.markdown-body ol.no-list {
+  padding: 0;
+  list-style-type: none;
+}
+
+.markdown-body ol[type="a s"] {
+  list-style-type: lower-alpha;
+}
+
+.markdown-body ol[type="A s"] {
+  list-style-type: upper-alpha;
+}
+
+.markdown-body ol[type="i s"] {
+  list-style-type: lower-roman;
+}
+
+.markdown-body ol[type="I s"] {
+  list-style-type: upper-roman;
+}
+
+.markdown-body ol[type="1"] {
+  list-style-type: decimal;
+}
+
+.markdown-body div>ol:not([type]) {
+  list-style-type: decimal;
+}
+
+.markdown-body ul ul,
+.markdown-body ul ol,
+.markdown-body ol ol,
+.markdown-body ol ul {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.markdown-body li>p {
+  margin-top: var(--base-size-16);
+}
+
+.markdown-body li+li {
+  margin-top: .25em;
+}
+
+.markdown-body dl {
+  padding: 0;
+}
+
+.markdown-body dl dt {
+  padding: 0;
+  margin-top: var(--base-size-16);
+  font-size: 1em;
+  font-style: italic;
+  font-weight: var(--base-text-weight-semibold, 600);
+}
+
+.markdown-body dl dd {
+  padding: 0 var(--base-size-16);
+  margin-bottom: var(--base-size-16);
+}
+
+.markdown-body table th {
+  font-weight: var(--base-text-weight-semibold, 600);
+}
+
+.markdown-body table th,
+.markdown-body table td {
+  padding: 6px 13px;
+  border: 1px solid var(--borderColor-default);
+}
+
+.markdown-body table td>:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body table tr {
+  background-color: var(--bgColor-default);
+  border-top: 1px solid var(--borderColor-muted);
+}
+
+.markdown-body table tr:nth-child(2n) {
+  background-color: var(--bgColor-muted);
+}
+
+.markdown-body table img {
+  background-color: rgba(0,0,0,0);
+}
+
+.markdown-body img[align=right] {
+  padding-left: 20px;
+}
+
+.markdown-body img[align=left] {
+  padding-right: 20px;
+}
+
+.markdown-body .emoji {
+  max-width: none;
+  vertical-align: text-top;
+  background-color: rgba(0,0,0,0);
+}
+
+.markdown-body span.frame {
+  display: block;
+  overflow: hidden;
+}
+
+.markdown-body span.frame>span {
+  display: block;
+  float: left;
+  width: auto;
+  padding: 7px;
+  margin: 13px 0 0;
+  overflow: hidden;
+  border: 1px solid var(--borderColor-default);
+}
+
+.markdown-body span.frame span img {
+  display: block;
+  float: left;
+}
+
+.markdown-body span.frame span span {
+  display: block;
+  padding: 5px 0 0;
+  clear: both;
+  color: var(--fgColor-default);
+}
+
+.markdown-body span.align-center {
+  display: block;
+  overflow: hidden;
+  clear: both;
+}
+
+.markdown-body span.align-center>span {
+  display: block;
+  margin: 13px auto 0;
+  overflow: hidden;
+  text-align: center;
+}
+
+.markdown-body span.align-center span img {
+  margin: 0 auto;
+  text-align: center;
+}
+
+.markdown-body span.align-right {
+  display: block;
+  overflow: hidden;
+  clear: both;
+}
+
+.markdown-body span.align-right>span {
+  display: block;
+  margin: 13px 0 0;
+  overflow: hidden;
+  text-align: right;
+}
+
+.markdown-body span.align-right span img {
+  margin: 0;
+  text-align: right;
+}
+
+.markdown-body span.float-left {
+  display: block;
+  float: left;
+  margin-right: 13px;
+  overflow: hidden;
+}
+
+.markdown-body span.float-left span {
+  margin: 13px 0 0;
+}
+
+.markdown-body span.float-right {
+  display: block;
+  float: right;
+  margin-left: 13px;
+  overflow: hidden;
+}
+
+.markdown-body span.float-right>span {
+  display: block;
+  margin: 13px auto 0;
+  overflow: hidden;
+  text-align: right;
+}
+
+.markdown-body code,
+.markdown-body tt {
+  padding: .2em .4em;
+  margin: 0;
+  font-size: 85%;
+  white-space: break-spaces;
+  background-color: var(--bgColor-neutral-muted);
+  border-radius: 6px;
+}
+
+.markdown-body code br,
+.markdown-body tt br {
+  display: none;
+}
+
+.markdown-body del code {
+  text-decoration: inherit;
+}
+
+.markdown-body samp {
+  font-size: 85%;
+}
+
+.markdown-body pre code {
+  font-size: 100%;
+}
+
+.markdown-body pre>code {
+  padding: 0;
+  margin: 0;
+  word-break: normal;
+  white-space: pre;
+  background: rgba(0,0,0,0);
+  border: 0;
+}
+
+.markdown-body .highlight {
+  margin-bottom: var(--base-size-16);
+}
+
+.markdown-body .highlight pre {
+  margin-bottom: 0;
+  word-break: normal;
+}
+
+.markdown-body .highlight pre,
+.markdown-body pre {
+  padding: var(--base-size-16);
+  overflow: auto;
+  font-size: 85%;
+  line-height: 1.45;
+  color: var(--fgColor-default);
+  background-color: var(--bgColor-muted);
+  border-radius: 6px;
+}
+
+.markdown-body pre code,
+.markdown-body pre tt {
+  display: inline;
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+  line-height: inherit;
+  word-wrap: normal;
+  background-color: rgba(0,0,0,0);
+  border: 0;
+}
+
+.markdown-body .csv-data td,
+.markdown-body .csv-data th {
+  padding: 5px;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.markdown-body .csv-data .blob-num {
+  padding: 10px var(--base-size-8) 9px;
+  text-align: right;
+  background: var(--bgColor-default);
+  border: 0;
+}
+
+.markdown-body .csv-data tr {
+  border-top: 0;
+}
+
+.markdown-body .csv-data th {
+  font-weight: var(--base-text-weight-semibold, 600);
+  background: var(--bgColor-muted);
+  border-top: 0;
+}
+
+.markdown-body [data-footnote-ref]::before {
+  content: "[";
+}
+
+.markdown-body [data-footnote-ref]::after {
+  content: "]";
+}
+
+.markdown-body .footnotes {
+  font-size: 12px;
+  color: var(--fgColor-muted);
+  border-top: 1px solid var(--borderColor-default);
+}
+
+.markdown-body .footnotes ol {
+  padding-left: var(--base-size-16);
+}
+
+.markdown-body .footnotes ol ul {
+  display: inline-block;
+  padding-left: var(--base-size-16);
+  margin-top: var(--base-size-16);
+}
+
+.markdown-body .footnotes li {
+  position: relative;
+}
+
+.markdown-body .footnotes li:target::before {
+  position: absolute;
+  top: calc(var(--base-size-8)*-1);
+  right: calc(var(--base-size-8)*-1);
+  bottom: calc(var(--base-size-8)*-1);
+  left: calc(var(--base-size-24)*-1);
+  pointer-events: none;
+  content: "";
+  border: 2px solid var(--borderColor-accent-emphasis);
+  border-radius: 6px;
+}
+
+.markdown-body .footnotes li:target {
+  color: var(--fgColor-default);
+}
+
+.markdown-body .footnotes .data-footnote-backref g-emoji {
+  font-family: monospace;
+}
+
+.markdown-body .pl-c {
+  color: var(--color-prettylights-syntax-comment);
+}
+
+.markdown-body .pl-c1,
+.markdown-body .pl-s .pl-v {
+  color: var(--color-prettylights-syntax-constant);
+}
+
+.markdown-body .pl-e,
+.markdown-body .pl-en {
+  color: var(--color-prettylights-syntax-entity);
+}
+
+.markdown-body .pl-smi,
+.markdown-body .pl-s .pl-s1 {
+  color: var(--color-prettylights-syntax-storage-modifier-import);
+}
+
+.markdown-body .pl-ent {
+  color: var(--color-prettylights-syntax-entity-tag);
+}
+
+.markdown-body .pl-k {
+  color: var(--color-prettylights-syntax-keyword);
+}
+
+.markdown-body .pl-s,
+.markdown-body .pl-pds,
+.markdown-body .pl-s .pl-pse .pl-s1,
+.markdown-body .pl-sr,
+.markdown-body .pl-sr .pl-cce,
+.markdown-body .pl-sr .pl-sre,
+.markdown-body .pl-sr .pl-sra {
+  color: var(--color-prettylights-syntax-string);
+}
+
+.markdown-body .pl-v,
+.markdown-body .pl-smw {
+  color: var(--color-prettylights-syntax-variable);
+}
+
+.markdown-body .pl-bu {
+  color: var(--color-prettylights-syntax-brackethighlighter-unmatched);
+}
+
+.markdown-body .pl-ii {
+  color: var(--color-prettylights-syntax-invalid-illegal-text);
+  background-color: var(--color-prettylights-syntax-invalid-illegal-bg);
+}
+
+.markdown-body .pl-c2 {
+  color: var(--color-prettylights-syntax-carriage-return-text);
+  background-color: var(--color-prettylights-syntax-carriage-return-bg);
+}
+
+.markdown-body .pl-sr .pl-cce {
+  font-weight: bold;
+  color: var(--color-prettylights-syntax-string-regexp);
+}
+
+.markdown-body .pl-ml {
+  color: var(--color-prettylights-syntax-markup-list);
+}
+
+.markdown-body .pl-mh,
+.markdown-body .pl-mh .pl-en,
+.markdown-body .pl-ms {
+  font-weight: bold;
+  color: var(--color-prettylights-syntax-markup-heading);
+}
+
+.markdown-body .pl-mi {
+  font-style: italic;
+  color: var(--color-prettylights-syntax-markup-italic);
+}
+
+.markdown-body .pl-mb {
+  font-weight: bold;
+  color: var(--color-prettylights-syntax-markup-bold);
+}
+
+.markdown-body .pl-md {
+  color: var(--color-prettylights-syntax-markup-deleted-text);
+  background-color: var(--color-prettylights-syntax-markup-deleted-bg);
+}
+
+.markdown-body .pl-mi1 {
+  color: var(--color-prettylights-syntax-markup-inserted-text);
+  background-color: var(--color-prettylights-syntax-markup-inserted-bg);
+}
+
+.markdown-body .pl-mc {
+  color: var(--color-prettylights-syntax-markup-changed-text);
+  background-color: var(--color-prettylights-syntax-markup-changed-bg);
+}
+
+.markdown-body .pl-mi2 {
+  color: var(--color-prettylights-syntax-markup-ignored-text);
+  background-color: var(--color-prettylights-syntax-markup-ignored-bg);
+}
+
+.markdown-body .pl-mdr {
+  font-weight: bold;
+  color: var(--color-prettylights-syntax-meta-diff-range);
+}
+
+.markdown-body .pl-ba {
+  color: var(--color-prettylights-syntax-brackethighlighter-angle);
+}
+
+.markdown-body .pl-sg {
+  color: var(--color-prettylights-syntax-sublimelinter-gutter-mark);
+}
+
+.markdown-body .pl-corl {
+  text-decoration: underline;
+  color: var(--color-prettylights-syntax-constant-other-reference-link);
+}
+
+.markdown-body [role=button]:focus:not(:focus-visible),
+.markdown-body [role=tabpanel][tabindex="0"]:focus:not(:focus-visible),
+.markdown-body button:focus:not(:focus-visible),
+.markdown-body summary:focus:not(:focus-visible),
+.markdown-body a:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
+.markdown-body [tabindex="0"]:focus:not(:focus-visible),
+.markdown-body details-dialog:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.markdown-body g-emoji {
+  display: inline-block;
+  min-width: 1ch;
+  font-family: "Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol";
+  font-size: 1em;
+  font-style: normal !important;
+  font-weight: var(--base-text-weight-normal, 400);
+  line-height: 1;
+  vertical-align: -0.075em;
+}
+
+.markdown-body g-emoji img {
+  width: 1em;
+  height: 1em;
+}
+
+.markdown-body a:has(>p,>div,>pre,>blockquote) {
+  display: block;
+}
+
+.markdown-body a:has(>p,>div,>pre,>blockquote):not(:has(.snippet-clipboard-content,>pre)) {
+  width: fit-content;
+}
+
+.markdown-body a:has(>p,>div,>pre,>blockquote):has(.snippet-clipboard-content,>pre):focus-visible {
+  outline: 2px solid var(--focus-outlineColor);
+  outline-offset: 2px;
+}
+
+.markdown-body .task-list-item {
+  list-style-type: none;
+}
+
+.markdown-body .task-list-item label {
+  font-weight: var(--base-text-weight-normal, 400);
+}
+
+.markdown-body .task-list-item.enabled label {
+  cursor: pointer;
+}
+
+.markdown-body .task-list-item+.task-list-item {
+  margin-top: var(--base-size-4);
+}
+
+.markdown-body .task-list-item .handle {
+  display: none;
+}
+
+.markdown-body .task-list-item-checkbox {
+  margin: 0 .2em .25em -1.4em;
+  vertical-align: middle;
+}
+
+.markdown-body ul:dir(rtl) .task-list-item-checkbox {
+  margin: 0 -1.6em .25em .2em;
+}
+
+.markdown-body ol:dir(rtl) .task-list-item-checkbox {
+  margin: 0 -1.6em .25em .2em;
+}
+
+.markdown-body .contains-task-list:hover .task-list-item-convert-container,
+.markdown-body .contains-task-list:focus-within .task-list-item-convert-container {
+  display: block;
+  width: auto;
+  height: 24px;
+  overflow: visible;
+  clip-path: none;
+}
+
+.markdown-body ::-webkit-calendar-picker-indicator {
+  filter: invert(50%);
+}
+
+.markdown-body .markdown-alert {
+  padding: var(--base-size-8) var(--base-size-16);
+  margin-bottom: var(--base-size-16);
+  color: inherit;
+  border-left: .25em solid var(--borderColor-default);
+}
+
+.markdown-body .markdown-alert>:first-child {
+  margin-top: 0;
+}
+
+.markdown-body .markdown-alert>:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body .markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: var(--base-text-weight-medium, 500);
+  align-items: center;
+  line-height: 1;
+}
+
+.markdown-body .markdown-alert.markdown-alert-note {
+  border-left-color: var(--borderColor-accent-emphasis);
+}
+
+.markdown-body .markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--fgColor-accent);
+}
+
+.markdown-body .markdown-alert.markdown-alert-important {
+  border-left-color: var(--borderColor-done-emphasis);
+}
+
+.markdown-body .markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--fgColor-done);
+}
+
+.markdown-body .markdown-alert.markdown-alert-warning {
+  border-left-color: var(--borderColor-attention-emphasis);
+}
+
+.markdown-body .markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--fgColor-attention);
+}
+
+.markdown-body .markdown-alert.markdown-alert-tip {
+  border-left-color: var(--borderColor-success-emphasis);
+}
+
+.markdown-body .markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--fgColor-success);
+}
+
+.markdown-body .markdown-alert.markdown-alert-caution {
+  border-left-color: var(--borderColor-danger-emphasis);
+}
+
+.markdown-body .markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--fgColor-danger);
+}
+
+.markdown-body>*:first-child>.heading-element:first-child {
+  margin-top: 0 !important;
+}
+
+.markdown-body .highlight pre:has(+.zeroclipboard-container) {
+  min-height: 52px;
+}
+
+
+</style>
+<style>
+  .markdown-body { box-sizing: border-box; max-width: 980px; margin: 0 auto; padding: 45px; }
+  @media (max-width: 767px) { .markdown-body { padding: 15px; } }
+</style>
+</head>
+<body>
+<article class="markdown-body">
+<h1 id="procoo-level-1">Procoo, Level 1 — 初級指南</h1>
+<p>A first-time introduction to Procoo. It covers what you see when you open the app, what a skill is, how to start building your own skills, and where the other parts of the app fit in. No technical background is needed.</p>
+<p>本文是 Procoo 的入門指南。內容從開啟應用程式後看到的畫面談起，說明什麼是技能、如何開始建立自己的技能，最後介紹 Procoo 的其他功能。閱讀本文不需要技術背景。</p>
+<hr>
+<h2 id="1-your-first-chat">1. Your first chat — 你的第一次對話</h2>
+<h3 id="11-what-you-see">1.1 What you see — 你看到的</h3>
+<p>When the app opens, you land in the <code>Default</code> session on the Chat page, with one panel in front of you. The panel has four parts, top to bottom: a tab bar across the top, a transcript area in the middle, a token bar below it, and an input row at the bottom. A narrow rail runs along the right edge of the panel. That rail is the skill dock, which you will meet in section 2.</p>
+<p>開啟 Procoo 後，畫面停在名為 <code>Default</code> 的預設工作階段，位於 Chat 頁，眼前只有一個面板。面板自上而下分為四部分：頂端為分頁列，中央為對話記錄區，其下為 token 統計列，底部為輸入列。面板右緣有一條窄軌，即技能側欄，詳見第 2 節。</p>
+<p>The title bar across the top of the window shows the session name and four tabs: Chat, Editor, Automation, and Notification. The app opens on Chat.</p>
+<p>視窗頂端為標題列，顯示工作階段名稱與四個分頁：Chat、Editor、Automation、Notification。應用程式啟動時預設顯示 Chat 分頁。</p>
+<h3 id="12-start-a-chat">1.2 Start a chat — 開始一場對話</h3>
+<p>If the panel has no tabs yet, click <code>+</code> in the tab bar to create one. Type your message in the input row, then press Enter or click Send.</p>
+<p>若面板尚未建立分頁，點選分頁列上的「+」新增一個。接著在輸入列輸入文字，按 Enter 或點選 Send，即可開始對話。</p>
+<p>The model starts working. As the turn progresses, cards appear in the transcript area: the model thinks, may call a tool, reads the result, and writes its answer. The turn runs until the model decides the task is done.</p>
+<p>模型隨即開始運作。隨著回合推進，對話記錄區會陸續出現卡片：模型先進行推理，可能呼叫工具，讀取結果，最後給出答案。整個回合持續執行，直到模型判定任務完成為止。</p>
+<h3 id="13-chat-cards">1.3 Chat cards — 對話卡片</h3>
+<p>Each part of a turn becomes a card in the transcript, in the order it happened. The card type tells you which part of the work it holds.</p>
+<p>每一回合的每個環節，都會在對話記錄中形成一張卡片，並依發生的順序排列。卡片類型標示該卡所記錄的工作環節。</p>
+<table>
+<thead>
+<tr>
+<th>Card</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>User</td>
+<td>your message, verbatim</td>
+</tr>
+<tr>
+<td>Waiting</td>
+<td>a headerless scanner, shown while a turn runs but has produced nothing yet</td>
+</tr>
+<tr>
+<td>Thinking</td>
+<td>the model's reasoning, streamed as plain text</td>
+</tr>
+<tr>
+<td>Response</td>
+<td>the answer, rendered as Markdown while it streams, including tables, links, and math</td>
+</tr>
+<tr>
+<td>Tool call</td>
+<td>the tool name, its permission mode, and the arguments as YAML</td>
+</tr>
+<tr>
+<td>Tool result</td>
+<td>the tool's output, with the tool name in the subtitle; failures look the same, as text</td>
+</tr>
+<tr>
+<td>Context banner</td>
+<td>what the chat was given, neutral at the start and orange for an update after you changed skills</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>卡片</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>User</td>
+<td>你的訊息，原文呈現</td>
+</tr>
+<tr>
+<td>Waiting</td>
+<td>回合執行中、尚未產出任何內容時顯示的無標題卡片</td>
+</tr>
+<tr>
+<td>Thinking</td>
+<td>模型的推理過程，以純文字串流呈現</td>
+</tr>
+<tr>
+<td>Response</td>
+<td>答案內容，生成時即以 Markdown 渲染，可含表格、連結與數學公式</td>
+</tr>
+<tr>
+<td>Tool Call</td>
+<td>工具名稱、權限模式，以及以 YAML 表示的參數</td>
+</tr>
+<tr>
+<td>Tool Result</td>
+<td>工具的輸出內容，工具名稱顯示於副標題；失敗結果同為文字，外觀與成功相同</td>
+</tr>
+<tr>
+<td>Context banner</td>
+<td>對話被賦予的內容；初始為中性色，變更技能後更新為橘色</td>
+</tr>
+</tbody>
+</table>
+<p>Every card header shows an icon, a title, the card's token count, and a collapse arrow. While a turn is running, only the last twelve cards are expanded. Older cards stay collapsed to a header until you click them.</p>
+<p>每張卡片的標題列顯示圖示、標題、該卡的 token 數量與摺疊箭頭。回合執行期間，只有最近 12 張卡片保持展開；更早的卡片收合為標題列，點擊後才會展開。</p>
+<p>Hovering over a card header reveals two actions, both disabled while a generation is running. The trash icon deletes the turn that the card belongs to. The reload icon on a user card regenerates from that message and discards everything after it.</p>
+<p>將滑鼠指標移到卡片標題上，會出現兩個按鈕；生成期間兩者皆無法使用。垃圾桶圖示會刪除該卡片所屬的整個回合；User 卡片上的重新載入圖示則會從該則訊息重新生成，並捨棄其後的所有內容。</p>
+<h3 id="14-tab-status-and-the-input-row">1.4 Tab status and the input row — 分頁狀態與輸入列</h3>
+<p>The dot on each tab shows what the chat is doing, without opening it:</p>
+<p>每個分頁上的圓點顯示該對話目前的狀態，不須開啟也能查看：</p>
+<table>
+<thead>
+<tr>
+<th>Dot</th>
+<th>Status</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>grey</td>
+<td><code>EMPTY</code></td>
+<td>created, no messages yet</td>
+</tr>
+<tr>
+<td>blue, blinking</td>
+<td><code>RUNNING</code></td>
+<td>generating</td>
+</tr>
+<tr>
+<td>amber, blinking</td>
+<td><code>WAITING</code></td>
+<td>generating, paused for a tool approval</td>
+</tr>
+<tr>
+<td>green</td>
+<td><code>FINISHED</code></td>
+<td>has messages, idle</td>
+</tr>
+<tr>
+<td>red</td>
+<td><code>ERROR</code></td>
+<td>last turn failed or you stopped it</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>圓點</th>
+<th>狀態</th>
+<th>含義</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>灰色</td>
+<td>空白</td>
+<td>已建立，尚無訊息</td>
+</tr>
+<tr>
+<td>藍色（閃爍）</td>
+<td>執行中</td>
+<td>正在生成</td>
+</tr>
+<tr>
+<td>琥珀色（閃爍）</td>
+<td>等待核准</td>
+<td>生成中，因等待工具核准而暫停</td>
+</tr>
+<tr>
+<td>綠色</td>
+<td>已完成</td>
+<td>已有訊息，目前閒置</td>
+</tr>
+<tr>
+<td>紅色</td>
+<td>錯誤</td>
+<td>上一回合失敗，或由你手動停止</td>
+</tr>
+</tbody>
+</table>
+<p><code>+</code> in the tab bar opens a new chat in the same panel. The new chat copies the skills, tool modes, and model of the chat you are on. <code>×</code> deletes the chat, and its file cannot be recovered.</p>
+<p>分頁列上的「+」會在同一面板內開啟新對話，並沿用目前對話的技能、工具模式與模型設定。「×」會刪除該對話，其檔案無法復原。</p>
+<p>The input row sits at the bottom of the panel. Type in the box, then press Enter or click Send. While a chat is generating, the Send button becomes Stop.</p>
+<p>輸入列位於面板底部。在輸入框輸入文字後，按 Enter 或點選 Send 即可送出訊息。對話生成期間，Send 按鈕會變為 Stop。</p>
+<p>Two controls appear when the pointer enters the row. A checkbox locks the Enter key, so you can write a multi-line message without sending it early. The auto-scroll toggle is on by default and fades out whenever it is paused.</p>
+<p>滑鼠指標移入輸入列時，會顯示兩個控制項。勾選框用於鎖定 Enter 鍵，方便輸入多行文字而不致誤送出。自動捲動開關預設開啟，暫停時會淡出。</p>
+<p>Stopping a turn keeps the partial transcript and marks the chat as stopped. The tab shows a red dot.</p>
+<p>停止回合後，已產出的內容會保留，對話標記為已停止，對應分頁顯示紅色圓點。</p>
+<h3 id="15-stopping-redoing-and-the-approval-bar">1.5 Stopping, redoing, and the approval bar — 停止、重做與核准列</h3>
+<p>Stop cancels the current turn and keeps whatever it has produced so far.</p>
+<p>Stop 會取消目前的回合，但保留已產出的內容。</p>
+<p>The reload icon on a user card regenerates from that message and discards everything after it. The trash icon deletes the turn its card belongs to. Both let you redo a step without starting a new chat.</p>
+<p>User 卡片上的重新載入圖示會從該則訊息重新生成，並捨棄其後的內容；垃圾桶圖示則刪除該卡片所屬的整個回合。兩者都能在不開啟新對話的情況下重做某一步驟。</p>
+<p>The approval bar appears above the input row. When the model calls a tool set to Ask, generation pauses and the bar names the tool and the arguments it wants to pass.</p>
+<p>核准列顯示在輸入列上方。當模型呼叫設為 Ask 模式的工具時，生成會暫停，核准列會列出工具名稱與其擬傳入的參數。</p>
+<p>Approve runs the call and the turn continues. Deny skips the call and tells the model that execution was denied; usually you then get an answer built from what the model already had, or a second attempt by another route. Stop cancels the whole turn rather than deciding on that one call.</p>
+<p>Approve 後，該次呼叫會執行，回合繼續。Deny 則跳過該次呼叫，並告知模型執行已被拒絕；此時模型通常會依既有資訊組織答案，或改走另一條路徑重試。Stop 則是取消整個回合，而非只對該次呼叫做決定。</p>
+<p>Only Ask raises the bar. Allow runs the call straight through, and Block refuses it before the model sees anything.</p>
+<p>只有 Ask 模式會觸發核准列。Allow 模式直接執行；Block 模式則在模型看到任何內容之前就拒絕。</p>
+<p>Approvals belong to a single chat. A panel waiting for one blinks amber, so you can find it again after switching tabs.</p>
+<p>核准只屬於單一對話。正在等待核准的面板會以琥珀色閃爍，方便你切換分頁後找回。</p>
+<h3 id="16-what-the-numbers-at-the-bottom-mean">1.6 What the numbers at the bottom mean — 底部數字的意思</h3>
+<p>Five values sit above the input row and describe the active chat:</p>
+<p>輸入列上方有五個數值，描述目前對話的狀態：</p>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Input tokens</td>
+<td>the size of what the next turn will send: system prompt, loaded skills, and the whole conversation</td>
+</tr>
+<tr>
+<td>Output tokens</td>
+<td>what the chat has produced over all its turns</td>
+</tr>
+<tr>
+<td>Activated</td>
+<td>number of loaded skills</td>
+</tr>
+<tr>
+<td>Allow / Ask / Block</td>
+<td>tool counts in each permission mode</td>
+</tr>
+<tr>
+<td>Model</td>
+<td>the model name this chat uses</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>項目</th>
+<th>含義</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>輸入 token</td>
+<td>下一回合將送出的內容大小：系統提示詞、已載入的技能，以及整段對話</td>
+</tr>
+<tr>
+<td>輸出 token</td>
+<td>該對話在所有回合累計產出的 token 數</td>
+</tr>
+<tr>
+<td>已啟動</td>
+<td>已載入的技能數量</td>
+</tr>
+<tr>
+<td>Allow／Ask／Block</td>
+<td>各權限模式下的工具數量</td>
+</tr>
+<tr>
+<td>模型</td>
+<td>該對話使用的模型名稱</td>
+</tr>
+</tbody>
+</table>
+<p>The input token count climbs as the conversation grows, approaching the model's context window limit. Once it crosses the configured limit, Procoo asks the model to summarise the conversation and starts a new chat from that summary, so the work so far becomes the new chat's opening context.</p>
+<p>輸入 token 數會隨對話增長而上升，逐漸逼近模型的上下文視窗上限。一旦超過設定的上限，Procoo 會請模型摘要對話，並以該摘要開啟新對話，把先前的工作濃縮為新對話的開場上下文。</p>
+<p>The tool counts show what a turn will run into. A tool in Block is refused without asking, and a tool in Ask stops the turn at the approval bar.</p>
+<p>工具數量顯示本回合可能遭遇的情況：設為 Block 的工具會直接遭到拒絕；設為 Ask 的工具則會讓回合停在核准列。</p>
+<hr>
+<h2 id="2-skills">2. Skills — 技能</h2>
+<h3 id="21-what-a-skill-is-and-how-it-works">2.1 What a skill is and how it works — 技能是什麼、如何運作</h3>
+<p>A skill is a folder on disk under <code>capabilities/skills/</code>. Its entry point is a <code>SKILL.md</code> file, and it may also contain a <code>scripts/</code> folder.</p>
+<p>技能是 <code>capabilities/skills/</code> 目錄下的一個資料夾。其入口為 <code>SKILL.md</code> 檔，資料夾內可另含一個 <code>scripts/</code> 子目錄。</p>
+<p>The <code>SKILL.md</code> has two parts. A short metadata block at the top names the skill and describes what it does and when to use it. The body below holds the instructions: the steps of the job, the conventions to follow, and pointers to any reference files.</p>
+<p><code>SKILL.md</code> 分為兩部分。頂端是一小段中繼資料，為技能命名，並說明它做什麼、何時使用。下方的主體包含具體指令：工作步驟、須遵循的規範，以及指向參考檔案的指引。</p>
+<p>When you tick a skill in the dock, two things happen on every turn from then on:</p>
+<p>在技能側欄勾選一個技能後，自該刻起，每個回合都會發生兩件事：</p>
+<ol>
+<li>The skill's full instructions are added to the system prompt that the model reads.</li>
+<li>
+<p>Each script in the skill's <code>scripts/</code> folder is registered as a tool the model may call. The model reads the script's docstring to learn what the tool does, what arguments it takes, and when to call it.</p>
+</li>
+<li>
+<p>技能的完整指令會加入系統提示詞，供模型每個回合讀取。</p>
+</li>
+<li>技能 <code>scripts/</code> 目錄中的每個腳本，都會註冊為模型可呼叫的工具。模型透過 docstring 了解工具的功能、參數與適用時機。</li>
+</ol>
+<p>The docstring description decides whether the tool gets used, used correctly, or not used at all. The model cannot infer what an argument means unless the description says so. A thin description therefore fails even when the code behind it is sound.</p>
+<p>docstring 中的描述，決定工具是否會被使用、是否被正確使用，或根本不被使用。除非描述寫明，否則模型無法推斷參數的含義。因此，即使程式碼本身無誤，描述過簡仍會使工具失靈。</p>
+<h3 id="22-navigating-the-skill-panel">2.2 Navigating the skill panel — 操作技能側欄</h3>
+<p>Each panel has a narrow rail on its right edge. Click the rail to expand the skill dock over the transcript. While the dock is open, drag its left edge to resize it, or click anywhere outside it to close it.</p>
+<p>每個面板的右緣有一條窄軌，點擊後會展開技能側欄，覆蓋在對話記錄之上。側欄展開時，可拖曳其左邊緣調整寬度，或點擊側欄以外的任意位置關閉。</p>
+<p><strong>Searching.</strong> The search field at the top of the dock filters the skill tree by name. Folders that match open; folders with no match are hidden. Click <code>×</code> to clear the search and restore the collapse state you had.</p>
+<p><strong>搜尋。</strong> 側欄頂端的搜尋欄可依名稱過濾技能樹。相符的資料夾會展開，沒有相符項目的資料夾則隱藏。點擊「×」可清除搜尋，並恢復先前的摺疊狀態。</p>
+<p><strong>Ticking a skill.</strong> Ticking a skill sends its instructions into the system prompt and registers its tools. Unticking removes the registration for the next turn. Instructions already in the conversation cannot be removed, because the agent keeps the old text in its history. Procoo therefore warns you when you untick a skill that has already run.</p>
+<p><strong>勾選技能。</strong> 勾選一個技能後，其指令會進入系統提示詞，其工具也會被註冊；取消勾選則自下一回合起停止註冊。已進入對話的指令無法移除，因為代理人會把舊文字保留在歷史中。因此，取消勾選一個已執行過的技能時，Procoo 會提出警告。</p>
+<p><strong>Setting tool modes.</strong> Tools sit under the skill that owns them. Each tool has a mode. Allow runs the call without asking; Ask raises the approval bar before it runs; Block refuses it before the model sees anything. Set each tool to the mode that matches how much you trust it.</p>
+<p><strong>設定工具模式。</strong> 工具列於其所屬技能之下，每個工具都有一種模式：Allow 會直接執行；Ask 會在執行前於核准列暫停；Block 會在模型看到任何內容之前就拒絕。請依你對工具的信任程度設定對應模式。</p>
+<p><strong>Choosing the model.</strong> The model dropdown in the dock lists every model in the config and marks the one this chat uses. Picking another changes the chat from its next turn, without reloading anything or losing the transcript.</p>
+<p><strong>選擇模型。</strong> 技能側欄中的模型下拉選單列出設定中的所有模型，並標記目前對話使用的模型。切換模型自下一回合生效，不會重新載入，也不會遺失對話記錄。</p>
+<p><strong>Presets.</strong> The preset field saves your current skill and tool selection under a name. Picking a saved preset later applies the whole selection at once.</p>
+<p><strong>Preset。</strong> Preset 欄位可將目前的技能與工具選擇以一個名稱儲存；日後選取該 Preset，即可一次套用整組設定。</p>
+<p>All changes apply to the active chat immediately and are written into that chat's record.</p>
+<p>所有變更會立即套用到目前的對話，並寫入該對話的記錄。</p>
+<h3 id="23-two-built-in-skills">2.3 Two built-in skills — 兩個內建技能</h3>
+<p>Every Procoo chat loads two skills by default: <code>basic-ops</code> and <code>agent-principle</code>. Together they turn a raw language model into an agent that can do work for you.</p>
+<p>每個 Procoo 對話預設載入兩個技能：<code>basic-ops</code> 與 <code>agent-principle</code>。這兩個技能共同把原始語言模型變成能實際執行工作的代理人。</p>
+<p><strong>basic-ops: the hands</strong></p>
+<p><strong>basic-ops：執行能力</strong></p>
+<p><code>basic-ops</code> gives the agent the tools to act on your machine. It registers a set of file tools for reading files and documents, creating and editing files, searching directories, running code or shell commands, and managing a records database.</p>
+<p><code>basic-ops</code> 賦予代理人操作本機檔案的能力。它註冊了一組檔案工具，可讀取檔案與文件、建立與編輯檔案、搜尋目錄、執行程式碼或 shell 指令，以及管理記錄資料庫。</p>
+<p>Each tool has a clear job. <code>read_file</code> reads text files, PDFs, and images. <code>edit_file</code> creates, edits, or deletes a file. <code>search_dir</code> finds files by path pattern and by content. <code>execute_script</code> runs Python code or a shell command. <code>init_db</code> and <code>access_db</code> manage a records database.</p>
+<p>每個工具各司其職。<code>read_file</code> 讀取文字檔、PDF 與圖片；<code>edit_file</code> 建立、編輯或刪除檔案；<code>search_dir</code> 依路徑模式與內容搜尋檔案；<code>execute_script</code> 執行 Python 程式碼或 shell 指令；<code>init_db</code> 與 <code>access_db</code> 管理記錄資料庫。</p>
+<p>The skill also carries a tool selection policy: use the dedicated file tool for the job rather than a shell command. Read a file with <code>read_file</code>, not <code>cat</code>; edit with <code>edit_file</code>, not <code>sed</code>. The dedicated tools are safer, return structured results, and avoid shell injection risks.</p>
+<p>該技能同時包含一條工具選擇準則：應使用專用工具，而非以 shell 指令替代。讀取檔案用 <code>read_file</code>，不用 <code>cat</code>；編輯檔案用 <code>edit_file</code>，不用 <code>sed</code>。專用工具更安全，能回傳結構化結果，並避免 shell 注入風險。</p>
+<p>Without <code>basic-ops</code>, the model can talk but cannot touch anything on disk; it is only a chatbot. With it, the agent can read your code, edit your files, search your project, run your tests, and store records. That is the difference between a conversation and a worker.</p>
+<p>少了 <code>basic-ops</code>，模型只能對話，無法觸及磁碟上的任何內容，仍只是個聊天機器人。有了它，代理人便能讀取程式碼、編輯檔案、搜尋專案、執行測試並儲存記錄。這正是「對話」與「實際執行」的差別。</p>
+<p><strong>agent-principle: the method</strong></p>
+<p><strong>agent-principle：工作方法</strong></p>
+<p><code>agent-principle</code> gives the agent a method for approaching work. It describes four phases:</p>
+<p><code>agent-principle</code> 賦予代理人一套工作方法，涵蓋四個階段：</p>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Align</td>
+<td>Before the first step: read the skill and references, confirm the goal, deliverable, checking items, and assumptions. Wait for the user's go-ahead.</td>
+</tr>
+<tr>
+<td>Proceed</td>
+<td>Work to completion on the agreed method. Ask when something is ambiguous; decide when the material settles the question; record the decision. Keep momentum.</td>
+</tr>
+<tr>
+<td>Check</td>
+<td>Verify the work against the checking items agreed in Align. If it falls short, go back to Proceed.</td>
+</tr>
+<tr>
+<td>Close and learn</td>
+<td>Report the outcome and any deviations. Ask what missed the mark. Extract lessons from user corrections and write them into the skill or references after confirmation.</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>階段</th>
+<th>內容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>對齊</td>
+<td>動工前：閱讀技能說明與參考資料，確認目標、產出形式、檢查項目與假設。待使用者確認後再開始。</td>
+</tr>
+<tr>
+<td>推進</td>
+<td>依約定的方法執行至完成。遇有歧義時提問，材料足以判斷時做出決定並記錄，保持推進。</td>
+</tr>
+<tr>
+<td>檢查</td>
+<td>以對齊階段約定的檢查項目驗證成果；未達標則回到推進階段。</td>
+</tr>
+<tr>
+<td>收束與學習</td>
+<td>報告成果與偏離之處，詢問哪些方面未達標。從使用者的回饋中提煉教訓，經確認後寫入技能或參考資料。</td>
+</tr>
+</tbody>
+</table>
+<p>The skill also sets the judgment rules. Ask when the purpose is ambiguous and a wrong guess is expensive; decide when the material settles the question; move on when the options are equally valid and the choice is reversible. It also sets the honesty standard: report where the work departed from the agreed method, state every assumption, and say early when something is wrong.</p>
+<p>該技能也確立了判斷準則：目的模糊且誤判代價高時應提問；材料足以判斷時應做出決定並記錄；選項一樣好且可反悔時應繼續推進。它同時確立誠實標準：偏離約定方法時須報告，所有假設須明確陳述，出現問題時須及早說明。</p>
+<p>Without <code>agent-principle</code>, the model starts doing whatever comes to mind and reports success regardless. With it, the model pauses to confirm intent, picks a method, executes with discipline, verifies its work, and reports honestly.</p>
+<p>少了 <code>agent-principle</code>，模型會隨興而行，無論結果如何都回報已完成。有了它，模型會先確認意圖、選擇方法、有紀律地執行、驗證成果，並如實報告。</p>
+<p><strong>Together: hands + method = an agent</strong></p>
+<p><strong>執行能力＋工作方法＝代理人</strong></p>
+<p><code>basic-ops</code> is the capability layer, defining what the agent can do. <code>agent-principle</code> is the method layer, defining how the agent approaches work. The language model alone is a stateless text function: you ask, it answers, and nothing persists. Give it the tools and the method, and it becomes an agent. You hand it a task once, and it runs step after step on its own.</p>
+<p><code>basic-ops</code> 界定代理人「能做什麼」，<code>agent-principle</code> 界定代理人「該怎麼做」。語言模型本身是無狀態的純文字函數：有輸入才有輸出，輸出之後不留紀錄。賦予它工具與方法，它才成為代理人：只要交付一次任務，它便能自行逐步推進。</p>
+<h3 id="24-three-things-you-can-put-in-a-skill">2.4 Three things you can put in a skill — 技能可以放的三種東西</h3>
+<p>A skill is useful because it moves knowledge you would otherwise retype into every conversation into a file the model reads once and applies every time. A skill can hold three kinds of content:</p>
+<p>技能的價值在於：把原本每次對話都得重新輸入的內容，變成模型只需讀取一次、日後每次需要時即可套用的常駐知識。技能可容納的內容有三類：</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>What it is</th>
+<th>Shape</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Procedure</td>
+<td>steps for doing a task</td>
+<td>"When the user asks to X: step 1, step 2, step 3"</td>
+</tr>
+<tr>
+<td>Information</td>
+<td>context the model does not have</td>
+<td>"Our deploy pipeline works like this: ..."</td>
+</tr>
+<tr>
+<td>Script</td>
+<td>a program the model runs</td>
+<td>SKILL.md says "call <code>collect.py</code> when the user asks for data"; <code>collect.py</code> does the actual work</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>類型</th>
+<th>說明</th>
+<th>形式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>程序</td>
+<td>執行某項任務的步驟</td>
+<td>「當使用者要求 X 時：步驟一、步驟二、步驟三」</td>
+</tr>
+<tr>
+<td>資訊</td>
+<td>模型不具備但應知的背景知識</td>
+<td>「我們的部署管線運作方式如下：……」</td>
+</tr>
+<tr>
+<td>腳本</td>
+<td>供模型執行的程式</td>
+<td>SKILL.md 中寫明「使用者要求資料時呼叫 <code>collect.py</code>」，由 <code>collect.py</code> 執行實際工作</td>
+</tr>
+</tbody>
+</table>
+<p>A procedure is the set of steps you want the model to follow. Information is background knowledge you give the model: your naming conventions, your database schema, your company policy. A script is a program you write for the model to run. SKILL.md says when to call it and with what arguments, and the code does the actual work.</p>
+<p>程序是你希望模型依循的步驟。資訊是你提供給模型的背景知識，例如命名規範、資料庫結構、公司政策。腳本是你撰寫好供模型執行的程式；SKILL.md 只說明呼叫時機與參數，實際工作由程式碼完成。</p>
+<p>The point of all three is the same: a skill moves knowledge out of your keyboard and into files on disk, where the model reads it and applies it without you retyping it.</p>
+<p>三者的共同點是：技能把知識從鍵盤移到磁碟上的檔案中，讓模型讀取後即可套用，不必再由你重複輸入。</p>
+<h3 id="25-why-skills-make-the-agent-better-over-time">2.5 Why skills make the agent better over time — 技能為什麼讓代理人越來越強</h3>
+<p>"Learning" with skills does not mean retraining the model. The weights do not change. When we say the agent learned from a skill, we mean a durable change was made to the skill files on disk, so the next similar task goes better.</p>
+<p>在技能的語境中，「學習」不是重新訓練模型，模型的權重並未改變。當我們說代理人從技能中學到東西時，指的是磁碟上的技能檔案被實質地修改，讓下一次類似的任務執行得更順。</p>
+<p>Improving a skill happens through three edit operations. <strong>Append</strong> adds new content, such as a step that came up, an edge case, or a worked example. <strong>Refine</strong> rewrites existing content, such as fixing a wrong step or sharpening a description. <strong>Remove</strong> deletes what is obsolete or harmful, such as dead scripts or outdated steps. A skill that only grows becomes bloated and contradictory, so all three operations are needed.</p>
+<p>改進技能有三種編輯操作。<strong>新增</strong>用於補入新出現的步驟、邊界情況或範例；<strong>修正</strong>用於改寫錯誤的步驟，或把描述寫得更清楚；<strong>移除</strong>用於刪除過時或有害的內容，例如失效的腳本或過時的步驟。只增不刪會使技能臃腫且自相矛盾，因此三種操作缺一不可。</p>
+<p>These edits follow a loop: act (run the task using the skill), observe (did it succeed, and where did it stumble), diagnose (missing knowledge means append, wrong knowledge means refine, stale knowledge means remove), apply (make the edit), and verify (re-run the task to confirm the change helps and breaks nothing else).</p>
+<p>這些編輯構成一個循環：執行（用技能執行任務）、觀察（是否成功、在哪裡卡住）、診斷（知識不足則新增，知識有誤則修正，知識過時則移除）、套用（進行編輯）、驗證（重新執行任務，確認修改有效且未破壞其他部分）。</p>
+<p>Over time, a maintained skill set compounds. Each task is slightly easier than the last, the skills sharpen, and the agent improves while the weights stay the same. An unmaintained skill set drifts: skills rot, records go stale, the agent confidently repeats outdated behavior, and trust erodes. Memory decays unless it is maintained.</p>
+<p>長遠來看，持續維護的技能集會產生複利效果：每項任務都比前一次略為輕鬆，技能日益精確，代理人持續進步，而模型的權重絲毫未變。反之，缺乏維護的技能集會逐漸漂移：技能失靈、記錄過時、代理人自信地重複過時行為，信任也隨之磨損。記憶若不維護，便會衰退。</p>
+<hr>
+<h2 id="3-the-mindset-for-building-your-skill-set">3. The mindset for building your skill set — 建立技能集的心法</h2>
+<h3 id="31-why-and-when-to-build-a-skill">3.1 Why and when to build a skill — 為什麼、何時建技能</h3>
+<p>The signal is simple: you find yourself pasting the same instructions or context into every conversation. When that happens, ask whether the model needs it every time or just this once.</p>
+<p>什麼時候該建技能？訊號很直接：你發現自己每次對話都在貼上相同的指令或背景知識。一旦出現這種情況，就該自問：這些內容是模型每次都需要，還是只有這次需要？</p>
+<p>If the answer is every time, it belongs in a skill. If it is just this once, a plain instruction in the chat is enough.</p>
+<p>若答案是「每次都需要」，就該納入技能，成為模型可反覆讀取的常駐知識；若只是「這次需要」，在對話中直接說明即可，不必動用技能。</p>
+<p>The purpose of a skill is to move knowledge out of your keyboard and into files on disk, where the model reads it and applies it on every relevant turn without you retyping it.</p>
+<p>技能的本質，就是把知識從鍵盤移到磁碟上的檔案中，讓模型在每個相關回合都能讀取並套用，不必再由你重複輸入。</p>
+<h3 id="32-direct-processors">3.2 Direct processors — 直接處理器</h3>
+<p>A direct processor is a skill whose job is to produce an action or a reading. It either does something, or observes something and reports back.</p>
+<p>直接處理器的職責很明確：產生一個動作，或提供一次讀值。換句話說，它要麼執行某項操作，要麼觀測某項狀態並回報結果。</p>
+<p>Examples include a script that formats a file, a script that queries a database and returns a summary, and a procedure for cleaning a dataset. The boundary is clear: clear input, one job, clear output. You can test it in isolation without thinking about the rest of your skill set.</p>
+<p>格式化檔案的腳本、查詢資料庫並回傳摘要的腳本，以及清理資料集的程序，都是直接處理器的典型範例。它們的共同特徵是邊界清晰：輸入明確、職責單一、輸出明確，因此可以獨立測試，無須顧慮技能集中的其他部分。</p>
+<p>This is the obvious kind, and the first thing most people write. You notice a task you repeat, write down the steps or the script, and you have a direct processor.</p>
+<p>這也是最好理解的類型，通常是多數人撰寫的第一個技能。當你注意到一項反覆進行的工作，只要寫下步驟或腳本，一個直接處理器便成形了。</p>
+<h3 id="33-indirect-processors">3.3 Indirect processors — 間接處理器</h3>
+<p>An indirect processor is a skill whose job is to make other skills work better. It does not produce an action on its own. It holds the context, conventions, templates, and reference data that direct skills need to do their job correctly.</p>
+<p>間接處理器的職責，與直接處理器不同：它本身不產出動作，而是讓其他技能運作得更好。它保存的是直接處理器正確執行工作所需的背景知識、規範、模板與參考資料。</p>
+<p>The signal that you need one is that two direct skills reach for the same piece of context. Instead of copying that context into both, pull it out into a shared indirect skill. Both direct skills then point to it, and when the context changes you change it in one place.</p>
+<p>什麼時候需要它？訊號很明確：當兩個直接處理器都需要同一塊背景知識時。與其把該背景複製到兩者之中，不如抽離出來，建立一個共用的間接技能。兩個直接處理器都指向它，日後背景變更時只需修改一處。</p>
+<p>Indirect skills are the infrastructure of your skill set. They are the conventions, schemas, style guides, and reference documents that keep your direct skills from drifting apart.</p>
+<p>整體來看，間接技能構成技能集的基礎設施。規範、資料結構、風格指南與參考文件，正是這些不直接執行工作的內容，使各直接處理器不至於各行其是、彼此偏離。</p>
+<h3 id="34-when-skills-grow">3.4 When skills grow — 技能長大時</h3>
+<p>As your skill set grows, two things happen: skills start to overlap, and skills start to drift.</p>
+<p>技能集隨著使用而擴大，幾乎必然出現兩種現象：技能之間開始重疊，個別技能也開始漂移。</p>
+<p><strong>Splitting.</strong> When a skill does two different jobs, such as collecting data and formatting it, it is really two skills sharing one shell. The signal is that you find yourself writing "this part is for X and this part is for Y". That means the boundary is drawn in the wrong place. Split the skill: one direct processor for data collection, one for formatting, and, if both need the same context, a shared indirect skill for it.</p>
+<p><strong>拆分。</strong> 當一個技能同時承擔兩項不同的工作，例如既收集資料又格式化資料，它其實是兩個技能共用一個外殼。訊號是你開始寫「這部分給 X，那部分給 Y」，這表示邊界劃錯了地方，應予拆分：一個直接處理器負責收集，一個負責格式化；若兩者需要相同的背景知識，再抽離一個共用的間接技能。</p>
+<p><strong>Drift.</strong> A skill that has not been maintained starts to contradict itself: a step that is no longer true, a description that no longer matches what the skill does, or a script that was replaced but not removed. This is the decay mode. The three maintenance operations from section 2.5 (append, refine, remove) are how you fight it.</p>
+<p><strong>漂移。</strong> 長期未維護的技能會逐漸自相矛盾：某個步驟已不再成立，某個描述已與實際行為不符，或某個腳本已被替換卻未移除。這是技能衰敗的模式。第 2.5 節所述的三種維護操作（新增、修正、移除），正是對付漂移的手段。</p>
+<p><strong>The coupling test.</strong> One question tells you whether your boundaries are in the right place: can you change the inside of skill A without touching skill B? If not, the two are coupled where they should not be. The fix is usually to find the shared piece and pull it into an indirect skill.</p>
+<p><strong>耦合測試。</strong> 有一個問題可判斷邊界是否恰當：修改技能 A 的內部時，能否不觸及技能 B？若不能，兩者就在不該耦合的地方產生了耦合。解法通常是找出那個共用片段，把它抽離到間接技能中。</p>
+<p>One principle ties it together: the job of skill design is to keep each skill's boundary clean, so the system of skills stays simple and maintainable as it grows.</p>
+<p>貫穿以上各項的核心只有一句話：技能設計的關鍵，是維持每個技能的邊界清晰。只要邊界清晰，整個技能系統在持續成長中就能保持簡潔、易於維護。</p>
+<hr>
+<h2 id="4-the-rest-of-procoo-procoo">4. The rest of Procoo — Procoo 的其他部分</h2>
+<h3 id="41-sessions">4.1 Sessions — 工作階段</h3>
+<p>A session is a named group of chats, each with its own panel layout. Sessions live in the title bar. Click the session name to open the session list, where you can switch, create with <code>+</code>, or delete.</p>
+<p>工作階段是由多個對話組成、可命名的群組，每個對話各有自己的面板配置。所有工作階段的管理入口都在標題列：點擊工作階段名稱即可開啟清單，從中切換、以「+」建立，或刪除既有工作階段。</p>
+<p>Deleting a session also deletes its chats. <code>+ Win</code> creates a session and opens it in a window of its own.</p>
+<p>刪除工作階段會同時刪除其下的所有對話。「+ Win」會建立一個新工作階段，並在獨立視窗中開啟。</p>
+<p>Use sessions to separate your work contexts: one for coding, one for writing, one for research. Each keeps its own skills, tools, and panel arrangement.</p>
+<p>工作階段可用來區隔不同的工作脈絡：一個用於寫程式，一個用於寫作，一個用於研究。每個工作階段各自保有獨立的技能、工具與面板配置。</p>
+<h3 id="42-multi-window">4.2 Multi-window — 多視窗</h3>
+<p><code>+ Win</code> in the session list creates a second window that runs a different session, with its own panels, tabs, and docks. Both windows read the same session list, so a session created in one appears in the other without a refresh.</p>
+<p>清單中的「+ Win」會開啟第二個視窗，執行另一個工作階段；該視窗有自己的面板、分頁與技能側欄。兩個視窗共用同一份工作階段清單，因此任一個視窗建立的工作階段，都會立即出現在另一個視窗，不須重新整理。</p>
+<p>Use it to run two sessions side by side: one doing the work, the other planning or monitoring.</p>
+<p>常見的用法是並行執行兩個工作階段：一個負責實際工作，另一個負責規劃或監控。</p>
+<h3 id="43-editor">4.3 Editor — 編輯器</h3>
+<p>The editor is a separate window with a file tree and a code pane. It opens from three places: Open Editor in the skill dock, Debug on an error notification, and Edit on an automation card. The last two also load the file they refer to.</p>
+<p>編輯器是一個獨立視窗，包含檔案樹與程式碼區。開啟途徑有三：技能側欄中的 Open Editor、錯誤通知上的 Debug，以及自動化卡片上的 Edit。後兩者會同時載入它們所指向的檔案。</p>
+<p>Files open read-only. Click Edit to unlock the buffer, make your changes, then click Save to write them to disk or Cancel to discard them.</p>
+<p>檔案開啟時為唯讀。點選 Edit 可解鎖緩衝區，修改完成後按 Save 寫入磁碟，或按 Cancel 捨棄變更。</p>
+<h3 id="44-automation">4.4 Automation — 自動化</h3>
+<p>An automation is a script that runs on a cron schedule or when an HTTP event arrives. It lives under <code>capabilities/automations/</code> as a directory containing an <code>AUTOMATION.py</code> file.</p>
+<p>自動化是一個依 cron 排程或 HTTP 事件觸發而執行的腳本，存放於 <code>capabilities/automations/</code> 目錄下，以一個內含 <code>AUTOMATION.py</code> 的資料夾為單位。</p>
+<p>The Automation page lists every automation Procoo finds, one card each. A card shows the name, description, activation type, schedule or event, and the result of the last run. The toggle enables or disables the automation. Run now starts it immediately, and the result arrives as a notification. Edit opens its <code>AUTOMATION.py</code> in the editor.</p>
+<p>Automation 頁面列出 Procoo 找到的所有自動化項目，各以一張卡片呈現。每張卡片顯示名稱、描述、觸發類型、排程或事件，以及最近一次執行的結果。卡片上的開關用於啟用或停用該自動化；Run now 會立刻啟動，結果以通知形式呈現；Edit 則在編輯器中開啟其 <code>AUTOMATION.py</code>。</p>
+<p>Notifications appear on the Notification tab with three badges: grey for logs, amber for info, and red for errors. An error card offers a Debug button that opens the failing automation in the editor.</p>
+<p>通知顯示於 Notification 分頁，附有三種徽章：灰色代表 Log、琥珀色代表 Info、紅色代表 Error。錯誤卡片提供 Debug 按鈕，可在編輯器中開啟失敗的自動化項目。</p>
+<h3 id="45-obsidian-plugin-obsidian">4.5 Obsidian plugin — Obsidian 外掛</h3>
+<p>A local control server on port 12841 lets Obsidian open Procoo sessions. A marked span in a note stores a session ID. The context menu can open that session, or start one from the selected text.</p>
+<p>本機控制伺服器（連接埠 12841）讓 Obsidian 能開啟 Procoo 工作階段。筆記中標記的文字片段會儲存一個工作階段 ID；透過右鍵選單，可以開啟該工作階段，或從選取的文字建立新的工作階段。</p>
+<p>Use it to link your notes to your agent work: write a note, mark the relevant span, and open the session that has been working on it.</p>
+<p>這個功能把筆記與代理人的工作串接起來：寫一篇筆記、標記相關片段，然後開啟一直在處理該內容的工作階段。</p>
+<hr>
+<h2 id="5-the-config-file">5. The config file — 設定檔</h2>
+<p>All settings live in <code>config/config.yaml</code>. To get started, copy the committed template <code>config/config_template.yaml</code>; the real file is gitignored.</p>
+<p>所有設定都集中在 <code>config/config.yaml</code>。開始使用時，請複製版本庫中的範本 <code>config/config_template.yaml</code>；實際的設定檔已列入 <code>.gitignore</code>。</p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>What it sets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>llm</code></td>
+<td>model entries for the dropdown; one has <code>default: true</code></td>
+</tr>
+<tr>
+<td><code>paths</code></td>
+<td>where skills, automations, and chat data live</td>
+</tr>
+<tr>
+<td><code>limits</code></td>
+<td>byte / token ceiling that triggers auto-summarisation</td>
+</tr>
+<tr>
+<td><code>agent</code></td>
+<td>base system prompt + summary prompt</td>
+</tr>
+<tr>
+<td><code>server</code> / <code>control_server</code> / <code>subagent</code></td>
+<td>local HTTP server ports and API keys</td>
+</tr>
+<tr>
+<td><code>basic_ops</code></td>
+<td>service URLs called by <code>read_file</code> and <code>access_db</code> (OCR, semantic search)</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>區段</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>llm</code></td>
+<td>下拉選單中的模型清單；其中一個設為 <code>default: true</code></td>
+</tr>
+<tr>
+<td><code>paths</code></td>
+<td>技能、自動化與對話資料的存放路徑</td>
+</tr>
+<tr>
+<td><code>limits</code></td>
+<td>觸發自動摘要的位元組／token 上限</td>
+</tr>
+<tr>
+<td><code>agent</code></td>
+<td>基礎系統提示詞與摘要提示詞</td>
+</tr>
+<tr>
+<td><code>server</code> / <code>control_server</code> / <code>subagent</code></td>
+<td>本機 HTTP 伺服器連接埠與 API 金鑰</td>
+</tr>
+<tr>
+<td><code>basic_ops</code></td>
+<td><code>read_file</code> 與 <code>access_db</code> 所呼叫的外部服務網址（OCR、語意搜尋）</td>
+</tr>
+</tbody>
+</table>
+</article>
+</body>
+</html>
