@@ -123,11 +123,13 @@ interactions users expect). It is focusable by keyboard (`activeFocusOnTab:
 caretActive && caretEnabled`) and by click (`activeFocusOnPress: caretEnabled`),
 keeps its highlight when focus leaves (`persistentSelection: true`), and shows
 the caret while focused (`cursorVisible`
-is set imperatively from `onActiveFocusChanged` rather than bound, so Qt's blink
-timer does not break the link). Because Qt does not paint a built-in cursor for a
-read-only editor, `CardBodyText` supplies a custom `cursorDelegate` — a 2 px
-`Rectangle` sized to `cursorRectangle.height` in `Theme.colors.textPrimary`,
-whose own `SequentialAnimation` blinks it while the editor has active focus.
+is set imperatively from `onActiveFocusChanged` rather than bound). Because Qt
+does not paint or blink a built-in cursor for a read-only editor, `CardBodyText`
+supplies a custom `cursorDelegate` — a 1 px `Rectangle` sized to
+`cursorRectangle.height` in `Theme.colors.textPrimary`. A `Timer` toggles the
+delegate's `opacity` every 500 ms while the editor has active focus, and
+`onCursorRectangleChanged` restarts that timer in the visible phase so the caret
+always shows solid on every cursor move.
 `selectionColor` / `selectedTextColor` come from `Theme.colors.selectionBg` /
 `selectionFg`. Selection is confined to one body segment (and one card) — the
 caret does not cross the prefix/tail boundary or into the neighbouring card.

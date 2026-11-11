@@ -51,33 +51,46 @@ TextEdit {
     persistentSelection: true
     selectionColor: Theme.colors.selectionBg
     selectedTextColor: Theme.colors.selectionFg
-    // Set imperatively (not a binding) so Qt's blink timer can toggle
-    // cursorVisible without clobbering the focus link.
+    // Show the delegate only while focused. Set imperatively rather than bound
+    // so nothing clobbers the focus link.
     onActiveFocusChanged: root.cursorVisible = root.activeFocus
     onCaretEnabledChanged: {
         if (!root.caretEnabled && root.activeFocus)
             root.focus = false
     }
     // Read-only editors do not paint the built-in cursor, so a custom delegate
-    // draws (and blinks) the caret instead.
+    // draws the caret. Qt does not blink it for a read-only editor, so a Timer
+    // toggles the delegate's opacity. Cursor moves restart the blink in the
+    // visible phase, so the caret always shows when it moves.
+    property bool caretBlinkOn: true
+
+    Timer {
+        id: caretBlinkTimer
+        interval: 500
+        repeat: true
+        running: root.activeFocus
+        onTriggered: root.caretBlinkOn = !root.caretBlinkOn
+        onRunningChanged: {
+            if (running)
+                root.caretBlinkOn = true
+        }
+    }
+
     cursorDelegate: Component {
         Rectangle {
             objectName: "caretCursor"
-            width: 2
+            width: 1
             height: Math.max(1, root.cursorRectangle.height)
             color: Theme.colors.textPrimary
-
-            SequentialAnimation on opacity {
-                loops: Animation.Infinite
-                running: root.activeFocus
-                NumberAnimation { from: 1; to: 1; duration: 500 }
-                NumberAnimation { from: 1; to: 0; duration: 0 }
-                NumberAnimation { from: 0; to: 0; duration: 500 }
-                NumberAnimation { from: 0; to: 1; duration: 0 }
-            }
+            opacity: root.caretBlinkOn ? 1 : 0
         }
     }
     onCursorRectangleChanged: {
+        // Show the caret solid on every move, then resume blinking.
+        if (root.activeFocus) {
+            root.caretBlinkOn = true
+            caretBlinkTimer.restart()
+        }
         if (!root.activeFocus || root.scrollTarget === null
                 || root.scrollTarget.contentItem === null)
             return
