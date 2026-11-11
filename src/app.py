@@ -30,6 +30,7 @@ from .util.error.types import ProcooError
 from .util.log.formatter import setup_colored_logging
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 
 logger = logging.getLogger("procoo_qt")
 
@@ -96,7 +97,7 @@ def _register_fonts() -> None:
     """
     from .qt.theme import FONT_MONO
 
-    font_path = _PROJECT_ROOT / "assets" / "fonts" / "sarasa-fixed-tc-regular-nerd-font.ttf"
+    font_path = _ASSETS_DIR / "fonts" / "sarasa-fixed-tc-regular-nerd-font.ttf"
     if not font_path.is_file():
         logger.warning("Font not found: %s", font_path)
         return
@@ -123,7 +124,7 @@ def _set_app_icon(qt_app: QApplication) -> None:
     Args:
         qt_app: The running ``QApplication``.
     """
-    icon_path = _PROJECT_ROOT / "assets" / "logos" / "logo.png"
+    icon_path = _ASSETS_DIR / "logos" / "logo.png"
     if icon_path.is_file():
         qt_app.setWindowIcon(QIcon(str(icon_path)))
         logger.info("Set application icon: %s", icon_path.name)

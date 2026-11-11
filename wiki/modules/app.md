@@ -17,7 +17,7 @@ QML UI on a fused `qasync` + Qt event loop.
   (monospace text plus Font Awesome icon glyphs).
 - `_set_app_user_model_id()` — sets a stable Windows AppUserModelID so the
   taskbar groups the app under its own icon instead of `python.exe`.
-- `_set_app_icon()` — applies `assets/logos/logo.png` as the application-wide
+- `_set_app_icon()` — applies `src/assets/logos/logo.png` as the application-wide
   window, title-bar, and taskbar icon.
 - `main()` — Qt entry point that builds the `QApplication`, `qasync` event
   loop, and `QQmlApplicationEngine`, then loads `src/qml/Main.qml`.
@@ -80,7 +80,7 @@ QML UI on a fused `qasync` + Qt event loop.
 |---|---|
 | Signature | `def _register_fonts() -> None` |
 | Output | `None` |
-| Flow | `QFontDatabase.addApplicationFont(assets/fonts/sarasa-fixed-tc-regular-nerd-font.ttf)`; logs the resolved family and warns if it does not match `Theme.fontMono` (a mismatch falls back to a proportional system font), or if the file is missing. |
+| Flow | `QFontDatabase.addApplicationFont(src/assets/fonts/sarasa-fixed-tc-regular-nerd-font.ttf)`; logs the resolved family and warns if it does not match `Theme.fontMono` (a mismatch falls back to a proportional system font), or if the file is missing. |
 
 ### `_set_app_user_model_id`
 
@@ -97,7 +97,7 @@ QML UI on a fused `qasync` + Qt event loop.
 | Signature | `def _set_app_icon(qt_app: QApplication) -> None` |
 | Inputs | `qt_app` (`QApplication`) — the running application instance. |
 | Output | `None` |
-| Flow | Sets `qt_app.setWindowIcon(QIcon(assets/logos/logo.png))`; logs info, or warning if missing. All top-level windows (including the QML `ApplicationWindow`) inherit it. |
+| Flow | Sets `qt_app.setWindowIcon(QIcon(src/assets/logos/logo.png))`; logs info, or warning if missing. All top-level windows (including the QML `ApplicationWindow`) inherit it. |
 
 ### `main`
 

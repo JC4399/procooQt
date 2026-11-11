@@ -76,4 +76,3 @@ Open the file before using what it covers. Each reference is self-contained.
 | `references/search-dir.md` | searching paths or file contents; pattern strategy, result caps |
 | `references/execute-script.md` | running code or shell; calling a skill script with `params` |
 | `references/records-db.md` | storing / searching a records database; embedding + rerank endpoints |
-| `references/open-folder.md` | opening a folder for the user — use `Start-Process`, never `explorer` |

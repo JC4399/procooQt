@@ -10,7 +10,7 @@ Rectangle {
     id: titleBar
 
     property string title: ""
-    property url logoSource: Qt.resolvedUrl("../../../assets/logos/logo.png")
+    property url logoSource: Qt.resolvedUrl("../../assets/logos/logo.png")
 
     // Active central content view: "chat", "automation", or "notification".
     property string activeContent: "chat"
