@@ -14,10 +14,10 @@ control_server:
 paths:
   # Relative to the procooQt project root (resolved against _PROJECT_ROOT in app.py).
   # Root capabilities library containing skills/ and automations/.
-  capabilities_dir: "../capabilities"
+  capabilities_dir: "./capabilities"
   # Optional overrides for the two capability subdirectories.
-  # skills_dir: "../capabilities/skills"
-  # automations_dir: "../capabilities/automations"
+  # skills_dir: "./capabilities/skills"
+  # automations_dir: "./capabilities/automations"
   # Chat and session storage.
   storage_dir: "./storage"
 

@@ -68,14 +68,29 @@ Python controllers and list models on a single `qasync` event loop.
 ```
 src/app.py            # entry point (qasync loop + QML bootstrap)
 config/config.yaml    # paths, LLM, event/control/sub-agent servers
-../capabilities/skills/       # shared skill library (SKILL.md + scripts/)
-../capabilities/automations/  # automation scripts (AUTOMATION.py)
+capabilities/skills/       # skill library (SKILL.md + scripts/)
+capabilities/automations/  # automation scripts (AUTOMATION.py)
 storage/              # sessions.json + chat_index.json + chats/ + media/ + automations.json + notifications.json
+git/                  # portable MinGit (installed, gitignored)
 ```
 
 The optional `subagent` skill lives at
 `capabilities/skills/basic/subagent/` and calls `subagent.host` /
 `subagent.port` from `config/config.yaml`.
+
+### Installing
+
+`install_procoo_qt.bat` is a standalone installer. It downloads the latest
+MinGit release to `<install-dir>/procooQt/git`, clones
+`https://github.com/JC4399/procooQt.git` into `<install-dir>/procooQt`, and
+then runs `uv python install 3.13` / `uv sync` and creates
+`config/config.yaml` plus `storage/`. When the script already sits inside a
+checkout, it installs in place. All Git calls use `git/cmd/git.exe` directly,
+so nothing is added to the global environment; `git/` is gitignored.
+
+`update_procoo_qt.bat` lives in the checkout, runs
+`git/cmd/git.exe pull --ff-only`, then `uv sync`. It leaves `config.yaml` and
+`storage/` untouched.
 
 Run from `procooQt/`:
 
@@ -84,7 +99,7 @@ uv run python -m src.app
 ```
 
 or double-click `start_procoo_qt.bat` (activates `.venv` and runs the same
-module). `capabilities_dir` points at the shared `../capabilities` library;
+module). `capabilities_dir` points at `./capabilities`;
 `skills_dir`/`automations_dir` are derived from it; `storage_dir` points at
 `procooQt/storage/`.
 

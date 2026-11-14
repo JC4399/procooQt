@@ -6,6 +6,9 @@
 /.venv/
 /.vscode/
 
+# Portable Git (installed by install_procoo_qt.bat)
+/git/
+
 # Tooling caches
 /.ruff_cache/
 

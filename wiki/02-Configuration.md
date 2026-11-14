@@ -23,7 +23,7 @@ control_server:
 
 paths:
   # Relative to the procooQt project root (resolved against _PROJECT_ROOT in app.py).
-  capabilities_dir: "../capabilities"   # holds skills/ and automations/
+  capabilities_dir: "./capabilities"    # holds skills/ and automations/
   # skills_dir / automations_dir are derived from capabilities_dir but can be overridden.
   storage_dir: "./storage"   # sessions.json + chats/ + automations.json + notifications.json
 
@@ -88,7 +88,7 @@ any relative path absolute against `_PROJECT_ROOT` = the `procooQt/` directory
 
 | Config value | Resolves to |
 |---|---|
-| `capabilities_dir: "../capabilities"` | `<repo-root>/capabilities` |
+| `capabilities_dir: "./capabilities"` | `<procooQt>/capabilities` |
 | `skills_dir` (derived) | `<capabilities_dir>/skills` |
 | `automations_dir` (derived) | `<capabilities_dir>/automations` |
 | `storage_dir: "./storage"` | `<procooQt>/storage` |
