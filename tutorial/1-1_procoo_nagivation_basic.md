@@ -1,32 +1,26 @@
 # Procoo, Level 1 — 初級指南
 
-A first-time introduction to Procoo. It covers what you see when you open the app, what a skill is, how to start building your own skills, and where the other parts of the app fit in. No technical background is needed.
-
-本文是 Procoo 的入門指南。內容從開啟應用程式後看到的畫面談起，說明什麼是技能、如何開始建立自己的技能，最後介紹 Procoo 的其他功能。閱讀本文不需要技術背景。
-
----
-
 ## 1. Your first chat — 你的第一次對話
 
-### 1.1 What you see — 你看到的
+### 1.1 What you see on screen — 你看到的畫面
 
-When the app opens, you land in the `Default` session on the Chat page, with one panel in front of you. The panel has four parts, top to bottom: a tab bar across the top, a transcript area in the middle, a token bar below it, and an input row at the bottom. A narrow rail runs along the right edge of the panel. That rail is the skill dock, which you will meet in section 2.
+When the app opens, you land in the `Default` session on the Chat page. The panel has four parts, top to bottom: a tab bar across the top, a transcript area in the middle, a token bar below it, and an input row at the bottom. A narrow rail runs along the right edge of the panel. That rail is the skill dock, which you will meet in section 2.
 
-開啟 Procoo 後，畫面停在名為 `Default` 的預設工作階段，位於 Chat 頁，眼前只有一個面板。面板自上而下分為四部分：頂端為分頁列，中央為對話記錄區，其下為 token 統計列，底部為輸入列。面板右緣有一條窄軌，即技能側欄，詳見第 2 節。
+開啟 Procoo 後，畫面停在 Chat 頁名為 `Default` 的預設工作階段。面板自上而下分為四部分：頂端為分頁列，中央為對話記錄區，其下為 token 統計列，底部為輸入列。面板右緣有一條窄軌，即技能側欄，詳見第 2 節。
 
 The title bar across the top of the window shows the session name and four tabs: Chat, Editor, Automation, and Notification. The app opens on Chat.
 
 視窗頂端為標題列，顯示工作階段名稱與四個分頁：Chat、Editor、Automation、Notification。應用程式啟動時預設顯示 Chat 分頁。
 
-### 1.2 Start a chat — 開始一場對話
+### 1.2 Start a new chat — 開始新對話
 
 If the panel has no tabs yet, click `+` in the tab bar to create one. Type your message in the input row, then press Enter or click Send.
 
 若面板尚未建立分頁，點選分頁列上的「+」新增一個。接著在輸入列輸入文字，按 Enter 或點選 Send，即可開始對話。
 
-The model starts working. As the turn progresses, cards appear in the transcript area: the model thinks, may call a tool, reads the result, and writes its answer. The turn runs until the model decides the task is done.
+The LLM model you selected starts working. As the turn progresses, cards appear in the transcript area: the model thinks, calls a tool, reads the result, and writes its answer. The turn runs until the model decides the task is done.
 
-模型隨即開始運作。隨著回合推進，對話記錄區會陸續出現卡片：模型先進行推理，可能呼叫工具，讀取結果，最後給出答案。整個回合持續執行，直到模型判定任務完成為止。
+你所選的LLM模型隨即開始運作。隨著回合推進，對話記錄區會陸續出現卡片：模型會進行思考，呼叫工具，讀取結果，最後給出回答。整個回合持續執行，直到模型判定任務完成為止。
 
 ### 1.3 Chat cards — 對話卡片
 
@@ -36,37 +30,37 @@ Each part of a turn becomes a card in the transcript, in the order it happened. 
 
 | Card | What it holds |
 |---|---|
-| User | your message, verbatim |
-| Waiting | a headerless scanner, shown while a turn runs but has produced nothing yet |
-| Thinking | the model's reasoning, streamed as plain text |
-| Response | the answer, rendered as Markdown while it streams, including tables, links, and math |
-| Tool call | the tool name, its permission mode, and the arguments as YAML |
-| Tool result | the tool's output, with the tool name in the subtitle; failures look the same, as text |
-| Context banner | what the chat was given, neutral at the start and orange for an update after you changed skills |
+| User | what you sent |
+| Waiting | the LLM is running and has produced nothing yet |
+| Thinking | the model's reasoning |
+| Response | the formal answer |
+| Tool call | a tool call: the tool name, permission mode, and arguments |
+| Tool result | the tool's output |
+| Context banner | the content of the Skill in the chat; the initial Skill is a pinned grey card, and if you change the Skill midway, the update is shown as an orange card |
 
 | 卡片 | 內容 |
 |---|---|
-| User | 你的訊息，原文呈現 |
-| Waiting | 回合執行中、尚未產出任何內容時顯示的無標題卡片 |
-| Thinking | 模型的推理過程，以純文字串流呈現 |
-| Response | 答案內容，生成時即以 Markdown 渲染，可含表格、連結與數學公式 |
-| Tool Call | 工具名稱、權限模式，以及以 YAML 表示的參數 |
-| Tool Result | 工具的輸出內容，工具名稱顯示於副標題；失敗結果同為文字，外觀與成功相同 |
-| Context banner | 對話被賦予的內容；初始為中性色，變更技能後更新為橘色 |
+| User | 你所發的內容 |
+| Waiting | LLM執行中、尚未產出任何內容 |
+| Thinking | 模型的推理過程 |
+| Response | 正式的回答內容 |
+| Tool Call | 呼叫工具，包含工具名稱、權限模式，以及參數 |
+| Tool Result | 工具的輸出結果 |
+| Context banner | 對話中Skill的內容；初始Skill為置頂灰色卡片，若中途變更Skill，更新內容以橘色卡片顯示 |
 
-Every card header shows an icon, a title, the card's token count, and a collapse arrow. While a turn is running, only the last twelve cards are expanded. Older cards stay collapsed to a header until you click them.
+Every card header shows an icon, a title, the card's token count, and a collapse arrow. While a turn is running, only the last twelve cards are expanded. Older cards stay collapsed until you click them.
 
-每張卡片的標題列顯示圖示、標題、該卡的 token 數量與摺疊箭頭。回合執行期間，只有最近 12 張卡片保持展開；更早的卡片收合為標題列，點擊後才會展開。
+每張卡片的標題列顯示圖示、標題、該卡的 token 數量與摺疊箭頭。回合執行期間，只有最近 12 張卡片保持展開；更早的卡片會收合，點擊後才展開。
 
-Hovering over a card header reveals two actions, both disabled while a generation is running. The trash icon deletes the turn that the card belongs to. The reload icon on a user card regenerates from that message and discards everything after it.
+The trash icon on a card header deletes the turn that the card belongs to. The reload icon on a user card regenerates from that message and discards everything after it.
 
-將滑鼠指標移到卡片標題上，會出現兩個按鈕；生成期間兩者皆無法使用。垃圾桶圖示會刪除該卡片所屬的整個回合；User 卡片上的重新載入圖示則會從該則訊息重新生成，並捨棄其後的所有內容。
+卡片標題上的垃圾桶圖示會刪除該卡片所屬的整個回合；User 卡片上的重新載入圖示則會從該則訊息重新生成，並捨棄其後的所有內容。
 
 ### 1.4 Tab status and the input row — 分頁狀態與輸入列
 
 The dot on each tab shows what the chat is doing, without opening it:
 
-每個分頁上的圓點顯示該對話目前的狀態，不須開啟也能查看：
+每個分頁標籤上的圓點顯示該對話目前的狀態，不須開啟也能查看：
 
 | Dot | Status | Meaning |
 |---|---|---|
@@ -92,23 +86,19 @@ The input row sits at the bottom of the panel. Type in the box, then press Enter
 
 輸入列位於面板底部。在輸入框輸入文字後，按 Enter 或點選 Send 即可送出訊息。對話生成期間，Send 按鈕會變為 Stop。
 
-Two controls appear when the pointer enters the row. A checkbox locks the Enter key, so you can write a multi-line message without sending it early. The auto-scroll toggle is on by default and fades out whenever it is paused.
+When the pointer moves to the bottom-right corner of the input row, hidden controls appear; ticking the checkbox locks the Enter key, so you can type a multi-line message without sending it by mistake. Moving the pointer to the bottom-right corner of the conversation column shows the hidden auto-scroll control; clicking it scrolls the conversation to the bottom. When you manually scroll the conversation column to the bottom, auto-scroll turns on by itself, and clicking it again or scrolling up exits it.
 
-滑鼠指標移入輸入列時，會顯示兩個控制項。勾選框用於鎖定 Enter 鍵，方便輸入多行文字而不致誤送出。自動捲動開關預設開啟，暫停時會淡出。
+滑鼠指標移至輸入列右下角時，會顯示隱藏的控制項，勾選可鎖定 Enter 鍵，方便輸入多行文字而不致誤送出。滑鼠指標移至對話列右下角會顯示隱藏的自動捲動控制，點選時對話會自動捲動到底部。當用家手動將對話列捲動到底時會自動開啟自動捲動，再次點選或向上捲動對話時會退出。
 
-Stopping a turn keeps the partial transcript and marks the chat as stopped. The tab shows a red dot.
+Stopping a turn keeps the partial transcript and marks the chat as stopped.
 
-停止回合後，已產出的內容會保留，對話標記為已停止，對應分頁顯示紅色圓點。
+停止回合後，已產出的內容會保留，對話標記為已停止。
 
 ### 1.5 Stopping, redoing, and the approval bar — 停止、重做與核准列
 
 Stop cancels the current turn and keeps whatever it has produced so far.
 
 Stop 會取消目前的回合，但保留已產出的內容。
-
-The reload icon on a user card regenerates from that message and discards everything after it. The trash icon deletes the turn its card belongs to. Both let you redo a step without starting a new chat.
-
-User 卡片上的重新載入圖示會從該則訊息重新生成，並捨棄其後的內容；垃圾桶圖示則刪除該卡片所屬的整個回合。兩者都能在不開啟新對話的情況下重做某一步驟。
 
 The approval bar appears above the input row. When the model calls a tool set to Ask, generation pauses and the bar names the tool and the arguments it wants to pass.
 
@@ -120,41 +110,35 @@ Approve 後，該次呼叫會執行，回合繼續。Deny 則跳過該次呼叫�
 
 Only Ask raises the bar. Allow runs the call straight through, and Block refuses it before the model sees anything.
 
-只有 Ask 模式會觸發核准列。Allow 模式直接執行；Block 模式則在模型看到任何內容之前就拒絕。
+只有 Ask 模式會觸發核准列。Allow 模式會直接執行；Block 模式則在模型看到任何內容之前就拒絕。
 
-Approvals belong to a single chat. A panel waiting for one blinks amber, so you can find it again after switching tabs.
+Approvals belong to a single chat. The tab dot of a chat waiting for one blinks amber, so you can find it again after switching tabs.
 
-核准只屬於單一對話。正在等待核准的面板會以琥珀色閃爍，方便你切換分頁後找回。
+核准只屬於單一對話。正在等待核准的對話標籤圓點會以琥珀色閃爍，方便你切換分頁後找回。
 
 ### 1.6 What the numbers at the bottom mean — 底部數字的意思
 
-Five values sit above the input row and describe the active chat:
+Four values sit above the input row and describe the active chat:
 
-輸入列上方有五個數值，描述目前對話的狀態：
+輸入列上方有四個數值，描述目前對話的狀態：
 
 | Item | Meaning |
 |---|---|
-| Input tokens | the size of what the next turn will send: system prompt, loaded skills, and the whole conversation |
-| Output tokens | what the chat has produced over all its turns |
 | Activated | number of loaded skills |
 | Allow / Ask / Block | tool counts in each permission mode |
 | Model | the model name this chat uses |
+| Tokens | what the chat has produced over all its turns |
 
 | 項目 | 含義 |
 |---|---|
-| 輸入 token | 下一回合將送出的內容大小：系統提示詞、已載入的技能，以及整段對話 |
-| 輸出 token | 該對話在所有回合累計產出的 token 數 |
 | 已啟動 | 已載入的技能數量 |
 | Allow／Ask／Block | 各權限模式下的工具數量 |
 | 模型 | 該對話使用的模型名稱 |
+| Token | 該對話在所有回合累計產出的 token 數 |
 
 The input token count climbs as the conversation grows, approaching the model's context window limit. Once it crosses the configured limit, Procoo asks the model to summarise the conversation and starts a new chat from that summary, so the work so far becomes the new chat's opening context.
 
 輸入 token 數會隨對話增長而上升，逐漸逼近模型的上下文視窗上限。一旦超過設定的上限，Procoo 會請模型摘要對話，並以該摘要開啟新對話，把先前的工作濃縮為新對話的開場上下文。
-
-The tool counts show what a turn will run into. A tool in Block is refused without asking, and a tool in Ask stops the turn at the approval bar.
-
-工具數量顯示本回合可能遭遇的情況：設為 Block 的工具會直接遭到拒絕；設為 Ask 的工具則會讓回合停在核准列。
 
 ---
 
@@ -162,9 +146,9 @@ The tool counts show what a turn will run into. A tool in Block is refused witho
 
 ### 2.1 What a skill is and how it works — 技能是什麼、如何運作
 
-A skill is a folder on disk under `capabilities/skills/`. Its entry point is a `SKILL.md` file, and it may also contain a `scripts/` folder.
+A skill is a folder on disk under `capabilities/skills/`. Its entry point is a `SKILL.md` file, and it may also contain a `scripts/` folder or other content.
 
-技能是 `capabilities/skills/` 目錄下的一個資料夾。其入口為 `SKILL.md` 檔，資料夾內可另含一個 `scripts/` 子目錄。
+技能是 `capabilities/skills/` 目錄下的一個資料夾。其入口為 `SKILL.md` 檔，資料夾內可另含一個 `scripts/` 子資料夾或其它內容。
 
 The `SKILL.md` has two parts. A short metadata block at the top names the skill and describes what it does and when to use it. The body below holds the instructions: the steps of the job, the conventions to follow, and pointers to any reference files.
 
@@ -190,13 +174,13 @@ Each panel has a narrow rail on its right edge. Click the rail to expand the ski
 
 每個面板的右緣有一條窄軌，點擊後會展開技能側欄，覆蓋在對話記錄之上。側欄展開時，可拖曳其左邊緣調整寬度，或點擊側欄以外的任意位置關閉。
 
-**Searching.** The search field at the top of the dock filters the skill tree by name. Folders that match open; folders with no match are hidden. Click `×` to clear the search and restore the collapse state you had.
+**Searching.** The search field at the top of the dock filters skills by name. Click `×` to clear the search.
 
-**搜尋。** 側欄頂端的搜尋欄可依名稱過濾技能樹。相符的資料夾會展開，沒有相符項目的資料夾則隱藏。點擊「×」可清除搜尋，並恢復先前的摺疊狀態。
+**搜尋。** 側欄頂端的搜尋欄可依名稱過濾技能。點擊「×」可清除搜尋。
 
-**Ticking a skill.** Ticking a skill sends its instructions into the system prompt and registers its tools. Unticking removes the registration for the next turn. Instructions already in the conversation cannot be removed, because the agent keeps the old text in its history. Procoo therefore warns you when you untick a skill that has already run.
+**Ticking a skill.** Ticking a skill adds its instructions to the system prompt and registers its tools. Instructions already in the conversation cannot be removed, because the agent keeps the old text in its history. Procoo therefore warns you when you untick a skill that has already run.
 
-**勾選技能。** 勾選一個技能後，其指令會進入系統提示詞，其工具也會被註冊；取消勾選則自下一回合起停止註冊。已進入對話的指令無法移除，因為代理人會把舊文字保留在歷史中。因此，取消勾選一個已執行過的技能時，Procoo 會提出警告。
+**勾選技能。** 勾選一個技能後，其指令會加入系統提示詞，其工具也會被註冊。已進入對話的指令無法移除，因為代理人會把舊文字保留在歷史中。因此，取消勾選一個已執行過的技能時，Procoo 會提出警告。
 
 **Setting tool modes.** Tools sit under the skill that owns them. Each tool has a mode. Allow runs the call without asking; Ask raises the approval bar before it runs; Block refuses it before the model sees anything. Set each tool to the mode that matches how much you trust it.
 
@@ -231,10 +215,6 @@ Every Procoo chat loads two skills by default: `basic-ops` and `agent-principle`
 Each tool has a clear job. `read_file` reads text files, PDFs, and images. `edit_file` creates, edits, or deletes a file. `search_dir` finds files by path pattern and by content. `execute_script` runs Python code or a shell command. `init_db` and `access_db` manage a records database.
 
 每個工具各司其職。`read_file` 讀取文字檔、PDF 與圖片；`edit_file` 建立、編輯或刪除檔案；`search_dir` 依路徑模式與內容搜尋檔案；`execute_script` 執行 Python 程式碼或 shell 指令；`init_db` 與 `access_db` 管理記錄資料庫。
-
-The skill also carries a tool selection policy: use the dedicated file tool for the job rather than a shell command. Read a file with `read_file`, not `cat`; edit with `edit_file`, not `sed`. The dedicated tools are safer, return structured results, and avoid shell injection risks.
-
-該技能同時包含一條工具選擇準則：應使用專用工具，而非以 shell 指令替代。讀取檔案用 `read_file`，不用 `cat`；編輯檔案用 `edit_file`，不用 `sed`。專用工具更安全，能回傳結構化結果，並避免 shell 注入風險。
 
 Without `basic-ops`, the model can talk but cannot touch anything on disk; it is only a chatbot. With it, the agent can read your code, edit your files, search your project, run your tests, and store records. That is the difference between a conversation and a worker.
 
