@@ -133,7 +133,8 @@ class NotificationController(QObject):
         Args:
             result: The completed automation result.
         """
-        self.app.notification_manager.add(result)
+        if self.app.notification_manager.add(result) is None:
+            return
         self._rebuild_page()
         self._reload_history()
         self.counts_changed.emit()

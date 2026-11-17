@@ -32,10 +32,12 @@ define `async def run(ctx)`, which returns one of:
 
 | Return | Meaning | Shown to the user as |
 |---|---|---|
-| `{"status": "success", "message": str, "data": any?}` | The task completed | A grey success **log** (auto-read) |
+| `{"status": "log", "message": str, "data": any?}` | The task completed | A grey **log** (auto-read) |
 | `{"status": "info", "message": str, "data": any?}` | A result meant for the user | An amber **info** card (Confirm) |
 | `{"status": "error", "message": str}` | A step failed | A red **error** card (Confirm / Debug) |
-| `None` or a `str` | Treated as success (`message` = the string) | A grey success **log** |
+| `{"status": "silent", "data": any?}` | Finished without reporting | No notification |
+| `None` | Finished without reporting | No notification |
+| `str` | Treated as log (`message` = the string) | A grey **log** |
 
 Anything else (an exception, a bad shape, an unknown status) becomes an
 `error`. The app also captures stdout and stderr as the run log.
@@ -181,7 +183,7 @@ Before shipping the automation, confirm:
 - The frontmatter name, description, and activation are present, and the
   schedule/event matches the activation.
 - A scheduled expression is valid cron; an event name is non-empty.
-- `run` is declared `async def run(ctx)` and returns a `success` / `info` /
+- `run` is declared `async def run(ctx)` and returns a `log` / `info` /
   `error` dict.
 - The comment header states purpose, deliverable, and methodology.
 - The automation loads through the app's `AutomationManager`

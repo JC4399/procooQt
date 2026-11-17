@@ -23,7 +23,7 @@ from .store import NotificationStore
 logger = logging.getLogger("procoo_qt")
 
 _RESULT_KIND: dict[AutomationResultKind, NotificationKind] = {
-    AutomationResultKind.SUCCESS: NotificationKind.LOG,
+    AutomationResultKind.LOG: NotificationKind.LOG,
     AutomationResultKind.INFO: NotificationKind.INFO,
     AutomationResultKind.ERROR: NotificationKind.ERROR,
 }
@@ -49,15 +49,20 @@ class NotificationManager:
     #  Public: Add / lookup
     # ------------------------------------------------------------------
 
-    def add(self, result: AutomationResult) -> NotificationItem:
+    def add(self, result: AutomationResult) -> NotificationItem | None:
         """Convert an automation result into a notification and persist it.
+
+        Silent results produce no notification.
 
         Args:
             result: The completed automation result.
 
         Returns:
-            The newly created notification (inserted at the front).
+            The newly created notification (inserted at the front), or ``None``
+            when the result is silent.
         """
+        if result.kind == AutomationResultKind.SILENT:
+            return None
         item = NotificationItem(
             id=uuid.uuid4().hex,
             kind=_RESULT_KIND.get(result.kind, NotificationKind.ERROR),

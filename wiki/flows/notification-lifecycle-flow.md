@@ -9,9 +9,11 @@ Related: [notification](../modules/notification.md), [qt-notification-controller
 `AutomationController._on_result(result)` emits `result_ready`
 (`Signal(object)`). `ProcooQtUI` wires `automation.result_ready →
 notification._handle_automation_result`, which calls
-`NotificationManager.add(result)` (mapping `success→log`, `info→info`,
+`NotificationManager.add(result)` (mapping `log→log`, `info→info`,
 `error→error`), rebuilds the notification-page model, reloads history, and emits
-`counts_changed`.
+`counts_changed`. Silent results never reach this path: `AutomationController`
+skips `result_ready` for `kind == silent`, and `NotificationManager.add` returns
+`None` for them as a defensive guard.
 
 ## 2. Badges
 

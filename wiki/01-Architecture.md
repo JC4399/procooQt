@@ -174,14 +174,16 @@ An automation is a directory containing `AUTOMATION.py` (YAML frontmatter +
 `schedule` or on an `event` posted to the local HTTP server. `run(ctx)` receives
 an `AutomationContext` whose `ask()` drives a temporary headless `Agent` (the
 same ReAct loop as chat), so automations can use the LLM. Results are
-`success` / `info` / `error`. See
+`log` / `info` / `error`, or `silent` (no notification) when the script
+returns `None` or `{"status": "silent"}`. See
 [`automation-manager`](modules/automation-manager.md) and
 [`automation-run-flow`](flows/automation-run-flow.md).
 
 ### Notifications
 
-Every automation result becomes a notification: success → grey **log**, info →
-amber **info**, error → red **error**. Logs are marked read when the notification
+Every non-silent automation result becomes a notification: log → grey
+**log**, info → amber **info**, error → red **error**; silent results produce
+none. Logs are marked read when the notification
 page opens and stay visible (dimmed) until it closes; info/error require
 **Confirm** (errors also offer **Debug** which opens the source file). History
 and read flags persist in `storage/notifications.json`. See

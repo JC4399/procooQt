@@ -49,8 +49,9 @@ is closed (it stays in history).
 
 ## Steps / Flow
 
-- `_handle_automation_result(result)` → `manager.add(result)` → rebuild page +
-  reload history + emit counts.
+- `_handle_automation_result(result)` → `manager.add(result)`; when it returns
+  `None` (silent result) the slot returns early, otherwise rebuild page + reload
+  history + emit counts.
 - `_handle_page_opened()` → `_page_log_ids = set(manager.mark_logs_read())` →
   emit counts when non-empty → rebuild (keeps the just-read logs) + reload history.
 - `_handle_page_closed()` → clear `_page_log_ids` → rebuild (unread only).
@@ -65,7 +66,7 @@ is closed (it stays in history).
 |---|---|---|---|---|
 | `def __init__(self, app, parent=None) -> None` | app; parent | `None` | store app | — |
 | `def build(self) -> None` | — | `None` | create models; rebuild page + history | — |
-| `@Slot(object) def _handle_automation_result(self, result) -> None` | `AutomationResult` | `None` | add; rebuild; counts | Persists notification |
+| `@Slot(object) def _handle_automation_result(self, result) -> None` | `AutomationResult` | `None` | add (skip when silent); rebuild; counts | Persists notification |
 | `@Slot() def _handle_page_opened(self) -> None` | — | `None` | set `_page_log_ids`; mark logs read; rebuild + reload | Persists when changed |
 | `@Slot() def _handle_page_closed(self) -> None` | — | `None` | clear `_page_log_ids`; rebuild | Emits `notifications_changed` |
 | `@Slot(str) def _handle_confirm(self, item_id) -> None` | id | `None` | mark read | Persists when changed |

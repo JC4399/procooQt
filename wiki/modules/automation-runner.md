@@ -18,8 +18,9 @@ the runner compiles the code body directly.
 - `AutomationRunner(app)` with `run(automation, payload=None) -> AutomationResult`.
 - `AutomationContext` with `ask(prompt)`, `payload`, `log()`, `log_text`.
 - Captured stdout/stderr plus the context log as the run log.
-- Result normalisation: `success` / `info` / `error`; exceptions, bad shapes, and
-  bad statuses become `error`.
+- Result normalisation: `log` / `info` / `error` / `silent`; exceptions, bad
+  shapes, and bad statuses become `error`. `None` and `{"status": "silent"}` are
+  silent (no notification).
 - `AUTOMATION_TIMEOUT_SEC` (1800s) hard timeout.
 
 ## Result contract
@@ -28,10 +29,12 @@ the runner compiles the code body directly.
 
 | Return | Result |
 |---|---|
-| `{"status": "success", "message": str, "data": any?}` | success |
+| `{"status": "log", "message": str, "data": any?}` | log |
 | `{"status": "info", "message": str, "data": any?}` | info |
 | `{"status": "error", "message": str}` | error |
-| `None` / `str` | success (message = the string) |
+| `{"status": "silent", "data": any?}` | silent (no notification) |
+| `None` | silent (no notification) |
+| `str` | log (message = the string) |
 | anything else, unknown status, exception | error |
 
 ## Steps / Flow

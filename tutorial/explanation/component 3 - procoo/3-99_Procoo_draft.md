@@ -362,7 +362,7 @@ An automation is a directory holding an `AUTOMATION.py`, anywhere under `capabil
 
 The file starts with YAML frontmatter and continues with Python. The frontmatter needs `name`, `description` and `activation`, plus `schedule` for a scheduled automation or `event` for an event-driven one. Optional keys add `activated_skills`, `start_date` and `end_date`.
 
-The body must define `async def run(ctx)`. It returns a dict with a `status` of `success`, `info` or `error` and a `message`, and may add `data`. Procoo redirects the script's output into the notification log and stops a run after 30 minutes.
+The body must define `async def run(ctx)`. It returns a dict with a `status` of `log`, `info`, `error` or `silent` and a `message`, and may add `data`. Procoo redirects the script's output into the notification log and stops a run after 30 minutes.
 
 A file missing a required field, or carrying a cron expression that does not parse, is skipped and reported at startup. A cosmetic problem such as an empty body loads the automation and raises a warning.
 

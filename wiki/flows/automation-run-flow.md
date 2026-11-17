@@ -54,7 +54,7 @@ until the run completes (see
 1. Build `AutomationContext(automation, config, skill_manager, skills_dir, payload)`.
 2. Redirect stdout/stderr into a buffer; `await asyncio.wait_for(run(ctx), 1800)`.
 3. The script returns a result dict; `_normalize` maps it to
-   `success` / `info` / `error`.
+   `log` / `info` / `error` / `silent`.
 
 ### 3. LLM access (`AutomationContext.ask`)
 
@@ -76,15 +76,20 @@ runner converts to an `error` result.
 
 | `run()` returns | Kind | Notification |
 |---|---|---|
-| `{"status": "success", "message", "data"?}` | `success` | grey log |
+| `{"status": "log", "message", "data"?}` | `log` | grey log |
 | `{"status": "info", "message", "data"?}` | `info` | amber info |
 | `{"status": "error", "message"}` | `error` | red error |
-| `None` / `str` | `success` | grey log |
+| `{"status": "silent", "data"?}` | `silent` | none (silent finish) |
+| `None` | `silent` | none (silent finish) |
+| `str` | `log` | grey log |
 | bad shape / unknown status / exception | `error` | red error |
+
+A silent run still records `last_run` and still appears in the event server's
+JSON response (`"kind": "silent"`), but produces no notification.
 
 ## Sample automations
 
 - `capabilities/automations/hello_schedule/AUTOMATION.py` — cron `0 8 * * *`,
-  calls `ctx.ask("hello world")` → `success`.
+  calls `ctx.ask("hello world")` → `log`.
 - `capabilities/automations/hello_event/AUTOMATION.py` — event `hello world`,
   returns `info` `"hello world"`.

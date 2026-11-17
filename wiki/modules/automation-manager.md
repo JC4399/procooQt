@@ -130,7 +130,7 @@ a Qt signal (the [automation controller](qt-automation-controller.md) does this)
 | Model | Fields |
 |---|---|
 | `ActivationType` (`StrEnum`) | `SCHEDULED`, `EVENT` |
-| `AutomationResultKind` (`StrEnum`) | `SUCCESS`, `INFO`, `ERROR` |
+| `AutomationResultKind` (`StrEnum`) | `LOG`, `INFO`, `ERROR`, `SILENT` |
 | `AutomationInfo` | `name`, `path`, `directory`, `description`, `activation`, `schedule`, `event`, `activated_skills`, `has_scripts`, `has_references`, `enabled`, `last_run`, `start_date`, `end_date` |
 | `AutomationResult` | `kind`, `path`, `task`, `message`, `log`, `data`, `timestamp` |
 

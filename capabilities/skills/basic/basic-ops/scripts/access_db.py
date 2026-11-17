@@ -361,25 +361,26 @@ async def _hybrid_search(
     if not pool:
         return [], 0
     docs = [by_id[nid]["content"] for nid, _ in pool]
-    filtered = 0
     try:
         raw = await _rerank(query, docs)
-        scored: list[tuple[int, float]] = []
-        for item in raw:
-            idx = item.get("index")
-            if isinstance(idx, int) and 0 <= idx < len(pool):
-                scored.append((pool[idx][0], float(item.get("relevance_score", 0.0))))
-        scored.sort(key=lambda kv: -kv[1])
-        # min_score is a reranker-relevance threshold; only apply it here.
-        kept = [(nid, s) for nid, s in scored if s >= min_score]
-        filtered = len(scored) - len(kept)
-        if kept:
-            return kept[:top_k], filtered
     except Exception:
-        pass
-    # Rerank failed, or all results fell below min_score.
-    # Fall back to embedding (cosine) results.
-    return semantic[:top_k], filtered
+        # Rerank failed: fall back to embedding (cosine) results. Nothing was
+        # filtered by relevance, so report 0.
+        return semantic[:top_k], 0
+    scored: list[tuple[int, float]] = []
+    for item in raw:
+        idx = item.get("index")
+        if isinstance(idx, int) and 0 <= idx < len(pool):
+            scored.append((pool[idx][0], float(item.get("relevance_score", 0.0))))
+    if not scored:
+        # Reranker returned no usable scores: treat as a failure and fall back.
+        return semantic[:top_k], 0
+    scored.sort(key=lambda kv: -kv[1])
+    # min_score is a reranker-relevance threshold and a hard filter: if nothing
+    # clears it, return an empty set rather than unfiltered semantic results.
+    kept = [(nid, s) for nid, s in scored if s >= min_score]
+    filtered = len(scored) - len(kept)
+    return kept[:top_k], filtered
 
 
 async def _modify(

@@ -35,11 +35,16 @@ class ActivationType(StrEnum):
 
 
 class AutomationResultKind(StrEnum):
-    """Outcome category of an automation run, mapped to a notification colour."""
+    """Outcome category of an automation run.
 
-    SUCCESS = "success"
+    ``log`` / ``info`` / ``error`` map to a notification colour; ``silent``
+    finishes without producing any notification.
+    """
+
+    LOG = "log"
     INFO = "info"
     ERROR = "error"
+    SILENT = "silent"
 
 
 class AutomationInfo(BaseModel):

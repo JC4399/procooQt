@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
+from ..automation.models import AutomationResultKind
 from ..automation.runner import AutomationRunner
 from ..automation.scheduler import AutomationScheduler
 from ..automation.server import AutomationEventServer
@@ -207,10 +208,14 @@ class AutomationController(QObject):
     def _on_result(self, result: AutomationResult) -> None:
         """Forward a completed automation result and refresh the list.
 
+        Silent results are not forwarded to the notification controller, but the
+        list is still rebuilt so the card's last-run timestamp stays current.
+
         Args:
             result: The completed automation result.
         """
-        self.result_ready.emit(result)
+        if result.kind != AutomationResultKind.SILENT:
+            self.result_ready.emit(result)
         self._rebuild()
 
     # ------------------------------------------------------------------

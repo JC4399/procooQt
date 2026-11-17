@@ -63,7 +63,8 @@ Create the model; construct the runner, scheduler (manager + runner +
   `model.set_running(path, True)` (spinner + disabled button), runs
   `runner.run(info)`, records the run, then clears `_running` in a `finally` via
   `model.set_running(path, False)`, and calls `_on_result`.
-- `_on_result(result)` emits `result_ready` and rebuilds the list.
+- `_on_result(result)` emits `result_ready` (except for silent results) and
+  rebuilds the list.
 - `_rebuild()` passes `_running` into `set_automations`, so in-flight state
   survives the reset.
 - Watchdog → `files_changed` → `_handle_files_changed` → `_refresh()`:
@@ -81,7 +82,7 @@ Create the model; construct the runner, scheduler (manager + runner +
 | `@Slot(str) def _handle_edit(self, path: str) -> None` | path | `None` | emit `edit_automation_requested` | — |
 | `@Slot(str) def _handle_run_now(self, path: str) -> None` | path | `None` | spawn `_run_now` | Schedules a run |
 | `async def _run_now(self, path: str) -> None` | path | `None` | mark running → `runner.run` → `record_run` → clear running → `_on_result` | Updates model `RUNNING`; emits `result_ready`; toasts on unknown path |
-| `def _on_result(self, result: AutomationResult) -> None` | result | `None` | emit `result_ready`; rebuild | — |
+| `def _on_result(self, result: AutomationResult) -> None` | result | `None` | emit `result_ready` unless silent; rebuild | — |
 | `def _on_files_changed(self) -> None` | — | `None` | emit `files_changed` (watchdog thread) | — |
 | `@Slot() def _handle_files_changed(self) -> None` | — | `None` | spawn `_refresh` | — |
 | `async def _refresh(self) -> None` | — | `None` | off-loop manager refresh; reschedule; rebuild | Toast on failure |

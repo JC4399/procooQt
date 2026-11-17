@@ -38,9 +38,12 @@ live outside this skill — the tools assume the endpoints are up.
 
 The reranker runs with a small physical batch size (~512 tokens): feeding it a
 long record (or several at once) makes it return HTTP 500 "input is too large".
-`access_db` does not trim the candidates; if reranking fails, or every score falls
-below `min_score`, hybrid falls back to the embedding (cosine) results only, so a
-failure never empties the result set.
+`access_db` does not trim the candidates. If reranking **fails** (the request
+errors, or the server returns no usable scores), hybrid falls back to the
+embedding (cosine) results and reports nothing filtered. If reranking
+**succeeds** but every score is below `min_score`, `min_score` acts as a hard
+filter: hybrid returns an empty result set and reports the dropped count in
+`filtered_out`.
 
 ## Storing a record (`mode=add`)
 

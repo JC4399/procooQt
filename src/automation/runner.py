@@ -58,7 +58,8 @@ class AutomationRunner:
             payload: Optional event payload exposed via ``ctx.payload``.
 
         Returns:
-            An :class:`AutomationResult` describing success, info, or error.
+            An :class:`AutomationResult` describing log, info, error, or silent
+            (no notification).
         """
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         log_buffer = io.StringIO()
@@ -162,13 +163,14 @@ class AutomationRunner:
             raw: The value returned by the automation.
 
         Returns:
-            A tuple of result kind, message, and optional data.  Invalid shapes
-            become an ``error`` result.
+            A tuple of result kind, message, and optional data.  ``None`` maps to
+            ``silent`` (no notification); invalid shapes become an ``error``
+            result.
         """
         if raw is None:
-            return AutomationResultKind.SUCCESS, "", None
+            return AutomationResultKind.SILENT, "", None
         if isinstance(raw, str):
-            return AutomationResultKind.SUCCESS, raw, None
+            return AutomationResultKind.LOG, raw, None
         if isinstance(raw, dict):
             status = str(raw.get("status", "")).strip().lower()
             message = str(raw.get("message", ""))

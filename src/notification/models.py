@@ -21,7 +21,7 @@ class NotificationItem(BaseModel):
 
     Attributes:
         id: Unique notification identifier.
-        kind: Category (``log`` for success runs, ``info``, or ``error``).
+        kind: Category (``log``, ``info``, or ``error``).
         task: Display name of the automation that ran.
         path: Relative automation path (used to open the editor on Debug).
         message: User-facing result message.

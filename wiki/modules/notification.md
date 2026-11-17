@@ -24,14 +24,15 @@ UI signals.
 
 | `AutomationResultKind` | `NotificationKind` |
 |---|---|
-| `success` | `log` |
+| `log` | `log` |
 | `info` | `info` |
 | `error` | `error` |
+| `silent` | — (no notification) |
 
 ## Steps / Flow
 
 - `add(result)` → build a `NotificationItem` (new `uuid` id, `read=False`),
-  insert at the front, persist.
+  insert at the front, persist. Silent results return `None` and create nothing.
 - `mark_logs_read()` → set every unread `log` to read; returns the ids that
   changed (drives the page-open behaviour).
 - `mark_read(id)` → acknowledge one item (Confirm).
@@ -45,7 +46,7 @@ UI signals.
 | Signature | Inputs | Output | Flow | Raises / Side effects |
 |---|---|---|---|---|
 | `def __init__(self, storage_dir: str) -> None` | storage dir | `None` | load persisted items | — |
-| `def add(self, result: AutomationResult) -> NotificationItem` | result | new item | map kind → insert front → persist | Writes `notifications.json` |
+| `def add(self, result: AutomationResult) -> NotificationItem \| None` | result | new item or `None` | silent → `None`; else map kind → insert front → persist | Writes `notifications.json` |
 | `def get(self, item_id: str) -> NotificationItem \| None` | id | item or `None` | linear scan | — |
 | `def unread_counts(self) -> dict[NotificationKind, int]` | — | per-kind counts (zeros included) | iterate unread | — |
 | `def mark_logs_read(self) -> list[str]` | — | ids marked read | mark unread logs read | Persists when changed |
