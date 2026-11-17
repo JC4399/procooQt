@@ -386,9 +386,9 @@ class SessionController(QObject):
             target["active_chat_id"] = chat_id
         else:
             self._panels.append(self._new_panel(self._allocate_slot(), [chat_id], chat_id))
-        self._rebuild_changed_panels(old_active)
         self._finalize_panel_change()
-        self._open_chat(chat_id)
+        self._rebuild_changed_panels(old_active)
+        self._open_changed_panels(old_active)
 
     @Slot(str, int, str)
     def _handle_split(self, chat_id: str, target_slot: int, side: str) -> None:
@@ -419,9 +419,9 @@ class SessionController(QObject):
         position = target_pos if side == "left" else target_pos + 1
         position = max(0, min(position, len(self._panels)))
         self._panels.insert(position, self._new_panel(self._allocate_slot(), [chat_id], chat_id))
-        self._rebuild_changed_panels(old_active)
         self._finalize_panel_change()
-        self._open_chat(chat_id)
+        self._rebuild_changed_panels(old_active)
+        self._open_changed_panels(old_active)
 
     # ------------------------------------------------------------------
     #  Panel helpers
@@ -644,6 +644,22 @@ class SessionController(QObject):
             new_active = panel["active_chat_id"]
             if old_active.get(panel["slot"], "") != new_active:
                 self.chat.rebuild_chat_display(new_active)
+
+    def _open_changed_panels(self, old_active: dict[int, str]) -> None:
+        """Activate the new active chat of every panel whose active chat changed.
+
+        Rebuilding a panel's display is not enough on its own: a chat that was
+        never opened has no worker, so :meth:`ChatController.rebuild_chat_display`
+        skips it and its transcript stays empty. Opening the chat hydrates it,
+        attaches a worker, and emits the render plan that fills the model.
+
+        Args:
+            old_active: Slot-to-active-chat mapping captured before the change.
+        """
+        for panel in self._panels:
+            new_active = panel["active_chat_id"]
+            if new_active and old_active.get(panel["slot"], "") != new_active:
+                self._open_chat(new_active)
 
     def _remove_chat_from_panels(self, chat_id: str) -> None:
         """Remove a chat from every panel, dropping panels left empty.
@@ -1586,21 +1602,26 @@ class SessionController(QObject):
             chat_id: The chat id to delete.
         """
         logger.info("Deleted chat '%s'", chat_id)
-        was_active = self.active_chat_id == chat_id
         old_active = self._active_by_slot()
         self._forget_chat(chat_id)
         self.app.chat_store.delete_chat(chat_id)
         self._remove_chat_from_panels(chat_id)
         self._ensure_panel_exists()
-        self._rebuild_changed_panels(old_active)
         self._refresh_model()
-        if was_active:
-            for panel in self._panels:
-                if panel["active_chat_id"]:
-                    self._open_chat(panel["active_chat_id"])
-                    return
-            self.active_chat_id = None
-            self.active_chat_changed.emit("")
+        self._rebuild_changed_panels(old_active)
+        self._open_changed_panels(old_active)
+        self._save_layout()
+        active_ids = {panel["active_chat_id"] for panel in self._panels}
+        if self.active_chat_id == chat_id or self.active_chat_id not in active_ids:
+            fallback = next(
+                (panel["active_chat_id"] for panel in self._panels if panel["active_chat_id"]),
+                "",
+            )
+            if fallback:
+                self._open_chat(fallback)
+            else:
+                self.active_chat_id = None
+                self.active_chat_changed.emit("")
 
     def _forget_chat(self, chat_id: str) -> None:
         """Drop in-memory state for a chat without touching the store.

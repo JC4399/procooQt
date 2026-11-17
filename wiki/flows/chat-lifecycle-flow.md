@@ -118,14 +118,17 @@ rebuilt.
   the QML drop hint is suppressed at the limit.
 - **Move** (`_handle_move_chat(chat_id, target_slot)`): the chat is removed from
   its panel and appended to the target's tabs; empty source panels collapse.
-- Both snapshot the slot→active map first, then call `_rebuild_changed_panels`:
-  only slots whose active chat actually changed have their worker asked to
-  re-render (`chat.rebuild_chat_display`). A cold model is built in staged
-  batches behind the overlay; a populated model is merged in place. The layout
-  (and each panel's `x`) updates immediately. They then queue the layout persist
-  and `_open_chat`, which activates the moved chat. Moving a chat to another
-  panel is a transcript cache miss (the view is re-created in the target panel),
-  but its `ChatListModel` rows are preserved.
+- Both snapshot the slot→active map first, then `_finalize_panel_change()` and
+  `_rebuild_changed_panels(old_active)`: only slots whose active chat actually
+  changed have their worker asked to re-render (`chat.rebuild_chat_display`). A
+  populated model is merged in place. `_open_changed_panels(old_active)` then
+  activates every changed panel's new chat, which hydrates a cold chat, attaches
+  its worker, and emits the render plan that fills its model. This matters when
+  the source panel falls back to a chat that was never opened: rebuilding alone
+  would skip it (no worker), leaving a blank transcript. The layout (and each
+  panel's `x`) updates immediately, and the layout persist is queued. Moving a
+  chat to another panel is a transcript cache miss (the view is re-created in the
+  target panel), but its `ChatListModel` rows are preserved.
 
 `SplitWorkspace.qml` tracks the drag manually: at drag start it snapshots each
 panel's rectangle once (`capturePanelRects`) so per-move hit-testing does not
@@ -173,10 +176,15 @@ edited directly through `ChatStore`.
 
 ## Delete chat (`ChatTabBar` × → `session._handle_delete_chat`)
 
-1. `_forget_chat` — pop `ChatState`, pop the transcript LRU entry, stop the
-   chat's worker (`remove_worker`), drop the live agent (`chat_manager.remove_chat`).
+1. `_forget_chat` — pop `ChatState`, pop the transcript LRU entry, drop the
+   chat's `ChatListModel` and connected worker, stop the chat's worker
+   (`remove_worker`), drop the live agent (`chat_manager.remove_chat`).
 2. `ChatStore.delete_chat`; remove the chat from every panel (`_remove_chat_from_panels`).
-3. Refresh; if the active chat was removed, open another panel's active chat.
+3. Refresh → `_rebuild_changed_panels` → `_open_changed_panels`: every panel
+   whose active chat changed is rebuilt and its new active chat is opened. This
+   hydrates a cold fallback chat instead of leaving its transcript blank. The new
+   layout is saved; if no panel has an active chat, the global active chat is
+   cleared.
 
 ## Delete session (`SessionSelector` × → `session._handle_delete_session`)
 

@@ -574,6 +574,10 @@ class ChatController(QObject):
         self._cancel_prewarm(chat_id)
         self._rendered_chats.discard(chat_id)
         self._prewarm_tokens.pop(chat_id, None)
+        self._models.pop(chat_id, None)
+        self._connected_workers.pop(chat_id, None)
+        self._switch_generations.pop(chat_id, None)
+        self._staged_tokens.pop(chat_id, None)
 
     def release_chat(self, chat_id: str, *, force: bool = False) -> None:
         """Drop a non-visible chat's live runtime to reclaim memory.
@@ -910,6 +914,14 @@ class ChatController(QObject):
         state = self.session.state(chat_id)
         items = getattr(plan, "items", [])
         keys = getattr(plan, "keys", [])
+        if len(keys) != len(items):
+            logger.warning(
+                "Dropping malformed render plan for %s: %d keys vs %d items",
+                chat_id,
+                len(keys),
+                len(items),
+            )
+            return
         if chat_id in self._prewarm_chats:
             token = self._prewarm_tokens.get(chat_id, 0) + 1
             self._prewarm_tokens[chat_id] = token

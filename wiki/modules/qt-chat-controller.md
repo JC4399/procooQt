@@ -25,7 +25,8 @@ Related: [`chat-worker`](chat-worker.md), [`chat-render`](chat-render.md), [`qt-
 - `rebuild_chat_display(chat_id)` — `prepare_rebuild` + `worker.request_rebuild()`
   for a chat with an attached worker; used by the session controller's
   `_rebuild_changed_panels` when a split/move rebinds a panel to a different
-  chat. A cold plan is staged behind the overlay; a populated model is merged.
+  chat. A populated model is merged; chats without a worker are skipped and
+  hydrated by the session controller's `_open_changed_panels` instead.
 - Per-chat action slots (`_handle_send_for`, `_handle_stop_for`,
   `_handle_regenerate_for`, `_handle_delete_turn_for`, `_handle_regenerate_from_for`,
   `_handle_approve_for`, `_handle_deny_for`) plus focused-chat wrappers.
@@ -34,7 +35,8 @@ Related: [`chat-worker`](chat-worker.md), [`chat-render`](chat-render.md), [`qt-
 - Transcript pre-warm: `prewarm_chat(chat_id)` renders a chat's transcript
   without showing it, `wait_until_ready(chat_id)` waits for a chat's first plan,
   `cancel_prewarms()` aborts in-flight pre-warms, and `forget_chat(chat_id)`
-  drops per-chat pre-warm bookkeeping.
+  drops per-chat pre-warm bookkeeping, the rendered model, and the connected
+  worker for a deleted chat.
 - `release_chat(chat_id)` — drop a non-visible chat's worker, agent, rendered
   model, and render cache so the transcript cache bounds memory. The worker is
   detached and stopped on a background thread so the GUI never waits for a
@@ -156,7 +158,8 @@ panel's delegate intact), the session controller calls it for the changed slots
 only. A cold chat's non-virtualized card repeater binds an empty model and paints
 the spinner while its worker re-renders in staged batches; a populated chat is
 merged in place. Chats without an attached worker are skipped so no overlay is
-left showing.
+left showing — the session controller's `_open_changed_panels` then opens those
+cold chats, which hydrates them and attaches their worker.
 
 ## Function Reference
 
@@ -172,7 +175,7 @@ left showing.
 | `def rebuild_chat_display(self, chat_id)` | chat | `None` | `prepare_rebuild` + worker rebuild request | Skips chats with no attached worker |
 | `async def prewarm_chat(self, chat_id, timeout=15.0)` | chat, timeout | `None` | hydrate (silent) + attach worker + worker-thread plan + await future | No overlay; keeps the worker alive |
 | `async def wait_until_ready(self, chat_id, timeout=15.0)` | chat, timeout | `None` | poll `_rendered_chats` | Returns on timeout |
-| `def cancel_prewarms(self)` / `def cancel_prewarm(self, chat_id)` / `def forget_chat(self, chat_id)` | — / chat / chat | `None` | abort in-flight pre-warms / drop bookkeeping | Clears partial models |
+| `def cancel_prewarms(self)` / `def cancel_prewarm(self, chat_id)` / `def forget_chat(self, chat_id)` | — / chat / chat | `None` | abort in-flight pre-warms / drop bookkeeping, rendered model, and connected worker | Clears partial models |
 | `def release_chat(self, chat_id, *, force=False)` | chat, force | `None` | drop model reference → detach worker (background stop) → drop agent/bookkeeping | Frees Python and QML memory without blocking the GUI |
 | `def release_all_chats(self, *, force=False)` | force | `None` | release every connected chat; force also clears all bookkeeping | Used on session switch and window close |
 | `def shutdown_window(self)` | — | `None` | force-release every owned chat, cancel tasks | Used on secondary window close |

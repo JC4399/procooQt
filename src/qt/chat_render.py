@@ -254,7 +254,6 @@ class RenderState:
         last_tok_counted_response: Response prefix already counted for tokens.
         last_content_update_time: Monotonic time of the last content-only update.
         last_rebuild_time: Monotonic time of the last structural rebuild.
-        rendered_keys: Identity keys of the last emitted plan.
     """
 
     item_cache: dict[str, dict[int, object]] = field(default_factory=dict)
@@ -270,14 +269,12 @@ class RenderState:
     last_tok_counted_response: str = ""
     last_content_update_time: float = 0.0
     last_rebuild_time: float = 0.0
-    rendered_keys: list[str] = field(default_factory=list)
 
     def reset_turn(self) -> None:
         """Reset per-turn streaming and render-tracking state."""
         self.thinking.reset()
         self.response.reset()
         self.tool_call_indices.clear()
-        self.rendered_keys.clear()
         self.last_rendered_thinking_text = ""
         self.last_rendered_message_text = ""
         self.last_rendered_tool_calls = 0
@@ -505,7 +502,6 @@ class ChatRenderer:
         emit_banners(message_count)
         if is_waiting_for_assistant(messages, is_busy):
             builder.emit("w:pending", build_waiting_item, cacheable=False)
-        self.state.rendered_keys = builder.keys
         return RenderPlan(builder.keys, builder.items, snapshot, builder.indices)
 
     def _build_assistant_plan(

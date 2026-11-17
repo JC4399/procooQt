@@ -39,6 +39,11 @@ Related: [`chat-worker`](chat-worker.md), [`qt-chat-items`](qt-chat-items.md), [
    are recorded on the render state for later in-place updates.
 5. Emit the `w:pending` waiting scanner while busy with no assistant content yet.
 
+The returned `RenderPlan` owns its `keys` and `items` lists outright. The render
+state never aliases them, so a later `reset_turn()` cannot mutate a plan that is
+still queued for the GUI thread (keys and items must stay the same length for
+`merge_items`).
+
 ### Stream update (`ChatRenderer.build_stream_update`)
 
 1. Accumulate token counts for changed thinking/response text.
