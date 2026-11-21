@@ -56,7 +56,7 @@ if errorlevel 1 (
     )
 )
 
-"!UV!" sync
+"!UV!" sync --inexact
 if errorlevel 1 (
     echo   ERROR: uv sync failed. Check the errors above.
     pause
