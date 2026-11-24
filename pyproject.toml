@@ -6,10 +6,10 @@ build-backend = "hatchling.build"
 name = "procoo-qt"
 version = "0.1.0"
 description = "ProcooQt — Qt Quick (QML) Edition"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     # GUI / async bridge
-    "PySide6>=6.11",
+    "PySide6>=6.11,<6.12",
     "qasync>=0.28",
     # Backend
     "openai",
@@ -32,6 +32,7 @@ dependencies = [
     "python-pptx>=1.0.0",
     "openpyxl>=3.1.0",
     "matplotlib>=3.8",
+    "pywin32>=312",
 ]
 
 [project.scripts]
@@ -42,7 +43,7 @@ packages = ["src"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+target-version = "py314"
 # AUTOMATION.py files begin with YAML frontmatter, so they are not valid Python.
 extend-exclude = ["**/AUTOMATION.py"]
 

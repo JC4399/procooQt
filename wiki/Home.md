@@ -83,10 +83,13 @@ The optional `subagent` skill lives at
 `install_procoo_qt.bat` is a standalone installer. It downloads the latest
 MinGit release to `<install-dir>/procooQt/git`, clones
 `https://github.com/JC4399/procooQt.git` into `<install-dir>/procooQt`, and
-then runs `uv python install 3.13` / `uv sync` and creates
+then runs `uv python install 3.14.7` / `uv sync` and creates
 `config/config.yaml` plus `storage/`. When the script already sits inside a
 checkout, it installs in place. All Git calls use `git/cmd/git.exe` directly,
 so nothing is added to the global environment; `git/` is gitignored.
+
+The project pins CPython 3.14.7 in `.python-version` and uses PySide6 6.11.x.
+The GIL remains enabled.
 
 `update_procoo_qt.bat` lives in the checkout, runs
 `git/cmd/git.exe pull --ff-only`, then `uv sync`. It leaves `config.yaml` and

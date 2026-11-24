@@ -401,7 +401,7 @@ def _parse_tool_arguments(tc: dict) -> dict | list:
         result = json.loads(args_raw)
         if isinstance(result, (dict, list)):
             return result
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         pass
     return {}
 

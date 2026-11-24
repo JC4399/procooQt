@@ -24,6 +24,8 @@ Related: [`chat_render`](chat-render.md), [`chat-agent`](chat-agent.md), [`qt-ch
   lifecycle signals.
 - Persistence: the worker writes its own chat JSON (atomic, one writer per file),
   including committed skill-update banners under `context_banners`.
+- Opt-in `[perf]` INFO timings for worker event handling, live stream-update
+  decisions, and full plan builds when `PROCOO_PERF_LOG=1`.
 - Skill-update banner lifecycle: `_sync_pending_banner` creates/removes the
   pending card from the exact pending system-message text; `_commit_pending_banners`
   marks it committed at turn start; delete/regenerate prune or shift anchors.
@@ -52,6 +54,15 @@ Related: [`chat_render`](chat-render.md), [`chat-agent`](chat-agent.md), [`qt-ch
    triggers compaction when the chat exceeds its limit. Each step is guarded so a
    single failure cannot leave a card truncated or the chat stuck busy, and
    `_run_turn` always emits `turn_finished`.
+
+### Performance instrumentation
+
+Set `PROCOO_PERF_LOG=1` before launching the app to emit `[perf] worker.event`,
+`[perf] worker.live`, and `[perf] worker.plan` INFO logs. `worker.event` times
+`_handle_event`; `worker.live` times the throttled stream-update decision and
+reports whether `stream_updated` was emitted; `worker.plan` times context
+snapshot, plan build, and `plan_ready` emission. With the variable unset, no
+timing calls or log records are produced.
 
 ### Finalization guarantees
 
@@ -113,8 +124,9 @@ response is guaranteed by finalization, not by the stream:
 | `def request_prewarm_plan(self)` | — | `None` | post `_emit_plan` | builds on the worker thread |
 | `def request_persist(self)` | — | `None` | post `_do_persist` | writes store |
 | `def stop(self)` | — | `None` | `loop.stop` + `wait` | joins thread |
-| `def _handle_event(self, event)` | event | `None` | per-type dispatch + render | emits signals |
-| `def _emit_plan(self)` | — | `None` | build plan, emit `plan_ready` | — |
+| `def _handle_event(self, event)` | event | `None` | per-type dispatch + render | emits signals; optional `[perf]` timing log |
+| `def _update_live(self)` | — | `None` | throttled streaming body update decision | emits `stream_updated`; optional `[perf]` timing log |
+| `def _emit_plan(self)` | — | `None` | build plan, emit `plan_ready` | optional `[perf]` timing log |
 | `async def _run_turn(self, message, gen_id)` | text, generation | `None` | `agent.run` → `_finalize` | always emits `turn_finished` |
 | `def _flush_final_body(self)` | — | `None` | write full final text to pending card bodies | emits `stream_updated` |
 | `def _finalize(self)` | — | `None` | flush body → final plan → persist → reset → compact | emits signals; each step guarded |

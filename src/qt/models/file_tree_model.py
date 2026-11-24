@@ -334,7 +334,7 @@ class FileTreeModel(ListModel):
         """
         try:
             return sorted(directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
-        except (OSError, PermissionError):
+        except OSError, PermissionError:
             return []
 
     @staticmethod

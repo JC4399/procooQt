@@ -45,6 +45,8 @@ Related: [`chat-worker`](chat-worker.md), [`chat-render`](chat-render.md), [`qt-
   `force=True` also releases visible/busy chats on window close.
 - `shutdown_window()` — release every chat owned by a secondary window on close.
 - `shutdown()` — stop every worker.
+- Opt-in `[perf]` INFO timings for GUI render-plan and stream-row application
+  when `PROCOO_PERF_LOG=1`.
 
 ## Signals
 
@@ -91,6 +93,15 @@ Related: [`chat-worker`](chat-worker.md), [`chat-render`](chat-render.md), [`qt-
 | `_on_message_count` | store the count, debounce the sidebar refresh |
 | `_on_compaction_ready` | create the compacted chat |
 | `_on_config_updated` | forward via `config_updated` |
+
+### GUI apply instrumentation
+
+Set `PROCOO_PERF_LOG=1` before launching the app to emit `[perf] gui.plan` and
+`[perf] gui.stream` INFO logs. `gui.plan` times the synchronous part of
+`_on_plan_ready` and reports its row count; `gui.stream` times
+`_on_stream_updated` and reports the number of row updates. Batched staged and
+pre-warm inserts are scheduled by these slots but are not themselves timed. With
+the variable unset, no timing calls or log records are produced.
 
 ### Commands
 
@@ -188,9 +199,9 @@ cold chats, which hydrates them and attaches their worker.
 | `async def _regenerate(self, chat_id)` | chat | `None` | worker regenerate | — |
 | `async def _regenerate_from(self, chat_id, msg_index)` | chat, index | `None` | worker regenerate_from | — |
 | `def _delete_stored_turn(self, chat_id, msg_index)` | chat, index | `None` | store edit for non-live chat | writes store |
-| `@Slot(str, object) def _on_plan_ready(self, chat_id, plan)` | chat, plan | `None` | no-op / staged / `merge_items` | mutates model |
+| `@Slot(str, object) def _on_plan_ready(self, chat_id, plan)` | chat, plan | `None` | no-op / staged / `merge_items` | mutates model; optional `[perf]` timing log |
 | `async def _apply_plan_staged(self, chat_id, model, items, keys, token)` | chat, model, rows | `None` | batched insert | clears loading |
-| `@Slot(str, object) def _on_stream_updated(self, chat_id, updates)` | chat, updates | `None` | skip while loading, else `update_item` per row | mutates model |
+| `@Slot(str, object) def _on_stream_updated(self, chat_id, updates)` | chat, updates | `None` | skip while loading, else `update_item` per row | mutates model; optional `[perf]` timing log |
 | `@Slot(str, str, object, str) def _on_result_swap(self, chat_id, tool_id, item, key)` | chat, tool id, item, key | `None` | replace pending row | mutates model |
 | `@Slot(str, int) def _on_turn_started/_on_turn_finished(self, chat_id, gen)` | chat, gen | `None` | refresh state/sidebar | emits signals |
 | `@Slot(str, object) def _on_approval_needed(self, chat_id, event)` | chat, event | `None` | show approval | emits signals |

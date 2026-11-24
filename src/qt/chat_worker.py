@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from threading import Event as ThreadEvent, Lock, Thread
 import time
 from typing import TYPE_CHECKING, Any, cast
@@ -37,6 +38,31 @@ if TYPE_CHECKING:
     from ..chat.agent import Agent
 
 logger = logging.getLogger("procoo_qt")
+
+_PERF_LOG = os.environ.get("PROCOO_PERF_LOG", "").strip().lower() in {"1", "true", "yes"}
+
+
+def _perf_start() -> float | None:
+    """Return a monotonic timestamp for performance logging.
+
+    Returns:
+        ``time.perf_counter()`` when performance logging is enabled, otherwise
+        ``None``.
+    """
+    return time.perf_counter() if _PERF_LOG else None
+
+
+def _perf_elapsed_ms(started: float | None) -> float:
+    """Return elapsed milliseconds from a performance timestamp.
+
+    Args:
+        started: Timestamp from :func:`_perf_start`, or ``None`` when disabled.
+
+    Returns:
+        Elapsed milliseconds, or ``0.0`` when performance logging is disabled.
+    """
+    return 0.0 if started is None else (time.perf_counter() - started) * 1000.0
+
 
 #: Minimum seconds between in-place streaming body updates for one chat.
 _STREAM_UPDATE_INTERVAL = 0.08
@@ -439,29 +465,39 @@ class ChatWorker(QThread):
     def _handle_event(self, event: dict) -> None:
         """Port of the GUI event consume loop, run entirely on this thread."""
         etype = event.get("type", "")
-        if etype == "tool_call" and event.get("mode", "ask") == "ask":
-            self.approval_needed.emit(self.chat_id, event)
-        elif etype == "tool_result":
-            self._tool_results.append(event)
-            self.approval_cleared.emit(self.chat_id)
-        elif etype == "token_usage":
-            self.true_input_tokens = event.get("input", 0)
-            self.true_output_cum = event.get("output_cumulative", 0)
-            self.token_usage.emit(self.chat_id, self.true_input_tokens, self.true_output_cum)
-        elif etype == "error":
-            self.has_error = True
-            brief = event.get("brief", event.get("message", "Unknown error"))
-            self.error.emit(self.chat_id, brief, event.get("detail", ""))
-            return
-        elif etype == "done":
-            return
+        started = _perf_start()
+        try:
+            if etype == "tool_call" and event.get("mode", "ask") == "ask":
+                self.approval_needed.emit(self.chat_id, event)
+            elif etype == "tool_result":
+                self._tool_results.append(event)
+                self.approval_cleared.emit(self.chat_id)
+            elif etype == "token_usage":
+                self.true_input_tokens = event.get("input", 0)
+                self.true_output_cum = event.get("output_cumulative", 0)
+                self.token_usage.emit(self.chat_id, self.true_input_tokens, self.true_output_cum)
+            elif etype == "error":
+                self.has_error = True
+                brief = event.get("brief", event.get("message", "Unknown error"))
+                self.error.emit(self.chat_id, brief, event.get("detail", ""))
+                return
+            elif etype == "done":
+                return
 
-        msg_count = len(self.agent.messages)
-        if msg_count != self._last_count:
-            self._last_count = msg_count
-            self.message_count.emit(self.chat_id, msg_count)
-        if self.visible:
-            self._render_active(event, msg_count)
+            msg_count = len(self.agent.messages)
+            if msg_count != self._last_count:
+                self._last_count = msg_count
+                self.message_count.emit(self.chat_id, msg_count)
+            if self.visible:
+                self._render_active(event, msg_count)
+        finally:
+            if _PERF_LOG:
+                logger.info(
+                    "[perf] worker.event chat=%s type=%s ms=%.2f",
+                    self.chat_id,
+                    etype,
+                    _perf_elapsed_ms(started),
+                )
 
     def _render_active(self, event: dict, msg_count: int) -> None:
         if msg_count != self._last_rendered:
@@ -489,52 +525,70 @@ class ChatWorker(QThread):
         messages = self.agent.messages
         if not messages or messages[-1].get("role") != "assistant":
             return
-        last_msg = messages[-1]
-        decision = assistant_decision(last_msg)
-        thinking_text = decision["thinking_text"]
-        content_text = decision["content_text"]
-        state = self.renderer.state
+        started = _perf_start()
+        emitted = False
+        try:
+            last_msg = messages[-1]
+            decision = assistant_decision(last_msg)
+            thinking_text = decision["thinking_text"]
+            content_text = decision["content_text"]
+            state = self.renderer.state
 
-        thinking_changed = thinking_text != state.last_rendered_thinking_text
-        content_changed = content_text != state.last_rendered_message_text
-        tool_calls_changed = len(last_msg.get("tool_calls", [])) != state.last_rendered_tool_calls
-        tool_results_changed = len(self._tool_results) != state.last_rendered_tool_results
-        streaming_tcs = last_msg.get("_streaming_tool_calls")
-        streaming_tc_json = json.dumps(streaming_tcs) if streaming_tcs else ""
-        streaming_tc_changed = (
-            bool(streaming_tcs) and streaming_tc_json != state.last_rendered_streaming_tc_json
-        )
-        streaming_tc_needs_rebuild = streaming_tc_changed and not state.tool_call_indices
-        now = time.monotonic()
+            thinking_changed = thinking_text != state.last_rendered_thinking_text
+            content_changed = content_text != state.last_rendered_message_text
+            tool_calls_changed = (
+                len(last_msg.get("tool_calls", [])) != state.last_rendered_tool_calls
+            )
+            tool_results_changed = len(self._tool_results) != state.last_rendered_tool_results
+            streaming_tcs = last_msg.get("_streaming_tool_calls")
+            streaming_tc_json = json.dumps(streaming_tcs) if streaming_tcs else ""
+            streaming_tc_changed = (
+                bool(streaming_tcs) and streaming_tc_json != state.last_rendered_streaming_tc_json
+            )
+            streaming_tc_needs_rebuild = streaming_tc_changed and not state.tool_call_indices
+            now = time.monotonic()
 
-        if tool_calls_changed or tool_results_changed or streaming_tc_needs_rebuild:
-            state.last_rebuild_time = now
-            self._emit_plan()
+            if tool_calls_changed or tool_results_changed or streaming_tc_needs_rebuild:
+                state.last_rebuild_time = now
+                self._emit_plan()
+                self._track_rendered()
+                return
+            missing_pending = (
+                thinking_text
+                and not decision["thinking_done"]
+                and state.thinking.item_index is None
+            ) or (
+                content_text and not decision["response_done"] and state.response.item_index is None
+            )
+            if missing_pending:
+                state.last_rebuild_time = now
+                self._emit_plan()
+                self._track_rendered()
+                return
+            content_only = thinking_changed or content_changed
+            streaming_active = streaming_tc_changed and bool(state.tool_call_indices)
+            if not (content_only or streaming_active):
+                return
+            if now - state.last_content_update_time < _STREAM_UPDATE_INTERVAL:
+                # Do not mark the pending text as rendered: it was never emitted, so
+                # the next tick (or the finalize flush) must still re-detect it.
+                return
+            state.last_content_update_time = now
+            updates = self.renderer.build_stream_update(
+                thinking_text, content_text, streaming_tcs, thinking_changed, content_changed
+            )
+            if updates:
+                self.stream_updated.emit(self.chat_id, updates)
+                emitted = True
             self._track_rendered()
-            return
-        missing_pending = (
-            thinking_text and not decision["thinking_done"] and state.thinking.item_index is None
-        ) or (content_text and not decision["response_done"] and state.response.item_index is None)
-        if missing_pending:
-            state.last_rebuild_time = now
-            self._emit_plan()
-            self._track_rendered()
-            return
-        content_only = thinking_changed or content_changed
-        streaming_active = streaming_tc_changed and bool(state.tool_call_indices)
-        if not (content_only or streaming_active):
-            return
-        if now - state.last_content_update_time < _STREAM_UPDATE_INTERVAL:
-            # Do not mark the pending text as rendered: it was never emitted, so
-            # the next tick (or the finalize flush) must still re-detect it.
-            return
-        state.last_content_update_time = now
-        updates = self.renderer.build_stream_update(
-            thinking_text, content_text, streaming_tcs, thinking_changed, content_changed
-        )
-        if updates:
-            self.stream_updated.emit(self.chat_id, updates)
-        self._track_rendered()
+        finally:
+            if _PERF_LOG:
+                logger.info(
+                    "[perf] worker.live chat=%s emitted=%s ms=%.2f",
+                    self.chat_id,
+                    emitted,
+                    _perf_elapsed_ms(started),
+                )
 
     def _track_rendered(self) -> None:
         state = self.renderer.state
@@ -558,11 +612,20 @@ class ChatWorker(QThread):
         """Build and emit a full render plan for the current messages."""
         if self._loop is None:
             return
-        snapshot = build_context_snapshot(self.agent)
-        plan: RenderPlan = self.renderer.build_plan(
-            self.agent.messages, snapshot, self._banners, self.is_busy
-        )
-        self.plan_ready.emit(self.chat_id, plan)
+        started = _perf_start()
+        try:
+            snapshot = build_context_snapshot(self.agent)
+            plan: RenderPlan = self.renderer.build_plan(
+                self.agent.messages, snapshot, self._banners, self.is_busy
+            )
+            self.plan_ready.emit(self.chat_id, plan)
+        finally:
+            if _PERF_LOG:
+                logger.info(
+                    "[perf] worker.plan chat=%s ms=%.2f",
+                    self.chat_id,
+                    _perf_elapsed_ms(started),
+                )
 
     # ------------------------------------------------------------------
     #  Finalize / persistence

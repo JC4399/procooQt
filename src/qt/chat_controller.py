@@ -13,6 +13,7 @@ import asyncio
 from collections.abc import Coroutine
 import hashlib
 import logging
+import os
 import time
 from typing import TYPE_CHECKING, Any, cast
 
@@ -38,6 +39,31 @@ if TYPE_CHECKING:
     from .session_controller import SessionController
 
 logger = logging.getLogger("procoo_qt")
+
+_PERF_LOG = os.environ.get("PROCOO_PERF_LOG", "").strip().lower() in {"1", "true", "yes"}
+
+
+def _perf_start() -> float | None:
+    """Return a monotonic timestamp for performance logging.
+
+    Returns:
+        ``time.perf_counter()`` when performance logging is enabled, otherwise
+        ``None``.
+    """
+    return time.perf_counter() if _PERF_LOG else None
+
+
+def _perf_elapsed_ms(started: float | None) -> float:
+    """Return elapsed milliseconds from a performance timestamp.
+
+    Args:
+        started: Timestamp from :func:`_perf_start`, or ``None`` when disabled.
+
+    Returns:
+        Elapsed milliseconds, or ``0.0`` when performance logging is disabled.
+    """
+    return 0.0 if started is None else (time.perf_counter() - started) * 1000.0
+
 
 #: Delay (seconds) after a chat switch before the transcript rebuild starts.
 _REBUILD_PAINT_DELAY = 0.02
@@ -910,39 +936,51 @@ class ChatController(QObject):
         sender = self.sender()
         if sender is not None and sender is not self._connected_workers.get(chat_id):
             return
-        model = self.model_for(chat_id)
-        state = self.session.state(chat_id)
-        items = getattr(plan, "items", [])
-        keys = getattr(plan, "keys", [])
-        if len(keys) != len(items):
-            logger.warning(
-                "Dropping malformed render plan for %s: %d keys vs %d items",
-                chat_id,
-                len(keys),
-                len(items),
-            )
-            return
-        if chat_id in self._prewarm_chats:
-            token = self._prewarm_tokens.get(chat_id, 0) + 1
-            self._prewarm_tokens[chat_id] = token
-            self._spawn(self._apply_plan_prewarm(chat_id, model, items, keys, token))
+        started = _perf_start()
+        item_count = 0
+        try:
+            model = self.model_for(chat_id)
+            state = self.session.state(chat_id)
+            items = getattr(plan, "items", [])
+            keys = getattr(plan, "keys", [])
+            item_count = len(items)
+            if len(keys) != len(items):
+                logger.warning(
+                    "Dropping malformed render plan for %s: %d keys vs %d items",
+                    chat_id,
+                    len(keys),
+                    len(items),
+                )
+                return
+            if chat_id in self._prewarm_chats:
+                token = self._prewarm_tokens.get(chat_id, 0) + 1
+                self._prewarm_tokens[chat_id] = token
+                self._spawn(self._apply_plan_prewarm(chat_id, model, items, keys, token))
+                if self._is_visible(chat_id):
+                    self._update_token_bar(chat_id, state)
+                return
+            divergence = model.find_divergence(keys)
+            if divergence < 0:
+                self._rendered_chats.add(chat_id)
+                self._set_loading(chat_id, False)
+            elif state.is_loading and (model.count() == 0 or chat_id in self._staged_tokens):
+                token = self._staged_tokens.get(chat_id, 0) + 1
+                self._staged_tokens[chat_id] = token
+                self._spawn(self._apply_plan_staged(chat_id, model, items, keys, token))
+            else:
+                model.merge_items(items, keys)
+                self._rendered_chats.add(chat_id)
+                self._set_loading(chat_id, False)
             if self._is_visible(chat_id):
                 self._update_token_bar(chat_id, state)
-            return
-        divergence = model.find_divergence(keys)
-        if divergence < 0:
-            self._rendered_chats.add(chat_id)
-            self._set_loading(chat_id, False)
-        elif state.is_loading and (model.count() == 0 or chat_id in self._staged_tokens):
-            token = self._staged_tokens.get(chat_id, 0) + 1
-            self._staged_tokens[chat_id] = token
-            self._spawn(self._apply_plan_staged(chat_id, model, items, keys, token))
-        else:
-            model.merge_items(items, keys)
-            self._rendered_chats.add(chat_id)
-            self._set_loading(chat_id, False)
-        if self._is_visible(chat_id):
-            self._update_token_bar(chat_id, state)
+        finally:
+            if _PERF_LOG:
+                logger.info(
+                    "[perf] gui.plan chat=%s rows=%d ms=%.2f",
+                    chat_id,
+                    item_count,
+                    _perf_elapsed_ms(started),
+                )
 
     async def _apply_plan_staged(
         self,
@@ -992,14 +1030,26 @@ class ChatController(QObject):
         sender = self.sender()
         if sender is not None and sender is not self._connected_workers.get(chat_id):
             return
-        state = self.session.state(chat_id)
-        if state.is_loading:
-            # A staged rebuild owns the model; index-based merges would corrupt
-            # the partially built rows. The terminal plan reconciles instead.
-            return
-        model = self.model_for(chat_id)
-        for row, values in cast(list, updates):
-            model.update_item(row, values)
+        started = _perf_start()
+        update_count = 0
+        try:
+            state = self.session.state(chat_id)
+            if state.is_loading:
+                # A staged rebuild owns the model; index-based merges would corrupt
+                # the partially built rows. The terminal plan reconciles instead.
+                return
+            update_count = len(cast(list, updates)) if _PERF_LOG else 0
+            model = self.model_for(chat_id)
+            for row, values in cast(list, updates):
+                model.update_item(row, values)
+        finally:
+            if _PERF_LOG:
+                logger.info(
+                    "[perf] gui.stream chat=%s rows=%d ms=%.2f",
+                    chat_id,
+                    update_count,
+                    _perf_elapsed_ms(started),
+                )
 
     @Slot(str, str, object, str)
     def _on_result_swap(self, chat_id: str, tool_id: str, item: object, key: str) -> None:

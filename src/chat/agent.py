@@ -453,7 +453,7 @@ class Agent:
                     tool_args = json.loads(tool_args_raw)
                     if not isinstance(tool_args, (dict, list)):
                         tool_args = {}
-                except (json.JSONDecodeError, TypeError):
+                except json.JSONDecodeError, TypeError:
                     logger.warning(
                         "Failed to parse tool args for '%s' (id=%s): %s...",
                         tool_name,
@@ -716,7 +716,7 @@ class Agent:
                 media = data.get("media", [])
                 if isinstance(media, list):
                     return (text, False, media)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             pass
         return (result, False, None)
 

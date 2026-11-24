@@ -394,7 +394,7 @@ class AutomationManager:
             try:
                 while observer.is_alive():
                     observer.join(1)
-            except (KeyboardInterrupt, SystemExit):
+            except KeyboardInterrupt, SystemExit:
                 pass
 
         self._watcher_thread = threading.Thread(target=_run_observer, daemon=True)

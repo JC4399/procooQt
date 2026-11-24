@@ -149,12 +149,12 @@ echo.
 rem ------------------------------------------------------------------
 rem  5. Install Python and project dependencies
 rem ------------------------------------------------------------------
-echo [5/6] Installing Python 3.13 and project dependencies...
+echo [5/6] Installing Python 3.14.7 and project dependencies...
 
 pushd "!APP_DIR!"
-"!UV!" python install 3.13
+"!UV!" python install 3.14.7
 if errorlevel 1 (
-    echo   ERROR: Failed to install Python 3.13.
+    echo   ERROR: Failed to install Python 3.14.7.
     popd
     pause
     exit /b 1
